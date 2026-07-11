@@ -59,9 +59,11 @@ src/biome_fm/
 
 ## Patterns
 
-### MVP
-Views emit signals → Presenters react → update Models → push to Views.
-Views NEVER import models. Presenters testable without Qt.
+### Hybrid Supervising Controller (MVP variant)
+Views emit signals → Presenters react → update Models → push state to Views.
+Views NEVER import models. Presenters have ZERO Qt imports — testable with plain Python mocks.
+Model is a thin data adapter (QAbstractTableModel wrapping list[FileItem]).
+Implemented: PanePresenter / DirectoryModel / PaneView.
 
 ### Command + Undo
 Every file mutation = Command(execute + undo). CommandHistory (50 levels).

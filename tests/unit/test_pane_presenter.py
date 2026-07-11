@@ -1,0 +1,264 @@
+"""Unit tests for PanePresenter — NO Qt dependency."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import pytest
+
+from biome_fm.models.file_item import FileItem
+
+
+def _item(name: str, parent: Path, *, is_dir: bool = False, size: int = 0) -> FileItem:
+    return FileItem(name=name, path=parent / name, is_dir=is_dir, size=size, modified=0.0)
+
+
+class FakeVFS:
+    """Dict-backed in-memory VFS."""
+
+    def __init__(self, tree: dict[Path, list[FileItem]]) -> None:
+        self._tree = tree
+        self._denied: set[Path] = set()
+
+    def listdir(self, path: Path) -> list[FileItem]:
+        if path in self._denied:
+            raise PermissionError(f"Permission denied: {path}")
+        if path not in self._tree:
+            raise FileNotFoundError(f"Not found: {path}")
+        return list(self._tree[path])
+
+    def exists(self, path: Path) -> bool:
+        return path in self._tree or any(
+            i.path == path for items in self._tree.values() for i in items
+        )
+
+    def deny(self, path: Path) -> None:
+        self._denied.add(path)
+
+    def copy(self, s: Path, d: Path) -> None: ...
+    def move(self, s: Path, d: Path) -> None: ...
+    def delete(self, p: Path) -> None: ...
+    def mkdir(self, p: Path) -> None: ...
+    def stat(self, p: Path) -> FileItem: ...  # type: ignore[return]
+
+
+@dataclass
+class FakePaneView:
+    items: list[FileItem] = field(default_factory=list)
+    path: Path | None = None
+    errors: list[str] = field(default_factory=list)
+    status: str = ""
+
+    def set_items(self, items: list[FileItem]) -> None:
+        self.items = list(items)
+
+    def set_path(self, path: Path) -> None:
+        self.path = path
+
+    def show_error(self, message: str) -> None:
+        self.errors.append(message)
+
+    def set_status(self, text: str) -> None:
+        self.status = text
+
+
+# ── fixtures ────────────────────────────────────────────────────────────────
+
+ROOT = Path("/")
+HOME = ROOT / "home"
+DOCS = HOME / "docs"
+
+
+def _make_tree() -> dict[Path, list[FileItem]]:
+    return {
+        ROOT: [_item("home", ROOT, is_dir=True)],
+        HOME: [
+            _item("docs", HOME, is_dir=True),
+            _item("archive", HOME, is_dir=True),
+            _item("readme.txt", HOME, size=100),
+            _item("zebra.txt", HOME, size=50),
+        ],
+        DOCS: [_item("notes.md", DOCS, size=30)],
+    }
+
+
+@pytest.fixture
+def env():
+    tree = _make_tree()
+    vfs = FakeVFS(tree)
+    view = FakePaneView()
+    from biome_fm.presenters.pane_presenter import PanePresenter
+    p = PanePresenter(view=view, vfs=vfs, home=HOME)
+    return p, view, vfs, tree
+
+
+# ── tests ────────────────────────────────────────────────────────────────────
+
+class TestNavigateTo:
+    def test_navigate_to_sets_path_on_view(self, env):
+        p, view, _vfs, _ = env
+        p.navigate_to(HOME)
+        assert view.path == HOME
+
+    def test_navigate_to_pushes_items_to_view(self, env):
+        p, view, _vfs, _ = env
+        p.navigate_to(HOME)
+        # ".." + 2 dirs + 2 files = 5
+        assert len(view.items) == 5
+
+    def test_navigate_to_sorts_dirs_first(self, env):
+        p, view, _vfs, _ = env
+        p.navigate_to(HOME)
+        # skip ".." at index 0
+        real_items = [i for i in view.items if i.name != ".."]
+        dirs = [i for i in real_items if i.is_dir]
+        files = [i for i in real_items if not i.is_dir]
+        # all dirs appear before first file
+        dir_indices = [view.items.index(i) for i in dirs]
+        file_indices = [view.items.index(i) for i in files]
+        assert max(dir_indices) < min(file_indices)
+
+    def test_navigate_to_sorts_alpha_within_groups(self, env):
+        p, view, _vfs, _ = env
+        p.navigate_to(HOME)
+        real = [i for i in view.items if i.name != ".."]
+        dirs = [i for i in real if i.is_dir]
+        files = [i for i in real if not i.is_dir]
+        assert [d.name for d in dirs] == sorted(d.name for d in dirs)
+        assert [f.name for f in files] == sorted(f.name for f in files)
+
+    def test_navigate_to_nonexistent_shows_error(self, env):
+        p, view, _vfs, _ = env
+        p.navigate_to(HOME)  # set initial path
+        bad = ROOT / "nope"
+        p.navigate_to(bad)
+        assert len(view.errors) == 1
+        assert view.path == HOME  # unchanged
+
+    def test_navigate_to_permission_denied_shows_error(self, env):
+        p, view, vfs, _ = env
+        p.navigate_to(HOME)
+        vfs.deny(DOCS)
+        p.navigate_to(DOCS)
+        assert len(view.errors) == 1
+        assert view.path == HOME
+
+    def test_navigate_to_prepends_dotdot(self, env):
+        p, view, _vfs, _ = env
+        p.navigate_to(HOME)
+        assert view.items[0].name == ".."
+
+    def test_navigate_to_root_no_dotdot(self, env):
+        p, view, _vfs, _ = env
+        p.navigate_to(ROOT)
+        names = [i.name for i in view.items]
+        assert ".." not in names
+
+    def test_current_path_property(self, env):
+        p, _view, _vfs, _ = env
+        p.navigate_to(HOME)
+        assert p.current_path == HOME
+        p.navigate_to(DOCS)
+        assert p.current_path == DOCS
+
+
+class TestNavigation:
+    def test_go_up_from_subdir(self, env):
+        p, _view, _vfs, _ = env
+        p.navigate_to(DOCS)
+        p.go_up()
+        assert p.current_path == HOME
+
+    def test_go_up_at_root_is_noop(self, env):
+        p, _view, _vfs, _ = env
+        p.navigate_to(ROOT)
+        p.go_up()
+        assert p.current_path == ROOT
+
+    def test_go_home(self, env):
+        p, _view, _vfs, _ = env
+        p.navigate_to(DOCS)
+        p.go_home()
+        assert p.current_path == HOME
+
+    def test_go_root(self, env):
+        p, _view, _vfs, _ = env
+        p.navigate_to(HOME)
+        p.go_root()
+        assert p.current_path == ROOT
+
+    def test_refresh_reloads(self, env):
+        p, view, _vfs, tree = env
+        p.navigate_to(HOME)
+        new_item = _item("new_file.txt", HOME, size=1)
+        tree[HOME].append(new_item)
+        p.refresh()
+        names = [i.name for i in view.items]
+        assert "new_file.txt" in names
+
+
+class TestActivate:
+    def test_activate_dir_navigates(self, env):
+        p, _view, _vfs, _ = env
+        p.navigate_to(HOME)
+        docs_item = _item("docs", HOME, is_dir=True)
+        p.on_item_activated(docs_item)
+        assert p.current_path == DOCS
+
+    def test_activate_file_no_navigation(self, env):
+        p, view, _vfs, _ = env
+        p.navigate_to(HOME)
+        file_item = _item("readme.txt", HOME, size=100)
+        p.on_item_activated(file_item)
+        assert p.current_path == HOME
+        assert not view.errors
+
+    def test_activate_dotdot_goes_up(self, env):
+        p, _view, _vfs, _ = env
+        p.navigate_to(DOCS)
+        dotdot = FileItem(name="..", path=HOME, is_dir=True, size=0, modified=0.0)
+        p.on_item_activated(dotdot)
+        assert p.current_path == HOME
+
+
+class TestHistory:
+    def test_go_back_after_navigate(self, env):
+        p, _view, _vfs, _ = env
+        p.navigate_to(HOME)
+        p.navigate_to(DOCS)
+        p.go_back()
+        assert p.current_path == HOME
+
+    def test_go_forward_after_back(self, env):
+        p, _view, _vfs, _ = env
+        p.navigate_to(HOME)
+        p.navigate_to(DOCS)
+        p.go_back()
+        p.go_forward()
+        assert p.current_path == DOCS
+
+    def test_navigate_clears_forward_stack(self, env):
+        p, _view, _vfs, _ = env
+        p.navigate_to(HOME)
+        p.navigate_to(DOCS)
+        p.go_back()
+        p.navigate_to(ROOT)  # new navigate clears forward
+        assert not p.can_go_forward
+
+    def test_can_go_back_and_forward_properties(self, env):
+        p, _view, _vfs, _ = env
+        assert not p.can_go_back
+        assert not p.can_go_forward
+        p.navigate_to(HOME)
+        p.navigate_to(DOCS)
+        assert p.can_go_back
+        p.go_back()
+        assert p.can_go_forward
+
+    def test_navigate_permission_denied_no_back_stack(self, env):
+        p, _view, vfs, _ = env
+        p.navigate_to(HOME)
+        vfs.deny(DOCS)
+        p.navigate_to(DOCS)
+        assert not p.can_go_back

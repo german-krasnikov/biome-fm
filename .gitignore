@@ -21,5 +21,7 @@ htmlcov/
 *.log
 .DS_Store
 Thumbs.db
+.claude/
 Plans/
+Research/
 *.spec
