@@ -301,6 +301,7 @@ name = "biome-fm"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "pluggy" },
     { name = "pyside6" },
 ]
 
@@ -335,6 +336,7 @@ requires-dist = [
     { name = "chromadb", marker = "extra == 'ai'", specifier = ">=0.5" },
     { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.100" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
+    { name = "pluggy", specifier = ">=1.4" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.7" },
     { name = "pyfakefs", marker = "extra == 'dev'", specifier = ">=5.6" },
     { name = "pyside6", specifier = ">=6.7" },

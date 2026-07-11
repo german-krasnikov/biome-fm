@@ -19,9 +19,22 @@ from biome_fm.qt import (
 )
 
 
+class _PaneTableView(QTableView):
+    """QTableView subclass that intercepts Space for mark toggle."""
+
+    def keyPressEvent(self, event: object) -> None:  # type: ignore[override]
+        if hasattr(event, "key") and event.key() == Qt.Key.Key_Space:  # type: ignore[union-attr]
+            parent = self.parent()
+            if isinstance(parent, PaneView):
+                parent.mark_toggle_requested.emit()
+                return
+        super().keyPressEvent(event)  # type: ignore[arg-type]
+
+
 class PaneView(QWidget):
     item_activated = Signal(object)          # FileItem
     path_change_requested = Signal(object)   # Path
+    mark_toggle_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -40,7 +53,7 @@ class PaneView(QWidget):
         self._path_bar.returnPressed.connect(self._on_path_entered)
         layout.addWidget(self._path_bar)
 
-        self._table = QTableView()
+        self._table = _PaneTableView(self)
         self._table.setModel(self._proxy)
         self._table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
         self._table.horizontalHeader().setSectionResizeMode(
@@ -67,6 +80,22 @@ class PaneView(QWidget):
 
     def set_status(self, text: str) -> None:
         self._status_label.setText(text)
+
+    def set_marked(self, paths: set[Path]) -> None:
+        self._model.set_marks(paths)
+
+    def current_cursor_item(self) -> FileItem | None:
+        idx = self._table.currentIndex()
+        if not idx.isValid():
+            return None
+        return self._model.item_at(self._proxy.mapToSource(idx).row())
+
+    def advance_cursor(self) -> None:
+        idx = self._table.currentIndex()
+        if idx.isValid():
+            nxt = idx.row() + 1
+            if nxt < self._proxy.rowCount():
+                self._table.setCurrentIndex(self._proxy.index(nxt, idx.column()))
 
     # ── query ─────────────────────────────────────────────────────────────────
 

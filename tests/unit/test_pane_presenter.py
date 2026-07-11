@@ -49,6 +49,9 @@ class FakePaneView:
     path: Path | None = None
     errors: list[str] = field(default_factory=list)
     status: str = ""
+    marked: set[Path] = field(default_factory=set)
+    cursor: FileItem | None = None
+    cursor_advances: int = 0
 
     def set_items(self, items: list[FileItem]) -> None:
         self.items = list(items)
@@ -61,6 +64,15 @@ class FakePaneView:
 
     def set_status(self, text: str) -> None:
         self.status = text
+
+    def set_marked(self, paths: set[Path]) -> None:
+        self.marked = set(paths)
+
+    def current_cursor_item(self) -> FileItem | None:
+        return self.cursor
+
+    def advance_cursor(self) -> None:
+        self.cursor_advances += 1
 
 
 # ── fixtures ────────────────────────────────────────────────────────────────
@@ -262,3 +274,120 @@ class TestHistory:
         vfs.deny(DOCS)
         p.navigate_to(DOCS)
         assert not p.can_go_back
+
+
+class TestMarks:
+    """TC-style mark/selection tests."""
+
+    def test_toggle_mark_adds_path(self, env):
+        p, view, _vfs, _ = env
+        p.navigate_to(HOME)
+        view.cursor = _item("readme.txt", HOME, size=100)
+        p.toggle_mark()
+        assert HOME / "readme.txt" in p.marks
+
+    def test_toggle_mark_removes_on_second_call(self, env):
+        p, view, _vfs, _ = env
+        p.navigate_to(HOME)
+        view.cursor = _item("readme.txt", HOME, size=100)
+        p.toggle_mark()
+        p.toggle_mark()
+        assert len(p.marks) == 0
+
+    def test_toggle_mark_skips_dotdot(self, env):
+        p, view, _vfs, _ = env
+        p.navigate_to(HOME)
+        view.cursor = FileItem(name="..", path=ROOT, is_dir=True, size=0, modified=0.0)
+        p.toggle_mark()
+        assert len(p.marks) == 0
+        assert view.cursor_advances == 0
+
+    def test_toggle_mark_advances_cursor(self, env):
+        p, view, _vfs, _ = env
+        p.navigate_to(HOME)
+        view.cursor = _item("readme.txt", HOME, size=100)
+        p.toggle_mark()
+        assert view.cursor_advances == 1
+
+    def test_select_all(self, env):
+        p, view, _vfs, _ = env
+        p.navigate_to(HOME)
+        p.select_all()
+        # _items = archive, docs, readme.txt, zebra.txt (4 items, no "..")
+        assert len(p.marks) == 4
+        assert HOME / "readme.txt" in p.marks
+        assert HOME / "archive" in p.marks
+
+    def test_deselect_all(self, env):
+        p, view, _vfs, _ = env
+        p.navigate_to(HOME)
+        p.select_all()
+        p.deselect_all()
+        assert len(p.marks) == 0
+
+    def test_invert_selection(self, env):
+        p, view, _vfs, _ = env
+        p.navigate_to(HOME)
+        view.cursor = _item("readme.txt", HOME, size=100)
+        p.toggle_mark()
+        p.invert_selection()
+        # readme.txt was marked → now unmarked; others now marked
+        assert HOME / "readme.txt" not in p.marks
+        assert HOME / "zebra.txt" in p.marks
+        assert HOME / "archive" in p.marks
+        assert HOME / "docs" in p.marks
+        assert len(p.marks) == 3
+
+    def test_select_by_pattern(self, env):
+        p, view, _vfs, _ = env
+        p.navigate_to(HOME)
+        p.select_by_pattern("*.txt")
+        assert HOME / "readme.txt" in p.marks
+        assert HOME / "zebra.txt" in p.marks
+        assert HOME / "docs" not in p.marks
+        assert HOME / "archive" not in p.marks
+
+    def test_deselect_by_pattern(self, env):
+        p, view, _vfs, _ = env
+        p.navigate_to(HOME)
+        p.select_all()
+        p.deselect_by_pattern("*.txt")
+        assert HOME / "readme.txt" not in p.marks
+        assert HOME / "zebra.txt" not in p.marks
+        assert HOME / "archive" in p.marks
+        assert HOME / "docs" in p.marks
+
+    def test_marks_cleared_on_navigate_new_path(self, env):
+        p, view, _vfs, _ = env
+        p.navigate_to(HOME)
+        view.cursor = _item("readme.txt", HOME, size=100)
+        p.toggle_mark()
+        assert HOME / "readme.txt" in p.marks
+        p.navigate_to(DOCS)
+        assert len(p.marks) == 0
+
+    def test_marks_kept_on_refresh(self, env):
+        p, view, _vfs, _ = env
+        p.navigate_to(HOME)
+        view.cursor = _item("readme.txt", HOME, size=100)
+        p.toggle_mark()
+        assert HOME / "readme.txt" in p.marks
+        p.refresh()
+        assert HOME / "readme.txt" in p.marks
+
+    def test_marked_items_property(self, env):
+        p, view, _vfs, _ = env
+        p.navigate_to(HOME)
+        view.cursor = _item("readme.txt", HOME, size=100)
+        p.toggle_mark()
+        result = p.marked_items
+        assert len(result) == 1
+        assert result[0].name == "readme.txt"
+
+    def test_status_shows_marked_count(self, env):
+        p, view, _vfs, _ = env
+        p.navigate_to(HOME)
+        view.cursor = _item("readme.txt", HOME, size=100)
+        p.toggle_mark()
+        assert "marked" in view.status
+        assert "4 items" in view.status

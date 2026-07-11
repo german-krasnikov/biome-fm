@@ -9,6 +9,8 @@ from typing import Any
 from biome_fm.models.file_item import FileItem
 from biome_fm.qt import (
     QAbstractTableModel,
+    QBrush,
+    QColor,
     QModelIndex,
     QPersistentModelIndex,
     QSortFilterProxyModel,
@@ -26,6 +28,7 @@ class DirectoryModel(QAbstractTableModel):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._items: list[FileItem] = []
+        self._marks: set[Path] = set()
 
     def set_items(self, items: list[FileItem]) -> None:
         self.beginResetModel()
@@ -36,6 +39,13 @@ class DirectoryModel(QAbstractTableModel):
         if 0 <= row < len(self._items):
             return self._items[row]
         return None
+
+    def set_marks(self, paths: set[Path]) -> None:
+        self._marks = set(paths)
+        if self._items:
+            top = self.index(0, 0)
+            bot = self.index(len(self._items) - 1, self.columnCount() - 1)
+            self.dataChanged.emit(top, bot, [Qt.ItemDataRole.BackgroundRole])
 
     def rowCount(self, parent: _Idx = QModelIndex()) -> int:  # noqa: B008
         return 0 if parent.isValid() else len(self._items)
@@ -55,6 +65,10 @@ class DirectoryModel(QAbstractTableModel):
         if not index.isValid():
             return None
         item = self._items[index.row()]
+        if role == Qt.ItemDataRole.BackgroundRole:
+            if item.path in self._marks:
+                return QBrush(QColor(38, 111, 255, 80))
+            return None
         if role == Qt.ItemDataRole.UserRole:
             return item
         if role != Qt.ItemDataRole.DisplayRole:
