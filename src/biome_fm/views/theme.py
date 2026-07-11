@@ -132,6 +132,13 @@ QFrame#command-palette {
     border: 1px solid $accent;
     border-radius: 6px;
 }
+
+PaneSideView[active="true"] {
+    border: 2px solid $accent;
+}
+PaneSideView[active="false"] {
+    border: 2px solid transparent;
+}
 """)
 
 

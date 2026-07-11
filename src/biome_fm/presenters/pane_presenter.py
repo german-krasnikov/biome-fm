@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import fnmatch
+import shutil
 from pathlib import Path
 from typing import Protocol
 
@@ -39,6 +41,7 @@ class PanePresenter:
         self._vfs = vfs
         self._home = home or Path.home()
         self._cwd: Path | None = None
+        self._free_space: str = ""
         self._back: list[Path] = []
         self._forward: list[Path] = []
         self._items: list[FileItem] = []
@@ -152,14 +155,21 @@ class PanePresenter:
         self._view.set_marked(set(self._marks))
         self._update_status()
 
+    def _update_free_space(self) -> None:
+        self._free_space = ""
+        if self._cwd:
+            with contextlib.suppress(OSError):
+                self._free_space = f"Free: {self._fmt_size(shutil.disk_usage(self._cwd).free)}"
+
     def _update_status(self) -> None:
         total = len(self._items)
+        parts = [f"{total} items"]
         if self._marks:
             size = sum(i.size for i in self._items if i.path in self._marks and not i.is_dir)
-            mark_str = f"{len(self._marks)} marked ({self._fmt_size(size)})"
-            self._view.set_status(f"{total} items, {mark_str}")
-        else:
-            self._view.set_status(f"{total} items")
+            parts.append(f"{len(self._marks)} marked ({self._fmt_size(size)})")
+        if self._free_space:
+            parts.append(self._free_space)
+        self._view.set_status(" | ".join(parts))
 
     @staticmethod
     def _fmt_size(n: int) -> str:
@@ -187,5 +197,6 @@ class PanePresenter:
         self._view.set_path(path)
         self._view.set_items(items)
         self._view.set_marked(set(self._marks))
+        self._update_free_space()
         self._update_status()
         return True

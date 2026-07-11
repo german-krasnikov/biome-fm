@@ -57,6 +57,11 @@ class PaneSideView(QWidget):
     def set_tab_title(self, idx: int, title: str) -> None:
         self._tab_bar.setTabText(idx, title)
 
+    def set_active(self, active: bool) -> None:
+        self.setProperty("active", active)
+        self.style().unpolish(self)
+        self.style().polish(self)
+
     # ── Factory ──────────────────────────────────────────────────
 
     def new_pane(self) -> PaneView:

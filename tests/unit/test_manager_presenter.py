@@ -259,6 +259,40 @@ def test_bus_receives_active_pane_changed(setup):
     assert received[0].pane_id == "right"
 
 
+def test_drop_files_copy(setup):
+    mgr, _, _, _, _, _, _, left_dir, right_dir = setup
+    f = left_dir / "drop.txt"
+    f.write_text("drop")
+    mgr.drop_files([f], "right", move=False)
+    assert (right_dir / "drop.txt").exists()
+    assert f.exists()  # original intact
+
+
+def test_drop_files_move(setup):
+    mgr, _, _, _, _, _, _, left_dir, right_dir = setup
+    f = left_dir / "mover.txt"
+    f.write_text("move")
+    mgr.drop_files([f], "right", move=True)
+    assert (right_dir / "mover.txt").exists()
+    assert not f.exists()
+
+
+def test_drop_files_same_dir_noop(setup):
+    mgr, _, _, _, _, vfs, _, left_dir, _ = setup
+    f = left_dir / "same.txt"
+    f.write_text("same")
+    before = list(vfs.calls)
+    mgr.drop_files([f], "left", move=False)  # dst == f.parent
+    assert vfs.calls == before  # no copy/move calls
+
+
+def test_drop_files_empty_list(setup):
+    mgr, _, _, _, _, vfs, _, _, _ = setup
+    before = list(vfs.calls)
+    mgr.drop_files([], "right", move=False)
+    assert vfs.calls == before
+
+
 def test_no_bus_does_not_crash(tmp_path):
     left_dir = tmp_path / "left"
     right_dir = tmp_path / "right"

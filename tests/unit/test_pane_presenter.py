@@ -391,3 +391,16 @@ class TestMarks:
         p.toggle_mark()
         assert "marked" in view.status
         assert "4 items" in view.status
+
+    def test_status_shows_items_count(self, env):
+        p, view, _vfs, _ = env
+        p.navigate_to(HOME)
+        assert "4 items" in view.status
+
+    def test_fmt_size_bytes(self):
+        from biome_fm.presenters.pane_presenter import PanePresenter
+        assert PanePresenter._fmt_size(500) == "500 B"
+
+    def test_fmt_size_mb(self):
+        from biome_fm.presenters.pane_presenter import PanePresenter
+        assert "MB" in PanePresenter._fmt_size(2_500_000)

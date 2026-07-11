@@ -1,6 +1,7 @@
 """ManagerPresenter — orchestrates both panes, commands, undo/redo. No Qt."""
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Literal
 
 from biome_fm.commands.base import Command, CommandHistory
@@ -84,6 +85,16 @@ class ManagerPresenter:
 
     def rename(self, item: FileItem, new_name: str) -> None:
         self._run(RenameCmd(item.path, new_name, self._vfs), f"Rename → {new_name}")
+
+    def drop_files(self, paths: list[Path], target_pane_id: str, move: bool) -> None:
+        if not paths:
+            return
+        dst = self._panes[target_pane_id].current_path  # type: ignore[literal-required]
+        sources = [p.resolve() for p in paths if p.exists() and p.parent.resolve() != dst.resolve()]
+        if not sources:
+            return
+        cmd_cls = MoveCmd if move else CopyCmd
+        self._run(cmd_cls(sources, dst, self._vfs), "Move" if move else "Copy")
 
     def undo(self) -> None:
         self._history.undo()

@@ -7,10 +7,15 @@ from pathlib import Path
 from biome_fm.models.directory_model import COL_NAME, DirectoryModel, DirSortFilterProxy
 from biome_fm.models.file_item import FileItem
 from biome_fm.qt import (
+    QDrag,
+    QHBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
+    QMenu,
+    QMimeData,
     QModelIndex,
+    QPushButton,
     Qt,
     QTableView,
     QVBoxLayout,
@@ -18,9 +23,19 @@ from biome_fm.qt import (
     Signal,
 )
 
+_MIME = "application/x-biome-fm-paths"
+
 
 class _PaneTableView(QTableView):
-    """QTableView subclass that intercepts Space for mark toggle."""
+    """QTableView subclass: Space for mark toggle, drag-and-drop, context menu."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setDragEnabled(True)
+        self.setAcceptDrops(True)
+        self.setDragDropMode(QTableView.DragDropMode.DragDrop)
+        self.setDefaultDropAction(Qt.DropAction.CopyAction)
+        self.setDropIndicatorShown(True)
 
     def keyPressEvent(self, event: object) -> None:  # type: ignore[override]
         if hasattr(event, "key") and event.key() == Qt.Key.Key_Space:  # type: ignore[union-attr]
@@ -30,11 +45,78 @@ class _PaneTableView(QTableView):
                 return
         super().keyPressEvent(event)  # type: ignore[arg-type]
 
+    def mimeData(self, indexes: object) -> QMimeData:  # type: ignore[override]
+        pane = self.parent()
+        rows = {idx.row() for idx in indexes}  # type: ignore[union-attr]
+        paths = []
+        for proxy_row in rows:
+            if isinstance(pane, PaneView):
+                src = pane._proxy.mapToSource(pane._proxy.index(proxy_row, 0))
+                item = pane._model.item_at(src.row())
+                if item and item.name != "..":
+                    paths.append(str(item.path))
+        mime = QMimeData()
+        mime.setData(_MIME, "\n".join(paths).encode())
+        return mime
+
+    def startDrag(self, supported_actions: Qt.DropAction) -> None:  # type: ignore[override]
+        indexes = self.selectedIndexes()
+        if not indexes:
+            return
+        mime = self.mimeData(indexes)
+        drag = QDrag(self)
+        drag.setMimeData(mime)
+        drag.exec(supported_actions)
+
+    def dragEnterEvent(self, event: object) -> None:  # type: ignore[override]
+        if hasattr(event, "mimeData") and event.mimeData().hasFormat(_MIME):  # type: ignore[union-attr]
+            event.acceptProposedAction()  # type: ignore[union-attr]
+        else:
+            super().dragEnterEvent(event)  # type: ignore[arg-type]
+
+    def dragMoveEvent(self, event: object) -> None:  # type: ignore[override]
+        if hasattr(event, "mimeData") and event.mimeData().hasFormat(_MIME):  # type: ignore[union-attr]
+            event.acceptProposedAction()  # type: ignore[union-attr]
+        else:
+            super().dragMoveEvent(event)  # type: ignore[arg-type]
+
+    def dropEvent(self, event: object) -> None:  # type: ignore[override]
+        if not (hasattr(event, "mimeData") and event.mimeData().hasFormat(_MIME)):  # type: ignore[union-attr]
+            super().dropEvent(event)  # type: ignore[arg-type]
+            return
+        raw = event.mimeData().data(_MIME).data().decode()  # type: ignore[union-attr]
+        paths = [Path(p) for p in raw.splitlines() if p]
+        move = event.proposedAction() == Qt.DropAction.MoveAction  # type: ignore[union-attr]
+        event.acceptProposedAction()  # type: ignore[union-attr]
+        pane = self.parent()
+        if isinstance(pane, PaneView):
+            pane.files_dropped.emit(paths, move)
+
+    def contextMenuEvent(self, event: object) -> None:  # type: ignore[override]
+        p = self.parent()
+        if not isinstance(p, PaneView):
+            return
+        menu = QMenu(self)
+        for action_name, label in [
+            ("copy", "Copy\tF5"),
+            ("move", "Move\tF6"),
+            ("delete", "Delete\tF8"),
+            ("rename", "Rename\tF9"),
+        ]:
+            menu.addAction(label, lambda n=action_name: p.context_action_requested.emit(n))
+        menu.exec(event.globalPos())  # type: ignore[union-attr]
+
 
 class PaneView(QWidget):
-    item_activated = Signal(object)          # FileItem
-    path_change_requested = Signal(object)   # Path
+    item_activated = Signal(object)           # FileItem
+    path_change_requested = Signal(object)    # Path
     mark_toggle_requested = Signal()
+    back_requested = Signal()
+    forward_requested = Signal()
+    up_requested = Signal()
+    home_requested = Signal()
+    files_dropped = Signal(list, bool)        # [Path], move: bool
+    context_action_requested = Signal(str)    # "copy"|"move"|"delete"|"rename"
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -48,10 +130,28 @@ class PaneView(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2)
 
+        # nav bar (back/forward/up/home + path bar inline)
+        nav = QWidget()
+        nav_layout = QHBoxLayout(nav)
+        nav_layout.setContentsMargins(0, 0, 0, 0)
+        nav_layout.setSpacing(2)
+        for label, signal in [
+            ("<", self.back_requested),
+            (">", self.forward_requested),
+            ("↑", self.up_requested),
+            ("~", self.home_requested),
+        ]:
+            btn = QPushButton(label)
+            btn.setFixedWidth(28)
+            btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            btn.clicked.connect(signal)
+            nav_layout.addWidget(btn)
+
         self._path_bar = QLineEdit()
         self._path_bar.setPlaceholderText("Path...")
         self._path_bar.returnPressed.connect(self._on_path_entered)
-        layout.addWidget(self._path_bar)
+        nav_layout.addWidget(self._path_bar, 1)
+        layout.addWidget(nav)
 
         self._table = _PaneTableView(self)
         self._table.setModel(self._proxy)
@@ -59,6 +159,7 @@ class PaneView(QWidget):
         self._table.horizontalHeader().setSectionResizeMode(
             COL_NAME, QHeaderView.ResizeMode.Stretch
         )
+        self._table.setSortingEnabled(True)
         self._table.activated.connect(self._on_activated)
         layout.addWidget(self._table)
 

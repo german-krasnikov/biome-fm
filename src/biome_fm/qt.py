@@ -2,6 +2,7 @@
 
 from PySide6.QtCore import (
     QAbstractTableModel,
+    QMimeData,
     QModelIndex,
     QObject,
     QPersistentModelIndex,
@@ -16,6 +17,7 @@ from PySide6.QtGui import (
     QAction,
     QBrush,
     QColor,
+    QDrag,
     QIcon,
     QKeySequence,
     QShortcut,
@@ -55,6 +57,7 @@ __all__ = [
     "QApplication",
     "QBrush",
     "QColor",
+    "QDrag",
     "QFileDialog",
     "QFrame",
     "QHBoxLayout",
@@ -69,6 +72,7 @@ __all__ = [
     "QMainWindow",
     "QMenu",
     "QMessageBox",
+    "QMimeData",
     "QModelIndex",
     "QObject",
     "QPersistentModelIndex",

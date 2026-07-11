@@ -3,6 +3,22 @@
 All notable changes to Biome FM are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.3.0] — 2026-07-11
+
+### Added
+- Navigation toolbar per pane — Back / Forward / Up / Home buttons with Alt+← / Alt+→ / Alt+↑ / Alt+Home shortcuts
+- Drag & drop between panels — copy on drop (Ctrl held = move); path validation rejects invalid targets
+- Right-click context menu — Copy / Move / Delete / Rename actions on selected items
+- Active pane border highlight — focused pane gets a colored border for clear visual tracking
+- MenuBar — File / Edit / Navigate / View menus wired to presenter actions and shortcuts
+- Enhanced status bar — shows marked file count + total size of marks, plus free disk space for current path
+- Column sorting — click any header (Name / Size / Modified / Ext) to sort; second click reverses order
+- Command line hidden by default; toggled via View menu (Ctrl+G)
+- 322 unit + integration tests (up from 300)
+
+### Fixed
+- Layout: panes now fill the full available window space instead of collapsing to minimum size
+
 ## [v0.2.0] — 2025-07-11
 
 ### Added
