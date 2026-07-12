@@ -86,3 +86,17 @@ def test_enter_tab_override_still_works(qtbot, view):
     ev = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Tab, Qt.KeyboardModifier.NoModifier)
     result = view._table.event(ev)
     assert result is True
+
+
+def test_backspace_emits_up_requested(qtbot, view):
+    with qtbot.waitSignal(view.up_requested, timeout=500):
+        ev = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Backspace, Qt.KeyboardModifier.NoModifier)
+        view._table.keyPressEvent(ev)
+
+
+def test_backspace_does_not_trigger_type_to_nav(qtbot, view):
+    view.set_items([_item("backups", is_dir=True)])
+    view._table.setCurrentIndex(view._table.model().index(0, 0))
+    view.jump_bar.append_char = lambda c: (_ for _ in ()).throw(AssertionError("type-to-nav triggered"))
+    ev = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Backspace, Qt.KeyboardModifier.NoModifier)
+    view._table.keyPressEvent(ev)  # must not raise

@@ -134,6 +134,9 @@ class _PaneTableView(QTableView):
             if key == Qt.Key.Key_Slash:
                 parent.filter_bar.activate()
                 return
+            if key == Qt.Key.Key_Backspace:
+                parent.up_requested.emit()
+                return
             if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
                 item = parent.current_item()
                 if item is not None:
