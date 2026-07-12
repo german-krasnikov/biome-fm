@@ -5,12 +5,14 @@ from pathlib import Path
 
 import pluggy
 
+from biome_fm.plugins.types import ActionSpec, ColumnDef, ThemeTokens
+
 hookspec = pluggy.HookspecMarker("biome_fm")
 hookimpl = pluggy.HookimplMarker("biome_fm")
 
 
 class BiomeFMSpec:
-    @hookspec
+    @hookspec(historic=True)
     def register_commands(self, registry: object) -> None:
         """Called at startup — add CommandEntry items to the registry."""
 
@@ -21,3 +23,23 @@ class BiomeFMSpec:
     @hookspec
     def on_file_operation(self, op: str, src: Path, dst: Path | None) -> None:
         """Called after file ops. op: 'copy'|'move'|'delete'|'mkdir'."""
+
+    @hookspec(firstresult=True)
+    def provide_theme(self, name: str) -> ThemeTokens | None:
+        """Return token dict for theme `name`, or None if not handled."""
+
+    @hookspec(firstresult=True)
+    def before_file_operation(self, op: str, src: Path, dst: Path | None) -> bool | None:
+        """Return False to veto the operation. None = allow."""
+
+    @hookspec
+    def context_menu_actions(self, items: list[object], pane_id: str) -> list[ActionSpec]:
+        """Return additional context menu actions."""
+
+    @hookspec
+    def extra_columns(self) -> list[ColumnDef]:
+        """Return additional column definitions for the file listing."""
+
+    @hookspec
+    def extra_archive_extensions(self) -> list[str]:
+        """Return list of archive extensions this plugin handles: ['rar', '7z']."""

@@ -1,0 +1,14 @@
+[meta]
+name = "Dark"
+
+[tokens]
+base     = "#1c1c1e"   # macOS systemBackground
+surface  = "#2c2c2e"   # macOS secondarySystemBackground
+surface2 = "#3a3a3c"   # macOS tertiarySystemBackground
+border   = "#48484a"   # macOS separator
+text     = "#f5f5f7"   # macOS label
+text_dim = "#98989f"   # macOS secondaryLabel
+accent   = "#0a84ff"   # macOS blue
+accent2  = "#5e5ce6"   # macOS purple
+red      = "#ff453a"   # macOS red
+green    = "#32d74b"   # macOS green

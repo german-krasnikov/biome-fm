@@ -16,7 +16,8 @@ src/biome_fm/
 ├── session.py          # SessionState / PaneSideState / TabState → JSON persistence
 ├── event_bus.py        # Decoupled pub/sub (EventBus singleton);
 │                       #   events: FilesChanged, ActivePaneChanged, OperationStarted,
-│                       #   OperationFinished, PaneNavigated, SyncBrowsingToggled, BookmarkChanged
+│                       #   OperationFinished, PaneNavigated, SyncBrowsingToggled,
+│                       #   BookmarkChanged, ThemeChanged(name, tokens)
 │
 ├── models/
 │   ├── file_item.py        # FileItem frozen dataclass (slots=True); size_str property
@@ -33,8 +34,12 @@ src/biome_fm/
 │   │                       #   set_filter(text) for Quick Filter
 │   ├── bookmark_store.py   # TOML-backed list[Path]; add/remove/all/__contains__;
 │   │                       #   reads/writes [bookmarks] paths = [...] via tomllib
-│   └── icon_provider.py    # icon_for_extension(ext) — @lru_cache(256), QFileIconProvider;
-│                           #   icon_for_dir() — SP_DirIcon; fallback to SP_FileIcon
+│   ├── icon_provider.py    # icon_for_extension(ext) — @lru_cache(256), QFileIconProvider;
+│   │                       #   icon_for_dir() — SP_DirIcon; fallback to SP_FileIcon
+│   └── markdown_renderer.py # render(md, dark) → HTML for QTextBrowser.setHtml();
+│                            #   QTextDocument.setMarkdown(GFM|NoHTML) → toHtml();
+│                            #   Pygments replaces <pre> blocks (monokai dark / default light);
+│                            #   @lru_cache(maxsize=2) on HtmlFormatter; 100KB truncation limit
 │
 ├── presenters/
 │   ├── pane_presenter.py     # Drives one pane (cd, select, sort, current_item);
@@ -75,9 +80,9 @@ src/biome_fm/
 │   │                     #   _PaneTableView (inner QTableView subclass): full DnD impl
 │   │                     #   (mimeData/startDrag/dragEnterEvent/dragMoveEvent/dropEvent);
 │   │                     #   MIME type application/x-biome-fm-paths; Shift-drop = move;
-│   │                     #   key routing: Space=Quick Look, Shift+Down=mark, Shift+Up=mark_up,
+│   │                     #   key routing: Space/F3=PreviewPanel toggle, Shift+Down=mark, Shift+Up=mark_up,
 │   │                     #   /=FilterBar, printable→JumpBar; context menu: Copy/Move/Delete/
-│   │                     #   Rename/Copy Path/Quick Look/Open in Finder (platform label);
+│   │                     #   Rename/Copy Path/Preview/Open in Finder (platform label);
 │   │                     #   setUniformRowHeights() compat stub; table: no grid,
 │   │                     #   alternatingRowColors, 22px rows, vertical header hidden;
 │   │                     #   Name=Stretch, Size/Modified/Ext=Interactive;
@@ -94,9 +99,16 @@ src/biome_fm/
 │   ├── ai_chat_panel.py  # Passive AI chat (message_submitted Signal)
 │   ├── action_bar.py     # F1-F10 function key bar (tooltips on all buttons)
 │   ├── command_palette.py # Fuzzy-search command launcher (Ctrl+P)
-│   └── theme.py          # macOS system-color tokens (13 named values); dark QSS via Template;
-│                          #   PaneSideView[active="true/false"] border; compact ActionBar buttons;
-│                          #   toolbar QSS; apply_theme(QApplication) entry point
+│   ├── preview_panel.py  # PreviewPanel (QWidget): QStackedWidget with 3 widgets
+│   │                     #   (busy label, image QLabel, QTextBrowser); animated slide on
+│   │                     #   maximumWidth (150ms OutCubic); DEFAULT_WIDTH=350;
+│   │                     #   visibility_changed(bool) signal; implements PreviewViewProtocol
+│   └── theme.py          # TOML-based theme system; load_theme(name) resolves plugin hook
+│                          #   → TOML inheritance (meta.inherits) → _DARK_FALLBACK;
+│                          #   _find_theme(): user AppConfig/biome-fm/themes/ first, then
+│                          #   importlib.resources; _apply_palette() maps 10 tokens to QPalette;
+│                          #   apply_theme(app, name, plugin_manager) publishes ThemeChanged;
+│                          #   _TOKENS alias kept for backward compat; Template(_QSS_TMPL) fills QSS
 │
 ├── commands/
 │   ├── base.py           # Command ABC (execute/undo/undoable) + CommandHistory (50 levels)
@@ -112,9 +124,52 @@ src/biome_fm/
 │   ├── queue.py          # OpQueue: asyncio + ThreadPoolExecutor
 │   └── task.py           # OpTask: priority, cancel, progress callback
 │
+├── preview/
+│   ├── provider.py       # PreviewProvider Protocol (priority, can_handle, render);
+│   │                     #   ContentKind enum (IMAGE/TEXT/HTML/MARKDOWN/ERROR);
+│   │                     #   PreviewRequest(path, dark); PreviewResult(kind, data, title)
+│   ├── registry.py       # PreviewRegistry: sorted list[PreviewProvider] by priority;
+│   │                     #   find(path) → first match or FallbackProvider()
+│   ├── presenter.py      # PreviewPresenter (Qt-free): ThreadPoolExecutor(max_workers=1);
+│   │                     #   64-item LRU cache keyed (path, mtime); queue.SimpleQueue for
+│   │                     #   thread→main delivery; drain() polled by QTimer;
+│   │                     #   toggle_item(), update_if_visible(), set_dark(), shutdown()
+│   └── providers/
+│       ├── image.py      # ImagePreviewProvider (priority=0); jpg/png/gif/webp/svg etc; 50MB limit
+│       ├── markdown.py   # MarkdownPreviewProvider (priority=5); .md/.markdown/.mdx; 200KB limit;
+│       │                 #   returns ContentKind.MARKDOWN — panel calls QTextBrowser.setMarkdown
+│       ├── text.py       # TextPreviewProvider (priority=10); .py/.js/.toml/.json etc; 256KB limit
+│       └── fallback.py   # FallbackProvider (priority=999); always handles; returns HTML metadata
+│
+├── themes/
+│   ├── _base.qss.tmpl    # string.Template QSS; uses $base $surface $accent etc (10 tokens)
+│   ├── dark.toml         # [meta] name=Dark; [tokens] 10 macOS system-color values
+│   ├── light.toml        # [meta] name=Light; [tokens] 10 light-mode values
+│   └── catppuccin-mocha.toml  # third-party palette example
+│
 ├── plugins/
-│   ├── hookspecs.py      # pluggy @hookspec: fm_register_opener, fm_context_menu_items
-│   └── manager.py        # PluginManager: entry_points discovery + registration
+│   ├── types.py          # ThemeTokens (TypedDict, 10 keys); ActionSpec dataclass
+│   │                     #   (label, callback, shortcut, icon_name, separator_before);
+│   │                     #   ColumnDef dataclass (id, title, width, alignment)
+│   ├── hookspecs.py      # pluggy @hookspec: register_commands (historic=True),
+│   │                     #   on_navigate(path), on_file_operation(op,src,dst),
+│   │                     #   provide_theme(name) firstresult → ThemeTokens | None,
+│   │                     #   before_file_operation(op,src,dst) firstresult → bool | None,
+│   │                     #   context_menu_actions(items,pane_id) → list[ActionSpec],
+│   │                     #   extra_columns() → list[ColumnDef],
+│   │                     #   extra_archive_extensions() → list[str]
+│   ├── manager.py        # PluginManager: API_VERSION=(1,0); register_plugin() checks
+│   │                     #   BIOME_FM_API_VERSION major; load_entry_points() via
+│   │                     #   importlib.metadata group='biome_fm.plugins';
+│   │                     #   load_local_plugins(plugin_dir) loads .py files + dirs with
+│   │                     #   __init__.py from ~/.config/biome-fm/plugins/, each must have
+│   │                     #   top-level Plugin class; get_installed_plugins() → list[dict]
+│   ├── theme_registry.py # ThemeRegistry(pm): resolve(name) → _DARK_FALLBACK merged with
+│   │                     #   plugin hook result (provide_theme firstresult)
+│   └── builtin/
+│       ├── __init__.py
+│       └── dark_theme.py # BuiltinDarkTheme: BIOME_FM_API_VERSION=(1,0);
+│                         #   provide_theme("dark") → _DARK_FALLBACK copy; None for other names
 │
 ├── ai/
 │   ├── provider.py       # AIProvider Protocol + NoOpProvider + make_provider factory
@@ -147,8 +202,12 @@ Nested archives supported via chained VFS instances; ArchiveVFS instances cached
 `PanePresenter._is_archive()` triggers in-pane browsing on item activation.
 
 ### Plugin Hooks (pluggy)
-`fm_register_opener`, `fm_context_menu_items`.
-Discovery via `importlib.metadata.entry_points(group="biome_fm.plugins")`.
+Hookspecs: `register_commands` (historic), `on_navigate`, `on_file_operation`,
+`before_file_operation`, `provide_theme` (firstresult), `context_menu_actions`,
+`extra_columns`, `extra_archive_extensions`.
+Discovery: `importlib.metadata.entry_points(group="biome_fm.plugins")` + local
+`~/.config/biome-fm/plugins/` scan. API versioning gates plugins on major version mismatch.
+Builtin plugins live in `plugins/builtin/` and are registered in `create_app()`.
 
 ### Multi-Tab Panes
 Each side (left/right) has a PaneSideView (QTabBar + QStackedWidget) driven by a TabsPresenter
@@ -207,3 +266,108 @@ Hidden files (starting with `.`) are dimmed. Directories and `..` are unstyled.
 `navigate_active(path)` navigates the active pane; if mirror is on, also navigates the opposite pane.
 Re-entrancy guard `_mirroring` prevents infinite loops.
 Wired to `Ctrl+Shift+L` shortcut in `app.py`.
+
+### Theme / Skins (v0.7.0)
+
+Themes are TOML files with 10 named color tokens. A `string.Template` in
+`themes/_base.qss.tmpl` is substituted at apply time to produce the full QSS.
+
+`ThemeTokens` TypedDict keys (all 10): `base`, `surface`, `surface2`, `border`,
+`text`, `text_dim`, `accent`, `accent2`, `red`, `green`.
+
+```
+apply_theme(app, name, plugin_manager)
+      │
+      ├─ plugin_manager.hook.provide_theme(name)  [firstresult]
+      │        result merged over _DARK_FALLBACK
+      │
+      ├─ _find_theme(name):
+      │        1. ~/.config/biome-fm/themes/<name>.toml      (user override)
+      │        2. ~/.config/biome-fm/themes/<name>/theme.toml
+      │        3. importlib.resources biome_fm.themes/<name>.toml  (bundled)
+      │        4. None → _DARK_FALLBACK
+      │
+      ├─ TOML inheritance: [meta] inherits = "<parent>"
+      │        cycle guard via _seen frozenset; child [tokens] override parent
+      │
+      ├─ _apply_palette(app, tokens)   ← 10 tokens → QPalette roles
+      │        Disabled group: text + ButtonText → text_dim
+      │
+      ├─ app.setStyleSheet(Template(_QSS_TMPL).substitute(tokens))
+      │
+      └─ bus.publish(ThemeChanged(name=name, tokens=tokens))
+```
+
+Bundled themes: `dark`, `light`, `catppuccin-mocha`.
+User themes: drop `<name>.toml` into `~/.config/biome-fm/themes/`.
+`_TOKENS` and `_QSS` are backward-compat aliases in `theme.py`.
+
+### Preview System (v0.7.0)
+
+`Space` / `F3` → `PreviewPresenter.toggle_item()` → slide-in `PreviewPanel` (350px, 150ms OutCubic).
+Cursor move → `update_if_visible()` (no-op if panel hidden).
+
+```
+FileItem
+      │  Space / cursor-move
+      ▼
+PreviewPresenter
+      ├─ cache hit (path, mtime) → PreviewPanel.show_result()        [sync]
+      └─ cache miss:
+             PreviewRegistry.find(path) → PreviewProvider
+             ThreadPoolExecutor (max_workers=1)
+                   │  [background thread]
+                   ▼
+             PreviewProvider.render(PreviewRequest) → PreviewResult
+                   │  queue.SimpleQueue.put(result)
+             QTimer.drain() — main thread
+                   ▼
+             PreviewPanel.show_result(result)
+                   match ContentKind:
+                     IMAGE    → QLabel.setPixmap (KeepAspectRatio)
+                     HTML     → QTextBrowser.setHtml
+                     TEXT     → QTextBrowser.setPlainText
+                     MARKDOWN → QTextBrowser.setMarkdown
+                     ERROR    → QTextBrowser.setPlainText "Error: ..."
+```
+
+Provider priority (ascending = higher wins; first `can_handle` match used):
+
+| Provider | Priority | Extensions | Limit |
+|---|---|---|---|
+| ImagePreviewProvider | 0 | jpg/png/gif/webp/svg/bmp/tiff/ico | 50 MB |
+| MarkdownPreviewProvider | 5 | .md/.markdown/.mdx/.mdown | 200 KB |
+| TextPreviewProvider | 10 | .py/.js/.ts/.toml/.json + 20 more | 256 KB |
+| FallbackProvider | 999 | * (always) | — |
+
+Cache: 64 entries, key `(path, mtime)`. FIFO eviction (oldest dropped when full).
+`ThemeChanged` event → `PreviewPresenter.set_dark()` so next render picks correct palette.
+`models/markdown_renderer.render(md, dark)` is a Pygments-enhanced HTML path separate
+from `MarkdownPreviewProvider` (which returns raw Markdown for `QTextBrowser.setMarkdown`).
+
+### Plugin System Enhancements (v0.7.0)
+
+8 hook specs; plugins implement any subset:
+
+| Hook | Mode | Purpose |
+|------|------|---------|
+| `register_commands` | historic | Add CommandEntry to CommandRegistry at startup |
+| `on_navigate` | broadcast | Pane navigated to path |
+| `on_file_operation` | broadcast | Post-op notification (copy/move/delete/mkdir) |
+| `provide_theme` | firstresult | Supply ThemeTokens for named theme |
+| `before_file_operation` | firstresult | Veto op by returning False |
+| `context_menu_actions` | broadcast | Inject ActionSpec items into context menu |
+| `extra_columns` | broadcast | Inject ColumnDef into file listing |
+| `extra_archive_extensions` | broadcast | Register extra archive extensions |
+
+Loading order in `create_app()`:
+1. `load_entry_points()` — installed packages (`biome_fm.plugins` entry_points group)
+2. `load_local_plugins()` — `.py` files / dirs with `__init__.py` in `~/.config/biome-fm/plugins/`
+3. Builtin plugins — `BuiltinDarkTheme` registered last
+
+API versioning: `BIOME_FM_API_VERSION = (1, 0)` on plugin class.
+Major mismatch → `warnings.warn` + skip. Minor is backward-compatible.
+Local plugin contract: must expose top-level `Plugin` class; loaded as `biome_fm_local_<stem>`.
+
+`ThemeRegistry(pm).resolve(name)` = thin helper that calls `provide_theme` firstresult
+hook then merges over `_DARK_FALLBACK`; used in `theme.py`'s `load_theme()`.

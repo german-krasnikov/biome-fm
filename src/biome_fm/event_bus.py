@@ -83,3 +83,12 @@ class SyncBrowsingToggled:
 class BookmarkChanged:
     """Bookmark list changed."""
     pass
+
+
+@dataclass(frozen=True)
+class ThemeChanged:
+    """Theme was applied. Subscribers should re-polish dynamic properties."""
+    name: str
+    tokens: dict[str, str]
+
+

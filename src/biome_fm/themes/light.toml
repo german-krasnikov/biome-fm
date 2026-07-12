@@ -1,0 +1,14 @@
+[meta]
+name = "Light"
+
+[tokens]
+base     = "#f2f2f7"
+surface  = "#ffffff"
+surface2 = "#e5e5ea"
+border   = "#c6c6c8"
+text     = "#1c1c1e"
+text_dim = "#6c6c70"
+accent   = "#007aff"
+accent2  = "#5856d6"
+red      = "#ff3b30"
+green    = "#34c759"

@@ -65,21 +65,27 @@ class MainWindow(QMainWindow):
     refresh_requested = Signal()
     new_tab_requested = Signal()
     command_submitted = Signal(str)
+    preview_toggle_requested = Signal()
 
     def __init__(
         self,
         left: QWidget | None = None,
         right: QWidget | None = None,
         ai_panel: QWidget | None = None,
+        preview_panel: QWidget | None = None,
     ) -> None:
         super().__init__()
         self.setWindowTitle("Biome FM")
         self.resize(1200, 700)
         self._ai_panel = ai_panel
+        self._preview_panel = preview_panel
         self._act_ai = QAction("AI", self, checkable=True)
         self._act_ai.setToolTip("Toggle AI panel (Ctrl+I)")
         if self._ai_panel is not None:
             self._act_ai.toggled.connect(self._ai_panel.setVisible)
+        self._act_preview = QAction("Preview", self, checkable=True)
+        self._act_preview.setToolTip("Toggle Preview panel (Space / F3)")
+        self._act_preview.triggered.connect(self.preview_toggle_requested)
         self._setup_ui(left, right)
         self._setup_shortcuts()
 
@@ -93,6 +99,9 @@ class MainWindow(QMainWindow):
             self._splitter.addWidget(left)
         if right is not None:
             self._splitter.addWidget(right)
+        if self._preview_panel is not None:
+            self._splitter.addWidget(self._preview_panel)
+            self._preview_panel.hide()
         if self._ai_panel is not None:
             self._splitter.addWidget(self._ai_panel)
             self._ai_panel.hide()
@@ -144,6 +153,7 @@ class MainWindow(QMainWindow):
         tb.addAction(act_tab)
 
         tb.addSeparator()
+        tb.addAction(self._act_preview)
         tb.addAction(self._act_ai)
 
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, tb)
@@ -191,6 +201,9 @@ class MainWindow(QMainWindow):
             nm.addAction(a)
 
         vm = mb.addMenu("&View")
+        a = QAction("Toggle &Preview\tF3", self)
+        a.triggered.connect(self.preview_toggle_requested)
+        vm.addAction(a)
         a = QAction("Toggle &AI\tCtrl+I", self)
         a.triggered.connect(lambda: self._act_ai.toggle())
         vm.addAction(a)
@@ -218,6 +231,9 @@ class MainWindow(QMainWindow):
         if self._ai_panel is None:
             return
         self._act_ai.toggle()
+
+    def toggle_preview_panel(self) -> None:
+        self.preview_toggle_requested.emit()
 
     @property
     def splitter_sizes(self) -> list[int]:

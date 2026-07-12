@@ -63,3 +63,29 @@ def test_stat_inside_archive(zip_archive: Path) -> None:
     item = router.stat(zip_archive / "inside.txt")
     assert item.name == "inside.txt"
     assert item.is_dir is False
+
+
+def test_tar_gz_treated_as_archive(tmp_path: Path) -> None:
+    """Compound suffix .tar.gz must be found as archive root."""
+    from biome_fm.models.vfs_router import _BUILTIN_EXTENSIONS, _find_archive_root
+
+    tgz = tmp_path / "pkg.tar.gz"
+    tgz.write_bytes(b"fake")
+    assert _find_archive_root(tgz, _BUILTIN_EXTENSIONS) == tgz
+    # Path inside should also resolve to the archive
+    assert _find_archive_root(tgz / "readme.txt", _BUILTIN_EXTENSIONS) == tgz
+
+
+def test_gz_not_treated_as_archive(tmp_path: Path) -> None:
+    """Bare .gz (manpage, config) must NOT be dispatched to ArchiveVFS."""
+    from biome_fm.models.vfs_router import _BUILTIN_EXTENSIONS, _find_archive_root
+
+    gz = tmp_path / "page.1.gz"
+    gz.write_bytes(b"fake gzip data")
+    # The regression: old code matched "gz" suffix → archive root; new code must return None
+    assert _find_archive_root(gz, _BUILTIN_EXTENSIONS) is None
+    # Also verify via router: parent listing sees .gz as plain file
+    router = VFSRouter()
+    items = router.listdir(tmp_path)
+    assert any(i.name == "page.1.gz" for i in items)
+    assert len(router._cache) == 0

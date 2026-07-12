@@ -1,0 +1,15 @@
+[meta]
+name     = "Catppuccin Mocha"
+inherits = "dark"
+
+[tokens]
+base     = "#1e1e2e"
+surface  = "#313244"
+surface2 = "#45475a"
+border   = "#585b70"
+text     = "#cdd6f4"
+text_dim = "#a6adc8"
+accent   = "#89b4fa"
+accent2  = "#cba6f7"
+red      = "#f38ba8"
+green    = "#a6e3a1"

@@ -3,6 +3,36 @@
 All notable changes to Biome FM are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.7.0] — 2026-07-12
+
+### Added
+- **TOML-based theme system** — dark, light, catppuccin-mocha; `_base.qss.tmpl` template with token substitution
+- **Theme inheritance** — `inherits` key in TOML cascades tokens from parent theme
+- **User theme directory** — `~/.config/biome-fm/themes/` auto-loaded at startup
+- **QPalette sync** — native dialogs inherit active theme colors via `QApplication.setPalette`
+- **Inline preview panel** — Space/F3 now opens a slide-in panel instead of external Quick Look
+- **Markdown preview** — native GFM rendering via `QTextBrowser.setMarkdown`; `MarkdownRenderer` model
+- **Image preview** — JPG, PNG, GIF, WebP, SVG, BMP via `QPixmap`
+- **Text preview** — first 256 KB shown; `TextPreviewProvider`
+- **Metadata fallback preview** — for unsupported file types; `FallbackPreviewProvider`
+- **Preview panel animation** — `QPropertyAnimation` slide-in/out on panel show/hide
+- **6 new plugin hookspecs** — `provide_theme`, `before_file_operation`, `after_file_operation`, `context_menu_actions`, `extra_columns`, `extra_archive_extensions`
+- **Historic hook support** — `register_commands` hookspec upgraded to `historic=True`
+- **Plugin API versioning** — `PLUGIN_API_VERSION` constant; major-version gate rejects incompatible plugins
+- **Drop-in local plugin loading** — `~/.config/biome-fm/plugins/` scanned at startup via `importlib`
+- **BuiltinDarkTheme reference plugin** — `plugins/builtin/dark_theme.py`
+- **ThemeRegistry** — singleton mapping plugin-provided theme names to TOML dicts; `plugins/theme_registry.py`
+- `preview/` package — `PreviewProvider` protocol, `PreviewRegistry`, `PreviewPresenter`; providers for markdown, image, text, fallback
+- `plugins/types.py` — shared plugin type definitions (`ThemeDict`, `ContextMenuAction`, etc.)
+
+### Fixed
+- macOS: QSS rules for `QPushButton` and `QComboBox` now apply correctly (`setStyle("Fusion")` in `app.py`)
+- Archive detection regression for `.gz` files in `VFSRouter.is_archive`
+
+### Changed
+- Space/F3 opens inline `PreviewPanel` instead of calling `platform.quick_look()`
+- Theme system refactored from hardcoded QSS strings in `theme.py` to TOML token files + `_base.qss.tmpl`
+
 ## [v0.6.0] — 2026-07-12
 
 ### Added

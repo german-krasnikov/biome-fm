@@ -170,6 +170,15 @@ class _PaneTableView(QTableView):
         menu.addAction("View\tF3", lambda: p.context_action_requested.emit("quick_look"))
         finder_label = "Open in Finder" if sys.platform == "darwin" else "Open in File Manager"
         menu.addAction(finder_label, lambda: p.context_action_requested.emit("open_finder"))
+        # Plugin extra actions
+        if p.plugin_menu_extra is not None:
+            extras = p.plugin_menu_extra()
+            if extras:
+                menu.addSeparator()
+                for spec in extras:
+                    if getattr(spec, "separator_before", False):
+                        menu.addSeparator()
+                    menu.addAction(spec.label, spec.callback)
         menu.exec(event.globalPos())  # type: ignore[attr-defined]
 
 
@@ -187,12 +196,14 @@ class PaneView(QWidget):
     context_action_requested = Signal(str)    # "copy"|"move"|"delete"|"rename"
     bookmark_chosen = Signal(object)          # Path
     edit_bookmarks_requested = Signal()
+    cursor_changed = Signal(object)           # FileItem | None
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._model = DirectoryModel(self)
         self._proxy = DirSortFilterProxy(self)
         self._proxy.setSourceModel(self._model)
+        self.plugin_menu_extra = None  # Callable[[], list[ActionSpec]] — set by app.py
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -258,6 +269,7 @@ class PaneView(QWidget):
 
         self._table.setSortingEnabled(True)
         self._table.activated.connect(self._on_activated)
+        self._table.selectionModel().currentChanged.connect(self._on_cursor_changed)
         layout.addWidget(self._table)
 
         self._proxy.sort(COL_NAME, Qt.SortOrder.AscendingOrder)
@@ -345,6 +357,14 @@ class PaneView(QWidget):
             if item and item.name.lower().startswith(text_lower):
                 self._table.setCurrentIndex(idx)
                 return
+
+    def _on_cursor_changed(self, current: QModelIndex, _prev: QModelIndex) -> None:
+        if current.isValid():
+            src = self._proxy.mapToSource(current)
+            item = self._model.item_at(src.row())
+        else:
+            item = None
+        self.cursor_changed.emit(item)
 
     def _on_activated(self, proxy_index: QModelIndex) -> None:
         src = self._proxy.mapToSource(proxy_index)

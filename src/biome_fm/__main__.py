@@ -10,8 +10,10 @@ def main() -> int:
     from biome_fm.views.theme import apply_theme
 
     qt_app = QApplication(sys.argv)
+    qt_app.setStyle("Fusion")  # must precede setStyleSheet; fixes native controls on macOS
     apply_theme(qt_app)
     window = create_app()
+
     window.show()
     return qt_app.exec()
 

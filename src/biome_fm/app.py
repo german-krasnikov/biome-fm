@@ -8,23 +8,31 @@ from biome_fm.ai.provider import make_provider
 from biome_fm.commands.base import CommandHistory
 from biome_fm.commands.registry import CommandEntry, CommandRegistry
 from biome_fm.config import load_config, save_config
-from biome_fm.event_bus import ActivePaneChanged, BookmarkChanged, EventBus
+from biome_fm.event_bus import ActivePaneChanged, BookmarkChanged, EventBus, ThemeChanged
 from biome_fm.models.bookmark_store import BookmarkStore
 from biome_fm.models.vfs_router import VFSRouter
+from biome_fm.plugins.builtin.dark_theme import BuiltinDarkTheme
 from biome_fm.plugins.manager import PluginManager
 from biome_fm.presenters.ai_presenter import AIPresenter
 from biome_fm.presenters.manager_presenter import ManagerPresenter
 from biome_fm.presenters.pane_presenter import PanePresenter, PaneViewProtocol
 from biome_fm.presenters.tabs_presenter import TabsPresenter
+from biome_fm.preview.presenter import PreviewPresenter
+from biome_fm.preview.providers.fallback import FallbackProvider
+from biome_fm.preview.providers.image import ImagePreviewProvider
+from biome_fm.preview.providers.markdown import MarkdownPreviewProvider
+from biome_fm.preview.providers.text import TextPreviewProvider
+from biome_fm.preview.registry import PreviewRegistry
 from biome_fm.qt import QApplication, QInputDialog, QKeySequence, QShortcut, QStandardPaths, QTimer
 from biome_fm.session import PaneSideState, SessionState, TabState, load_session, save_session
 from biome_fm.utils.opener import open_file
-from biome_fm.utils.platform import quick_look_item, reveal_in_finder
+from biome_fm.utils.platform import reveal_in_finder
 from biome_fm.views.ai_chat_panel import AIChatPanel
 from biome_fm.views.bookmark_dialog import BookmarkDialog
 from biome_fm.views.command_palette import CommandPalette
 from biome_fm.views.main_window import MainWindow
 from biome_fm.views.pane_side_view import PaneSideView
+from biome_fm.views.preview_panel import PreviewPanel
 
 
 def _config_dir() -> Path:
@@ -33,7 +41,7 @@ def _config_dir() -> Path:
 
 
 def _wire_pane(view: PaneViewProtocol, presenter: PanePresenter) -> None:
-    """Connect PaneView signals to PanePresenter slots."""
+    """Connect PaneView signals to PanePresenter slots (non-preview only)."""
     view.item_activated.connect(presenter.on_item_activated)  # type: ignore[attr-defined]
     view.path_change_requested.connect(presenter.navigate_to)  # type: ignore[attr-defined]
     view.mark_toggle_requested.connect(presenter.toggle_mark)  # type: ignore[attr-defined]
@@ -47,9 +55,6 @@ def _wire_pane(view: PaneViewProtocol, presenter: PanePresenter) -> None:
         sig = getattr(view, attr, None)
         if sig is not None:
             sig.connect(slot)
-    sig = getattr(view, "view_requested", None)
-    if sig is not None:
-        sig.connect(lambda p=presenter: quick_look_item(p.current_item()))
 
 
 def create_app() -> MainWindow:
@@ -58,8 +63,17 @@ def create_app() -> MainWindow:
     cfg = load_config(cfg_dir / "config.toml")
     session = load_session(cfg_dir / "session.json")
 
+    # ── Plugins (before VFSRouter — passes plugin_manager in) ────────────────
+    plugins = PluginManager()
+    plugins.register_plugin(BuiltinDarkTheme())
+    plugins.load_entry_points()
+    plugins.load_local_plugins()
+
+    from biome_fm.views.theme import apply_theme
+    apply_theme(QApplication.instance(), cfg.theme, plugin_manager=plugins)  # type: ignore[arg-type]
+
     # ── Core services ─────────────────────────────────────────────
-    vfs = VFSRouter()
+    vfs = VFSRouter(plugin_manager=plugins)
     bus = EventBus()
     history = CommandHistory()
     store = BookmarkStore(cfg_dir / "bookmarks.toml")
@@ -70,10 +84,30 @@ def create_app() -> MainWindow:
     left_tabs = TabsPresenter(vfs, left_side, left_side.new_pane, opener=open_file)
     right_tabs = TabsPresenter(vfs, right_side, right_side.new_pane, opener=open_file)
 
+    # ── Preview (early — needed by _wire_preview, called during restore) ──
+    preview_registry = PreviewRegistry()
+    for _p in [ImagePreviewProvider(), MarkdownPreviewProvider(), TextPreviewProvider(), FallbackProvider()]:
+        preview_registry.register(_p)
+    preview_panel = PreviewPanel()
+    preview_presenter = PreviewPresenter(view=preview_panel, registry=preview_registry)
+    preview_presenter.set_dark("dark" in cfg.theme.lower())
+
+    def _wire_preview(view: object) -> None:
+        sig = getattr(view, "view_requested", None)
+        if sig is not None:
+            sig.connect(lambda p=view: preview_presenter.toggle_item(
+                p.current_item() if hasattr(p, "current_item") else None  # type: ignore[union-attr]
+            ))
+        sig2 = getattr(view, "cursor_changed", None)
+        if sig2 is not None:
+            sig2.connect(preview_presenter.update_if_visible)
+
     def _restore(tabs: TabsPresenter, state: PaneSideState) -> None:
         for ts in state.tabs:
             p = tabs.new_tab(Path(ts.path))
-            _wire_pane(tabs.view_at(tabs.tab_count - 1), p)
+            v = tabs.view_at(tabs.tab_count - 1)
+            _wire_pane(v, p)
+            _wire_preview(v)
         tabs.switch_tab(state.active_idx)
 
     home = Path.home()
@@ -82,9 +116,13 @@ def create_app() -> MainWindow:
         _restore(right_tabs, session.right)
     else:
         lp = left_tabs.new_tab(home)
-        _wire_pane(left_tabs.view_at(0), lp)
+        v0 = left_tabs.view_at(0)
+        _wire_pane(v0, lp)
+        _wire_preview(v0)
         rp = right_tabs.new_tab(home)
-        _wire_pane(right_tabs.view_at(0), rp)
+        v1 = right_tabs.view_at(0)
+        _wire_pane(v1, rp)
+        _wire_preview(v1)
 
     # ── Manager ───────────────────────────────────────────────────
     manager = ManagerPresenter(
@@ -106,12 +144,19 @@ def create_app() -> MainWindow:
     ai_panel.message_submitted.connect(ai_presenter.send)
 
     # ── Window ────────────────────────────────────────────────────
-    window = MainWindow(left_side, right_side, ai_panel)
+    window = MainWindow(left_side, right_side, ai_panel, preview_panel)
+    window.preview_toggle_requested.connect(preview_presenter.toggle_panel)
+    preview_panel.visibility_changed.connect(window._act_preview.setChecked)
 
     drain_timer = QTimer(window)
     drain_timer.setInterval(100)
     drain_timer.timeout.connect(ai_presenter.drain)
     drain_timer.start()
+
+    preview_timer = QTimer(window)
+    preview_timer.setInterval(100)
+    preview_timer.timeout.connect(preview_presenter.drain)
+    preview_timer.start()
 
     # ── Active side helper ────────────────────────────────────────
     def _active() -> TabsPresenter:
@@ -129,7 +174,9 @@ def create_app() -> MainWindow:
         p = side.new_tab(side.current_path)
         v = side.view_at(side.tab_count - 1)
         _wire_pane(v, p)
+        _wire_preview(v)
         _wire_ctx(v)
+        _wire_plugin_ctx(v, pid)
         _wire_bm(v, side)
         sig = getattr(v, "files_dropped", None)
         if sig is not None:
@@ -154,13 +201,18 @@ def create_app() -> MainWindow:
         path = str(item.path) if item is not None else str(_active().current_path)
         QApplication.clipboard().setText(path)
 
-    def _quick_look() -> None:
-        quick_look_item(_active().current_item())
-
     def _reveal_in_finder() -> None:
         target = _active().current_item()
         if target is not None:
             reveal_in_finder(target.path)
+
+    def _wire_plugin_ctx(view: object, pane_id: str) -> None:
+        if hasattr(view, "plugin_menu_extra"):
+            _pid = pane_id
+            view.plugin_menu_extra = lambda: [  # type: ignore[attr-defined]
+                a for lst in plugins.hook.context_menu_actions(items=[], pane_id=_pid)
+                for a in lst
+            ]
 
     def _wire_ctx(view: object) -> None:
         def _dispatch(action: str) -> None:
@@ -176,7 +228,7 @@ def create_app() -> MainWindow:
             elif action == "copy_path":
                 _copy_path()
             elif action == "quick_look":
-                _quick_look()
+                preview_presenter.toggle_item(_active().current_item())
             elif action == "open_finder":
                 _reveal_in_finder()
         sig = getattr(view, "context_action_requested", None)
@@ -186,7 +238,9 @@ def create_app() -> MainWindow:
     # Wire ctx for existing tabs
     for _pid2, _tabs2 in [("left", left_tabs), ("right", right_tabs)]:
         for _i2 in range(_tabs2.tab_count):
-            _wire_ctx(_tabs2.view_at(_i2))
+            _v2 = _tabs2.view_at(_i2)
+            _wire_ctx(_v2)
+            _wire_plugin_ctx(_v2, _pid2)
 
     # ── Bookmarks ──────────────────────────────────────────────────
     def _wire_bm(view: object, tabs: TabsPresenter) -> None:
@@ -254,7 +308,9 @@ def create_app() -> MainWindow:
 
     # ── Misc shortcuts ────────────────────────────────────────────
     QShortcut(QKeySequence("Ctrl+Shift+C"), window).activated.connect(_copy_path)
-    QShortcut(QKeySequence("F3"),           window).activated.connect(_quick_look)
+    QShortcut(QKeySequence("F3"),           window).activated.connect(
+        lambda: preview_presenter.toggle_item(_active().current_item())
+    )
     QShortcut(QKeySequence("Ctrl+Z"),       window).activated.connect(manager.undo)
     QShortcut(QKeySequence("Ctrl+Shift+Z"), window).activated.connect(manager.redo)
     QShortcut(QKeySequence("Ctrl+Shift+L"), window).activated.connect(manager.toggle_mirror)
@@ -276,6 +332,16 @@ def create_app() -> MainWindow:
     left_side.set_active(True)
     right_side.set_active(False)
 
+    def _on_theme_changed(ev: ThemeChanged) -> None:
+        for side in (left_side, right_side):
+            side.style().unpolish(side)
+            side.style().polish(side)
+        # Update preview dark flag based on theme name
+        preview_presenter.set_dark("dark" in ev.name.lower())
+
+    from biome_fm.event_bus import bus as global_bus  # theme events use module-level bus
+    global_bus.subscribe(ThemeChanged, _on_theme_changed)
+
     # ── Focus tracking → active pane ─────────────────────────────
     def _on_focus_changed(old: object, new: object) -> None:
         if new is None:
@@ -287,13 +353,9 @@ def create_app() -> MainWindow:
 
     QApplication.instance().focusChanged.connect(_on_focus_changed)  # type: ignore[union-attr]
 
-    # ── Plugins ───────────────────────────────────────────────────
-    plugins = PluginManager()
-    plugins.load_entry_points()
-
     # ── Command palette ───────────────────────────────────────────
     registry = CommandRegistry()
-    plugins.register_commands(registry)
+    plugins.call_register_commands(registry)
     for entry in [
         CommandEntry("Copy",           "F5",           lambda: bar.copy_requested.emit()),
         CommandEntry("Move",           "F6",           lambda: bar.move_requested.emit()),
@@ -309,7 +371,7 @@ def create_app() -> MainWindow:
         CommandEntry("Toggle AI",      "Ctrl+I",       window.toggle_ai_panel),
         CommandEntry("Refresh",        "Ctrl+R",       lambda: _active().refresh()),
         CommandEntry("Copy Path",      "Ctrl+Shift+C", _copy_path),
-        CommandEntry("Quick Look",     "F3",           _quick_look),
+        CommandEntry("Preview",        "F3",           lambda: preview_presenter.toggle_item(_active().current_item())),
         CommandEntry("Sync Browsing",  "Ctrl+Shift+L", manager.toggle_mirror),
         CommandEntry("Back",           "Alt+Left",     lambda: _active().go_back()),
         CommandEntry("Forward",        "Alt+Right",    lambda: _active().go_forward()),
@@ -340,8 +402,11 @@ def create_app() -> MainWindow:
         save_config(cfg, cfg_dir / "config.toml")
         ai_presenter.shutdown()
         drain_timer.stop()
+        preview_presenter.shutdown()
+        preview_timer.stop()
 
     window.about_to_close.connect(_on_close)
-    window._refs = (manager, left_tabs, right_tabs, ai_presenter, drain_timer, plugins)  # type: ignore[attr-defined]
+    window._refs = (manager, left_tabs, right_tabs, ai_presenter, drain_timer, plugins,  # type: ignore[attr-defined]
+                    preview_presenter, preview_timer)
 
     return window
