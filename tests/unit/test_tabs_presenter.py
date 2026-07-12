@@ -73,6 +73,9 @@ class _FakePaneView:
     def set_nav_history(self, paths: list) -> None:
         pass
 
+    def select_item(self, name: str) -> None:
+        pass
+
 
 # ── fixtures ─────────────────────────────────────────────────────────────────
 

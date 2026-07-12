@@ -12,7 +12,7 @@ from typing import Protocol
 from biome_fm.models.file_item import FileItem
 from biome_fm.models.vfs import VFSProtocol
 
-_ARCHIVE_SUFFIXES = {".zip", ".tar", ".7z"}
+_ARCHIVE_SUFFIXES = {".zip", ".tar"}
 _ARCHIVE_DOUBLE = {(".tar", ".gz"), (".tar", ".bz2"), (".tar", ".xz")}
 
 
@@ -34,6 +34,7 @@ class PaneViewProtocol(Protocol):
     def retreat_cursor(self) -> None: ...
     def set_filter_visible(self, visible: bool) -> None: ...
     def set_nav_history(self, paths: list[Path]) -> None: ...
+    def select_item(self, name: str) -> None: ...
 
 
 def _sort(items: list[FileItem]) -> list[FileItem]:
@@ -112,7 +113,10 @@ class PanePresenter:
             return
         parent = self._cwd.parent
         if parent != self._cwd:
+            prev_name = self._cwd.name
             self.navigate_to(parent)
+            if prev_name:
+                self._view.select_item(prev_name)
 
     def go_home(self) -> None:
         self.navigate_to(self._home)
@@ -146,7 +150,10 @@ class PanePresenter:
         elif item.is_dir or _is_archive(item.path):
             self.navigate_to(item.path)
         elif self._opener is not None:
-            self._opener(item.path)
+            if item.path.exists():
+                self._opener(item.path)
+            else:
+                self._view.set_status(f"Cannot open '{item.name}' — extract it first")
 
     def toggle_mark(self) -> None:
         """Mark cursor item + advance cursor (TC Space behavior)."""

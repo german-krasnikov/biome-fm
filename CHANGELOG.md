@@ -3,6 +3,22 @@
 All notable changes to Biome FM are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.9.1] — 2026-07-12
+
+### Added
+- **Enter/Return key activation** — `Enter`/`Return` in `_PaneTableView` emits `item_activated`
+  (same as double-click): file→open with system program, folder→enter, `..`→go up,
+  archive→browse in-pane. Numpad Enter also works.
+- **`go_up()` cursor placement** — after navigating up, cursor lands on the folder the user
+  came from (classic FM UX); implemented via new `PaneView.select_item(name)` +
+  `PaneViewProtocol.select_item`
+- **Initial focus** — left pane table receives focus at startup
+- 680 tests (up from 667)
+
+### Fixed
+- Removed `.7z` from `_ARCHIVE_SUFFIXES` — VFS doesn't support it, caused OSError on activation
+- `opener.open_file()` now guards against virtual archive paths (calls `set_status`, not `show_error`)
+
 ## [v0.9.0] — 2026-07-12
 
 ### Added

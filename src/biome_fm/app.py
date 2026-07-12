@@ -233,6 +233,9 @@ def create_app() -> MainWindow:
                 },
                 "ai": {"state": session.ai.state, "float_geometry": session.ai.float_geometry},
             })
+        v = left_tabs.view_at(left_tabs.active_idx)
+        if hasattr(v, "_table"):
+            v._table.setFocus()
 
     QTimer.singleShot(0, _init_layout)
 

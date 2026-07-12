@@ -52,6 +52,7 @@ class FakePaneView:
     def retreat_cursor(self): pass
     def set_filter_visible(self, visible: bool) -> None: pass
     def set_nav_history(self, paths: list) -> None: pass
+    def select_item(self, name: str) -> None: pass
 
 
 HOME = Path("/home")
@@ -108,6 +109,6 @@ class TestArchiveNav:
         assert _is_archive(Path("/a/file.tar.gz"))
         assert _is_archive(Path("/a/file.tar.bz2"))
         assert _is_archive(Path("/a/file.tar.xz"))
-        assert _is_archive(Path("/a/file.7z"))
+        assert not _is_archive(Path("/a/file.7z"))  # .7z falls through to system opener
         assert not _is_archive(Path("/a/readme.txt"))
         assert not _is_archive(Path("/a/image.png"))

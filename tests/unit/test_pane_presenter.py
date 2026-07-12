@@ -54,6 +54,7 @@ class FakePaneView:
     cursor_advances: int = 0
     cursor_retreats: int = 0
     nav_history: list[Path] = field(default_factory=list)
+    selected: str | None = None
 
     def set_items(self, items: list[FileItem]) -> None:
         self.items = list(items)
@@ -84,6 +85,9 @@ class FakePaneView:
 
     def set_nav_history(self, paths: list[Path]) -> None:
         self.nav_history = list(paths)
+
+    def select_item(self, name: str) -> None:
+        self.selected = name
 
 
 # ── fixtures ────────────────────────────────────────────────────────────────
@@ -471,3 +475,68 @@ class TestNavHistory:
         p, view, _vfs, _ = env
         p.navigate_to(HOME / "nonexistent_xyz")
         assert len(view.nav_history) == 0
+
+
+class TestOpenerGuard:
+    """Bug fixes: .7z not navigated; virtual paths show error instead of crashing."""
+
+    def _presenter(self, opener=None):
+        from biome_fm.presenters.pane_presenter import PanePresenter
+        vfs = FakeVFS({HOME: []})
+        view = FakePaneView()
+        p = PanePresenter(view=view, vfs=vfs, home=HOME, opener=opener)
+        p.navigate_to(HOME)
+        return p, view
+
+    def test_7z_file_calls_opener(self, tmp_path):
+        """After removing .7z from _ARCHIVE_SUFFIXES, opener must be called."""
+        called = []
+        sevenz = tmp_path / "archive.7z"
+        sevenz.touch()
+        item = FileItem(name="archive.7z", path=sevenz, is_dir=False, size=0, modified=0.0)
+        p, view = self._presenter(opener=called.append)
+        p.on_item_activated(item)
+        assert called == [sevenz]
+        assert not view.errors
+
+    def test_file_inside_archive_shows_error(self):
+        """Virtual path (non-existent on disk) shows error, does not call opener."""
+        called = []
+        virtual = Path("/fake/archive.zip/inner/file.txt")
+        item = FileItem(name="file.txt", path=virtual, is_dir=False, size=0, modified=0.0)
+        p, view = self._presenter(opener=called.append)
+        p.on_item_activated(item)
+        assert called == []
+        assert "extract" in view.status
+
+    def test_real_file_calls_opener_regression(self, tmp_path):
+        """Real existing file must still reach opener (regression guard)."""
+        called = []
+        real = tmp_path / "notes.txt"
+        real.write_text("hi")
+        item = FileItem(name="notes.txt", path=real, is_dir=False, size=2, modified=0.0)
+        p, view = self._presenter(opener=called.append)
+        p.on_item_activated(item)
+        assert called == [real]
+        assert not view.errors
+
+
+class TestGoUpSelection:
+    def test_go_up_selects_previous_folder(self, env):
+        p, view, _vfs, _ = env
+        p.navigate_to(DOCS)
+        p.go_up()
+        assert view.selected == "docs"
+
+    def test_go_up_from_root_no_select(self, env):
+        p, view, _vfs, _ = env
+        p.navigate_to(ROOT)
+        p.go_up()
+        assert view.selected is None
+
+    def test_go_up_via_dotdot_selects_previous(self, env):
+        p, view, _vfs, _ = env
+        p.navigate_to(DOCS)
+        dotdot = FileItem(name="..", path=HOME, is_dir=True, size=0, modified=0.0)
+        p.on_item_activated(dotdot)
+        assert view.selected == "docs"

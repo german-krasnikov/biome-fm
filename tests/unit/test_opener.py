@@ -50,6 +50,7 @@ class FakePaneView:
     def retreat_cursor(self): pass
     def set_filter_visible(self, visible: bool) -> None: pass
     def set_nav_history(self, paths: list) -> None: pass
+    def select_item(self, name: str) -> None: pass
 
 
 HOME = Path("/home")
@@ -84,10 +85,17 @@ class TestOpener:
             open_file(Path("/tmp/doc.pdf"))
             mock_popen.assert_called_once()
 
-    def test_activate_file_calls_opener(self, env):
-        p, opened = env
-        p.on_item_activated(_item("doc.pdf", HOME))
-        assert Path("/home/doc.pdf") in opened
+    def test_activate_file_calls_opener(self, tmp_path):
+        real = tmp_path / "doc.pdf"
+        real.touch()
+        item = FileItem(name="doc.pdf", path=real, is_dir=False, size=0, modified=0.0)
+        opened: list[Path] = []
+        vfs = FakeVFS({tmp_path: [item]})
+        view = FakePaneView()
+        p = PanePresenter(view=view, vfs=vfs, home=tmp_path, opener=opened.append)
+        p.navigate_to(tmp_path)
+        p.on_item_activated(item)
+        assert real in opened
 
     def test_activate_dir_does_not_call_opener(self, env):
         p, opened = env

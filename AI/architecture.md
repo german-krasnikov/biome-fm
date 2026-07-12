@@ -53,8 +53,11 @@ src/biome_fm/
 │   ├── pane_presenter.py     # Drives one pane (cd, select, sort, current_item);
 │   │                         #   PaneViewProtocol: set_items/set_path/show_error/set_status/
 │   │                         #   set_marked/current_cursor_item/advance_cursor/retreat_cursor/
-│   │                         #   set_filter_visible;
-│   │                         #   back/forward stacks; archive in-pane via _is_archive();
+│   │                         #   set_filter_visible/select_item;
+│   │                         #   back/forward stacks; archive in-pane via _is_archive()
+│   │                         #   (_ARCHIVE_SUFFIXES: .zip/.tar/.tar.gz/.tar.bz2/.tgz; .7z excluded);
+│   │                         #   go_up() calls select_item(prev_name) so cursor lands on the
+│   │                         #   folder the user came from (classic FM UX);
 │   │                         #   _update_status: marks + free-space (cached disk_usage); _fmt_size;
 │   │                         #   selection ops: toggle_mark/toggle_mark_up/select_all/
 │   │                         #   deselect_all/invert_selection/select_by_pattern/deselect_by_pattern
@@ -94,13 +97,14 @@ src/biome_fm/
 │   │                     #   _PaneTableView (inner QTableView subclass): full DnD impl
 │   │                     #   (mimeData/startDrag/dragEnterEvent/dragMoveEvent/dropEvent);
 │   │                     #   MIME type application/x-biome-fm-paths; Shift-drop = move;
-│   │                     #   key routing: Space/F3=PreviewPanel toggle, Shift+Down=mark, Shift+Up=mark_up,
-│   │                     #   /=FilterBar, printable→JumpBar; context menu: Copy/Move/Delete/
-│   │                     #   Rename/Copy Path/Preview/Open in Finder (platform label);
-│   │                     #   setUniformRowHeights() compat stub; table: no grid,
+│   │                     #   key routing: Enter/Return=item_activated, Space/F3=PreviewPanel toggle,
+│   │                     #   Shift+Down=mark, Shift+Up=mark_up, /=FilterBar, printable→JumpBar;
+│   │                     #   context menu: Copy/Move/Delete/Rename/Copy Path/Preview/Open in Finder
+│   │                     #   (platform label); setUniformRowHeights() compat stub; table: no grid,
 │   │                     #   alternatingRowColors, 22px rows, vertical header hidden;
 │   │                     #   Name=Stretch, Size/Modified/Ext=Interactive;
 │   │                     #   retreat_cursor() for Shift+Up mark; advance_cursor() for mark;
+│   │                     #   select_item(name) scrolls to and selects row by filename;
 │   │                     #   _DropHintDelegate: QStyledItemDelegate draws 2px highlight border
 │   │                     #   around folder row when _drop_hint_row matches; _drop_hint_row
 │   │                     #   set in dragMoveEvent (folder under cursor) / cleared on dragLeave;
@@ -235,7 +239,8 @@ src/biome_fm/
     │                     #   reveal_in_finder(path), get_modifier_name() — cross-platform
     │                     #   (macOS: qlmanage -p / open -R; Windows: explorer /select; Linux: xdg-open)
     └── opener.py         # open_file(path) — default app opener (macOS: open, Win: os.startfile,
-                          #   Linux: xdg-open); passed to TabsPresenter as opener=
+                          #   Linux: xdg-open); guards against virtual archive paths (path.exists()
+                          #   check → set_status instead of show_error); passed to TabsPresenter as opener=
 ```
 
 ## Patterns
@@ -251,7 +256,7 @@ CommandRegistry maps string ids to callables for CommandPalette dispatch.
 ManagerPresenter wires undo/redo to CommandHistory + refresh_both().
 
 ### VFS Host Chaining
-VFSRouter walks path ancestry to detect archive roots (`.zip`, `.tar`, `.tar.gz`).
+VFSRouter walks path ancestry to detect archive roots (`.zip`, `.tar`, `.tar.gz`, `.tar.bz2`, `.tgz`). `.7z` is explicitly excluded — unsupported by fsspec backend.
 Matching paths → ArchiveVFS (fsspec); plain paths → LocalVFS.
 Nested archives supported via chained VFS instances; ArchiveVFS instances cached per root file.
 `PanePresenter._is_archive()` triggers in-pane browsing on item activation.

@@ -134,6 +134,11 @@ class _PaneTableView(QTableView):
             if key == Qt.Key.Key_Slash:
                 parent.filter_bar.activate()
                 return
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                item = parent.current_item()
+                if item is not None:
+                    parent.item_activated.emit(item)
+                return
         text = event.text()  # type: ignore[attr-defined]
         ctrl_or_alt = Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier
         if (text and text.isprintable() and not (mods & ctrl_or_alt)
@@ -441,6 +446,16 @@ class PaneView(QWidget):
         item = self._model.item_at(src.row())
         if item is not None:
             self.item_activated.emit(item)
+
+    def select_item(self, name: str) -> None:
+        for row in range(self._proxy.rowCount()):
+            idx = self._proxy.index(row, 0)
+            src = self._proxy.mapToSource(idx)
+            item = self._model.item_at(src.row())
+            if item and item.name == name:
+                self._table.setCurrentIndex(idx)
+                self._table.scrollTo(idx)
+                return
 
     def _on_path_entered_text(self, text: str) -> None:
         self.path_change_requested.emit(Path(text))
