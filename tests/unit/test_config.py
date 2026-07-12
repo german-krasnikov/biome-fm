@@ -56,3 +56,22 @@ def test_save_creates_parent_dirs(tmp_path: Path) -> None:
     p = tmp_path / "nested" / "deep" / "cfg.toml"
     save_config(Config(), p)
     assert p.exists()
+
+
+def test_new_config_defaults() -> None:
+    cfg = Config()
+    assert cfg.bookmarks == []
+    assert cfg.sync_browsing is False
+    assert cfg.file_type_colors is True
+    assert cfg.show_hidden is False
+
+
+def test_config_roundtrip_new_fields(tmp_path: Path) -> None:
+    p = tmp_path / "cfg.toml"
+    save_config(Config(bookmarks=["/home", "/tmp"], sync_browsing=True,
+                       file_type_colors=False, show_hidden=True), p)
+    cfg = load_config(p)
+    assert cfg.bookmarks == ["/home", "/tmp"]
+    assert cfg.sync_browsing is True
+    assert cfg.file_type_colors is False
+    assert cfg.show_hidden is True

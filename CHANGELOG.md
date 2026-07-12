@@ -3,6 +3,53 @@
 All notable changes to Biome FM are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.5.0] — 2026-07-12
+
+### Added
+
+**11 Killer Features**
+- Quick Filter (`/` key) — `FilterBar` inside `PaneView`; substring match via `DirSortFilterProxy`
+- Copy Path (`Ctrl+Shift+C`) — copies absolute path to clipboard
+- Undo/Redo UI (`Ctrl+Z` / `Ctrl+Shift+Z`) — wired to `ManagerPresenter.undo/redo`
+- Sync Browsing (`Ctrl+Shift+L`) — mirrors navigation across panes; `SyncBrowsingToggled` event
+- Quick Look (`Space` / `F3`) — OS-native preview (macOS / Windows / Linux)
+- File Type Coloring — Okabe-Ito colorblind-safe palette by extension group
+- Bookmarks (`Ctrl+D`) — `BookmarkStore` with TOML persistence
+- Type-to-Nav — `JumpBar` scrolls to first matching name prefix on printable keys
+- Archive In-Pane — `.tar`/`.zip` browsing without extraction via `VFSRouter`
+- Opener Rules — per-extension launch rules from config; platform default fallback
+- Nav Icons — Back/Forward/Up/Home use `QStyle.StandardPixmap`
+
+**macOS UI Overhaul**
+- System-color dark theme (NSColor tokens via QSS)
+- Global toolbar (Refresh, +Tab, AI toggle)
+- `_HistoryLineEdit` — 30-item dedup history with Up/Down + QCompleter (15 visible)
+- `_PathTabBar` — abbreviated path display; Ctrl/middle-click copies full path
+- `DirectoryModel.flags()` — `ItemIsDragEnabled` (DnD root-cause fix) + `ToolTipRole`
+- DnD Shift-move: `dropEvent` reads modifiers instead of `proposedAction()`
+- Context menu: Copy Path, Quick Look, Open in Finder/Explorer
+- Nav/ActionBar tooltips on all buttons
+- `platform.py` — `quick_look()`, `reveal_in_finder()` cross-platform
+
+**UX Polish**
+- Table layout: hidden vertical header, alternating rows, no grid, uniform 22px rows
+- Column resize: Name=Stretch, Size/Modified/Ext=Interactive
+- Dynamic tab close button (visible only when >1 tab)
+- Key bindings: Space=preview, Shift+Down/Up=mark toggle with retreat cursor
+- Command line: visible by default, dropdown history, executes shell commands
+- AI button in toolbar (checkable QAction, Ctrl+I)
+
+**New modules:** `filter_bar.py`, `jump_bar.py`, `bookmark_store.py`, `icon_provider.py`, `opener.py`, `platform.py`
+**New EventBus events:** `PaneNavigated`, `SyncBrowsingToggled`, `BookmarkChanged`
+**New config fields:** `sync_browsing`, `file_type_colors`, `show_hidden`, `bookmarks`, `openers`
+**Tests:** 410 (up from 322)
+
+### Fixed
+- DnD drag never started — `flags()` missing `ItemIsDragEnabled`
+- Tab titles showed raw `path.name`; now abbreviated `~/...`
+- `_run_cmd` no longer swallows stdout to DEVNULL
+- Initial tab formatted correctly via `add_tab("")` + `navigate_to`
+
 ## [v0.3.0] — 2026-07-11
 
 ### Added

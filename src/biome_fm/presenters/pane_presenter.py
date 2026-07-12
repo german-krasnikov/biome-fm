@@ -5,11 +5,22 @@ from __future__ import annotations
 import contextlib
 import fnmatch
 import shutil
+from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
 from biome_fm.models.file_item import FileItem
 from biome_fm.models.vfs import VFSProtocol
+
+_ARCHIVE_SUFFIXES = {".zip", ".tar", ".7z"}
+_ARCHIVE_DOUBLE = {(".tar", ".gz"), (".tar", ".bz2"), (".tar", ".xz")}
+
+
+def _is_archive(path: Path) -> bool:
+    s = path.suffixes
+    if len(s) >= 2 and tuple(s[-2:]) in _ARCHIVE_DOUBLE:
+        return True
+    return bool(s) and s[-1] in _ARCHIVE_SUFFIXES
 
 
 class PaneViewProtocol(Protocol):
@@ -20,11 +31,13 @@ class PaneViewProtocol(Protocol):
     def set_marked(self, paths: set[Path]) -> None: ...
     def current_cursor_item(self) -> FileItem | None: ...
     def advance_cursor(self) -> None: ...
+    def retreat_cursor(self) -> None: ...
+    def set_filter_visible(self, visible: bool) -> None: ...
 
 
 def _sort(items: list[FileItem]) -> list[FileItem]:
     # ponytail: sort here for unit testability; DirSortFilterProxy also sorts for
-    # column-click UX — unify if they drift
+    # column-click UX -- unify if they drift
     dirs = sorted((i for i in items if i.is_dir), key=lambda i: i.name.lower())
     files = sorted((i for i in items if not i.is_dir), key=lambda i: i.name.lower())
     return dirs + files
@@ -36,18 +49,18 @@ class PanePresenter:
         view: PaneViewProtocol,
         vfs: VFSProtocol,
         home: Path | None = None,
+        opener: Callable[[Path], None] | None = None,
     ) -> None:
         self._view = view
         self._vfs = vfs
         self._home = home or Path.home()
+        self._opener = opener
         self._cwd: Path | None = None
         self._free_space: str = ""
         self._back: list[Path] = []
         self._forward: list[Path] = []
         self._items: list[FileItem] = []
         self._marks: set[Path] = set()
-
-    # ── public API ────────────────────────────────────────────────────────────
 
     @property
     def current_path(self) -> Path:
@@ -117,8 +130,10 @@ class PanePresenter:
     def on_item_activated(self, item: FileItem) -> None:
         if item.name == "..":
             self.go_up()
-        elif item.is_dir:
+        elif item.is_dir or _is_archive(item.path):
             self.navigate_to(item.path)
+        elif self._opener is not None:
+            self._opener(item.path)
 
     def toggle_mark(self) -> None:
         """Mark cursor item + advance cursor (TC Space behavior)."""
@@ -128,6 +143,15 @@ class PanePresenter:
         self._marks ^= {item.path}
         self._push_marks()
         self._view.advance_cursor()
+
+    def toggle_mark_up(self) -> None:
+        """Mark cursor item + retreat cursor (Shift+Space TC behavior)."""
+        item = self._view.current_cursor_item()
+        if item is None or item.name == "..":
+            return
+        self._marks ^= {item.path}
+        self._push_marks()
+        self._view.retreat_cursor()
 
     def select_all(self) -> None:
         self._marks = {i.path for i in self._items}
@@ -148,8 +172,6 @@ class PanePresenter:
     def deselect_by_pattern(self, pattern: str) -> None:
         self._marks -= {i.path for i in self._items if fnmatch.fnmatch(i.name, pattern)}
         self._push_marks()
-
-    # ── internal ──────────────────────────────────────────────────────────────
 
     def _push_marks(self) -> None:
         self._view.set_marked(set(self._marks))

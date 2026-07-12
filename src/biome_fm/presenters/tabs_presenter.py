@@ -15,6 +15,7 @@ class TabsViewProtocol(Protocol):
     def remove_tab(self, idx: int) -> None: ...
     def set_active_tab(self, idx: int) -> None: ...
     def set_tab_title(self, idx: int, title: str) -> None: ...
+    def set_tab_tooltip(self, idx: int, tooltip: str) -> None: ...
 
 
 class TabsPresenter:
@@ -25,10 +26,12 @@ class TabsPresenter:
         vfs: VFSProtocol,
         tabs_view: TabsViewProtocol,
         view_factory: Callable[[], PaneViewProtocol],
+        opener: Callable[[Path], None] | None = None,
     ) -> None:
         self._vfs = vfs
         self._tabs_view = tabs_view
         self._view_factory = view_factory
+        self._opener = opener
         self._tabs: list[PanePresenter] = []
         self._views: list[PaneViewProtocol] = []
         self._active_idx: int = 0
@@ -51,10 +54,10 @@ class TabsPresenter:
 
     def new_tab(self, path: Path) -> PanePresenter:
         view = self._view_factory()
-        presenter = PanePresenter(view=view, vfs=self._vfs)
+        presenter = PanePresenter(view=view, vfs=self._vfs, opener=self._opener)
         self._tabs.append(presenter)
         self._views.append(view)
-        idx = self._tabs_view.add_tab(path.name or str(path))
+        idx = self._tabs_view.add_tab("")
         self._active_idx = idx
         self._tabs_view.set_active_tab(idx)
         presenter.navigate_to(path)
@@ -107,7 +110,8 @@ class TabsPresenter:
 
     def navigate_to(self, path: Path) -> None:
         self.active.navigate_to(path)
-        self._tabs_view.set_tab_title(self._active_idx, path.name or str(path))
+        self._tabs_view.set_tab_title(self._active_idx, str(path))
+        self._tabs_view.set_tab_tooltip(self._active_idx, str(path))
 
     def refresh(self) -> None:
         self.active.refresh()

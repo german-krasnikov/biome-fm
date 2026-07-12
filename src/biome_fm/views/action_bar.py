@@ -16,15 +16,15 @@ class ActionBar(QWidget):
     rename_requested = Signal()
     exit_requested = Signal()
 
-    _BUTTONS: typing.ClassVar[list[tuple[str, str]]] = [
-        ("F3 View", "view_requested"),
-        ("F4 Edit", "edit_requested"),
-        ("F5 Copy", "copy_requested"),
-        ("F6 Move", "move_requested"),
-        ("F7 Mkdir", "mkdir_requested"),
-        ("F8 Delete", "delete_requested"),
-        ("F9 Rename", "rename_requested"),
-        ("Alt+F4 Exit", "exit_requested"),
+    _BUTTONS: typing.ClassVar[list[tuple[str, str, str]]] = [
+        ("F3 View",     "view_requested",   "Preview file (F3)"),
+        ("F4 Edit",     "edit_requested",   "Edit file (F4)"),
+        ("F5 Copy",     "copy_requested",   "Copy to other pane (F5)"),
+        ("F6 Move",     "move_requested",   "Move to other pane (F6)"),
+        ("F7 Mkdir",    "mkdir_requested",  "Create folder (F7)"),
+        ("F8 Delete",   "delete_requested", "Delete selected (F8)"),
+        ("F9 Rename",   "rename_requested", "Rename file (F9)"),
+        ("Alt+F4 Exit", "exit_requested",   "Quit Biome FM (Alt+F4)"),
     ]
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -32,8 +32,9 @@ class ActionBar(QWidget):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(2, 2, 2, 2)
         layout.setSpacing(2)
-        for label, sig_name in self._BUTTONS:
+        for label, sig_name, tip in self._BUTTONS:
             btn = QPushButton(label)
             btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            btn.setToolTip(tip)
             btn.clicked.connect(getattr(self, sig_name))
             layout.addWidget(btn)

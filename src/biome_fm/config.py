@@ -15,6 +15,10 @@ class Config:
     window_geometry: str = ""
     recent_dirs: list[str] = field(default_factory=list)
     ai_api_key: str = ""
+    bookmarks: list[str] = field(default_factory=list)
+    sync_browsing: bool = False
+    file_type_colors: bool = True
+    show_hidden: bool = False
 
 
 def load_config(path: Path) -> Config:
@@ -33,7 +37,9 @@ def save_config(cfg: Config, path: Path) -> None:
     lines = []
     for f in fields(Config):
         val = getattr(cfg, f.name)
-        if isinstance(val, str):
+        if isinstance(val, bool):
+            lines.append(f"{f.name} = {'true' if val else 'false'}")
+        elif isinstance(val, str):
             escaped = val.replace("\\", "\\\\").replace('"', '\\"')
             lines.append(f'{f.name} = "{escaped}"')
         elif isinstance(val, list):

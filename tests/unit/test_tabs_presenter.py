@@ -31,6 +31,9 @@ class _FakeTabsView:
     def set_tab_title(self, idx: int, title: str) -> None:
         self.titles[idx] = title
 
+    def set_tab_tooltip(self, idx: int, tooltip: str) -> None:
+        pass
+
 
 @dataclass
 class _FakePaneView:
@@ -172,7 +175,7 @@ def test_navigate_updates_tab_title(root: Path, vfs: LocalVFS) -> None:
     tp, tv = make_presenter(vfs)
     tp.new_tab(root / "dir1")
     tp.navigate_to(root / "dir2")
-    assert tv.titles[0] == "dir2"
+    assert tv.titles[0] == str(root / "dir2")
 
 
 def test_refresh_delegates(root: Path, vfs: LocalVFS) -> None:

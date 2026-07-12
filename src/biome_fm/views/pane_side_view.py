@@ -1,14 +1,35 @@
 """PaneSideView — tabbed pane container."""
 from __future__ import annotations
 
+from pathlib import Path as _P
+
 from biome_fm.qt import (
+    QApplication,
     QStackedWidget,
+    Qt,
     QTabBar,
     QVBoxLayout,
     QWidget,
     Signal,
 )
 from biome_fm.views.pane_view import PaneView
+
+
+class _PathTabBar(QTabBar):
+    """Middle-click or Ctrl+click copies full path from tab tooltip."""
+
+    def mousePressEvent(self, event: object) -> None:
+        btn = event.button()  # type: ignore[attr-defined]
+        mods = event.modifiers()  # type: ignore[attr-defined]
+        if btn == Qt.MouseButton.MiddleButton or (
+            btn == Qt.MouseButton.LeftButton
+            and mods & Qt.KeyboardModifier.ControlModifier
+        ):
+            idx = self.tabAt(event.pos())  # type: ignore[attr-defined]
+            if idx >= 0:
+                QApplication.clipboard().setText(self.tabToolTip(idx))
+                return
+        super().mousePressEvent(event)  # type: ignore[arg-type]
 
 
 class PaneSideView(QWidget):
@@ -19,9 +40,9 @@ class PaneSideView(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._tab_bar = QTabBar()
-        self._tab_bar.setTabsClosable(True)
-        self._tab_bar.setMovable(False)
+        self._tab_bar = _PathTabBar()
+        self._tab_bar.setTabsClosable(False)
+        self._tab_bar.setMovable(True)
         self._stack = QStackedWidget()
 
         layout = QVBoxLayout(self)
@@ -39,14 +60,20 @@ class PaneSideView(QWidget):
 
     # ── TabsViewProtocol ─────────────────────────────────────────
 
+    def _sync_closable(self) -> None:
+        self._tab_bar.setTabsClosable(self._tab_bar.count() > 1)
+
     def add_tab(self, title: str) -> int:
-        return self._tab_bar.addTab(title)
+        idx = self._tab_bar.addTab(title)
+        self._sync_closable()
+        return idx
 
     def remove_tab(self, idx: int) -> None:
         w = self._stack.widget(idx)
         if w is not None:
             self._stack.removeWidget(w)
         self._tab_bar.removeTab(idx)
+        self._sync_closable()
 
     def set_active_tab(self, idx: int) -> None:
         self._tab_bar.blockSignals(True)
@@ -55,7 +82,19 @@ class PaneSideView(QWidget):
         self._stack.setCurrentIndex(idx)
 
     def set_tab_title(self, idx: int, title: str) -> None:
-        self._tab_bar.setTabText(idx, title)
+        self._tab_bar.setTabToolTip(idx, title)
+        p = _P(title)
+        home = _P.home()
+        try:
+            display = "~/" + str(p.relative_to(home))
+        except ValueError:
+            display = p.name or title
+        if len(display) > 30:
+            display = "…/" + p.name
+        self._tab_bar.setTabText(idx, display)
+
+    def set_tab_tooltip(self, idx: int, tooltip: str) -> None:
+        self._tab_bar.setTabToolTip(idx, tooltip)
 
     def set_active(self, active: bool) -> None:
         self.setProperty("active", active)

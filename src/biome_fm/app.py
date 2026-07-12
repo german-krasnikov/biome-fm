@@ -1,6 +1,7 @@
 """Application bootstrap and DI wiring."""
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 from biome_fm.ai.provider import make_provider
@@ -16,6 +17,8 @@ from biome_fm.presenters.pane_presenter import PanePresenter, PaneViewProtocol
 from biome_fm.presenters.tabs_presenter import TabsPresenter
 from biome_fm.qt import QApplication, QInputDialog, QKeySequence, QShortcut, QStandardPaths, QTimer
 from biome_fm.session import PaneSideState, SessionState, TabState, load_session, save_session
+from biome_fm.utils.opener import open_file
+from biome_fm.utils.platform import quick_look_item, reveal_in_finder
 from biome_fm.views.ai_chat_panel import AIChatPanel
 from biome_fm.views.command_palette import CommandPalette
 from biome_fm.views.main_window import MainWindow
@@ -29,18 +32,22 @@ def _config_dir() -> Path:
 
 def _wire_pane(view: PaneViewProtocol, presenter: PanePresenter) -> None:
     """Connect PaneView signals to PanePresenter slots."""
-    view.item_activated.connect(presenter.on_item_activated)  # type: ignore[union-attr]
-    view.path_change_requested.connect(presenter.navigate_to)  # type: ignore[union-attr]
-    view.mark_toggle_requested.connect(presenter.toggle_mark)  # type: ignore[union-attr]
+    view.item_activated.connect(presenter.on_item_activated)  # type: ignore[attr-defined]
+    view.path_change_requested.connect(presenter.navigate_to)  # type: ignore[attr-defined]
+    view.mark_toggle_requested.connect(presenter.toggle_mark)  # type: ignore[attr-defined]
     for attr, slot in [
         ("back_requested", presenter.go_back),
         ("forward_requested", presenter.go_forward),
         ("up_requested", presenter.go_up),
         ("home_requested", presenter.go_home),
+        ("mark_toggle_up_requested", presenter.toggle_mark_up),
     ]:
         sig = getattr(view, attr, None)
         if sig is not None:
             sig.connect(slot)
+    sig = getattr(view, "view_requested", None)
+    if sig is not None:
+        sig.connect(lambda p=presenter: quick_look_item(p.current_item()))
 
 
 def create_app() -> MainWindow:
@@ -57,8 +64,8 @@ def create_app() -> MainWindow:
     # ── Tabs + Panes ──────────────────────────────────────────────
     left_side = PaneSideView()
     right_side = PaneSideView()
-    left_tabs = TabsPresenter(vfs, left_side, left_side.new_pane)
-    right_tabs = TabsPresenter(vfs, right_side, right_side.new_pane)
+    left_tabs = TabsPresenter(vfs, left_side, left_side.new_pane, opener=open_file)
+    right_tabs = TabsPresenter(vfs, right_side, right_side.new_pane, opener=open_file)
 
     def _restore(tabs: TabsPresenter, state: PaneSideState) -> None:
         for ts in state.tabs:
@@ -107,6 +114,11 @@ def create_app() -> MainWindow:
     def _active() -> TabsPresenter:
         return left_tabs if manager.active_pane_id == "left" else right_tabs
 
+    def _run_cmd(cmd: str) -> None:
+        subprocess.Popen(cmd, shell=True, cwd=str(_active().current_path))
+
+    window.command_submitted.connect(_run_cmd)
+
     # ── New tab ───────────────────────────────────────────────────
     def _new_tab() -> None:
         side = _active()
@@ -133,6 +145,19 @@ def create_app() -> MainWindow:
         if ok and name.strip() and name.strip() != item.name:
             manager.rename(item, name.strip())
 
+    def _copy_path() -> None:
+        item = _active().current_item()
+        path = str(item.path) if item is not None else str(_active().current_path)
+        QApplication.clipboard().setText(path)
+
+    def _quick_look() -> None:
+        quick_look_item(_active().current_item())
+
+    def _reveal_in_finder() -> None:
+        target = _active().current_item()
+        if target is not None:
+            reveal_in_finder(target.path)
+
     def _wire_ctx(view: object) -> None:
         def _dispatch(action: str) -> None:
             items = _active().marked_items
@@ -144,6 +169,12 @@ def create_app() -> MainWindow:
                 manager.delete_selected(items)
             elif action == "rename":
                 _ask_rename()
+            elif action == "copy_path":
+                _copy_path()
+            elif action == "quick_look":
+                _quick_look()
+            elif action == "open_finder":
+                _reveal_in_finder()
         sig = getattr(view, "context_action_requested", None)
         if sig is not None:
             sig.connect(_dispatch)
@@ -192,6 +223,21 @@ def create_app() -> MainWindow:
     QShortcut(QKeySequence("Alt+Up"),    window).activated.connect(lambda: _active().go_up())
     QShortcut(QKeySequence("Alt+Home"),  window).activated.connect(lambda: _active().go_home())
 
+    # ── Misc shortcuts ────────────────────────────────────────────
+    QShortcut(QKeySequence("Ctrl+Shift+C"), window).activated.connect(_copy_path)
+    QShortcut(QKeySequence("F3"),           window).activated.connect(_quick_look)
+    QShortcut(QKeySequence("Ctrl+Z"),       window).activated.connect(manager.undo)
+    QShortcut(QKeySequence("Ctrl+Shift+Z"), window).activated.connect(manager.redo)
+    QShortcut(QKeySequence("Ctrl+Shift+L"), window).activated.connect(manager.toggle_mirror)
+
+    # ── Undo/Redo from menu ───────────────────────────────────────
+    window.undo_requested.connect(manager.undo)
+    window.redo_requested.connect(manager.redo)
+
+    # ── Toolbar signals ───────────────────────────────────────────
+    window.refresh_requested.connect(lambda: _active().refresh())
+    window.new_tab_requested.connect(_new_tab)
+
     # ── Active pane border ────────────────────────────────────────
     def _on_active_changed(event: ActivePaneChanged) -> None:
         left_side.set_active(event.pane_id == "left")
@@ -202,7 +248,7 @@ def create_app() -> MainWindow:
     right_side.set_active(False)
 
     # ── Focus tracking → active pane ─────────────────────────────
-    def _on_focus_changed(old: object, new: object) -> None:  # type: ignore[override]
+    def _on_focus_changed(old: object, new: object) -> None:
         if new is None:
             return
         if left_side.isAncestorOf(new):  # type: ignore[arg-type]
@@ -228,11 +274,14 @@ def create_app() -> MainWindow:
         CommandEntry("Undo",           "Ctrl+Z",       manager.undo),
         CommandEntry("Redo",           "Ctrl+Shift+Z", manager.redo),
         CommandEntry("Switch Pane",    "Tab",          manager.switch_active_pane),
-        CommandEntry("Quit",           "Alt+F4",       window.close),
+        CommandEntry("Quit",           "Alt+F4",       window.close),  # type: ignore[arg-type]
         CommandEntry("New Tab",        "Ctrl+T",       _new_tab),
         CommandEntry("Close Tab",      "Ctrl+W",       lambda: _active().close_tab(_active().active_idx)),  # noqa: E501
         CommandEntry("Toggle AI",      "Ctrl+I",       window.toggle_ai_panel),
         CommandEntry("Refresh",        "Ctrl+R",       lambda: _active().refresh()),
+        CommandEntry("Copy Path",      "Ctrl+Shift+C", _copy_path),
+        CommandEntry("Quick Look",     "F3",           _quick_look),
+        CommandEntry("Sync Browsing",  "Ctrl+Shift+L", manager.toggle_mirror),
         CommandEntry("Back",           "Alt+Left",     lambda: _active().go_back()),
         CommandEntry("Forward",        "Alt+Right",    lambda: _active().go_forward()),
         CommandEntry("Up",             "Alt+Up",       lambda: _active().go_up()),

@@ -11,6 +11,8 @@ from biome_fm.event_bus import (
     FilesChanged,
     OperationFinished,
     OperationStarted,
+    PaneNavigated,
+    SyncBrowsingToggled,
     bus,
 )
 
@@ -124,3 +126,22 @@ def test_operation_finished_event() -> None:
 
 def test_module_singleton_exists() -> None:
     assert isinstance(bus, EventBus)
+
+
+def test_pane_navigated_event() -> None:
+    eb = EventBus()
+    received: list[PaneNavigated] = []
+    eb.subscribe(PaneNavigated, received.append)
+    evt = PaneNavigated(pane_id="left", path=Path("/home"))
+    eb.publish(evt)
+    assert len(received) == 1
+    assert received[0].pane_id == "left"
+    assert received[0].path == Path("/home")
+
+
+def test_sync_browsing_toggled_event() -> None:
+    eb = EventBus()
+    received: list[SyncBrowsingToggled] = []
+    eb.subscribe(SyncBrowsingToggled, received.append)
+    eb.publish(SyncBrowsingToggled(enabled=True))
+    assert received[0].enabled is True

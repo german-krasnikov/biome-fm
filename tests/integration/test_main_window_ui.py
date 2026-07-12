@@ -34,5 +34,27 @@ def test_nav_signals_exist(win):
         assert hasattr(win, sig_name)
 
 
-def test_cmd_line_hidden_by_default(win):
-    assert not win._cmd_line.isVisible()
+def test_cmd_line_visible_by_default(win):
+    assert win._cmd_line.isVisible()
+
+
+def test_ai_button_in_toolbar(win):
+    assert hasattr(win, "_act_ai")
+    assert win._act_ai.isCheckable()
+
+
+def test_cmd_submitted_signal(qtbot, win):
+    received = []
+    win.command_submitted.connect(received.append)
+    win._cmd_line.setText("ls")
+    win._cmd_line.returnPressed.emit()
+    assert received == ["ls"]
+    assert win._cmd_line.text() == ""
+
+
+def test_cmd_empty_not_submitted(qtbot, win):
+    received = []
+    win.command_submitted.connect(received.append)
+    win._cmd_line.setText("   ")
+    win._cmd_line.returnPressed.emit()
+    assert received == []

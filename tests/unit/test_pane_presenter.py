@@ -52,6 +52,7 @@ class FakePaneView:
     marked: set[Path] = field(default_factory=set)
     cursor: FileItem | None = None
     cursor_advances: int = 0
+    cursor_retreats: int = 0
 
     def set_items(self, items: list[FileItem]) -> None:
         self.items = list(items)
@@ -73,6 +74,12 @@ class FakePaneView:
 
     def advance_cursor(self) -> None:
         self.cursor_advances += 1
+
+    def retreat_cursor(self) -> None:
+        self.cursor_retreats += 1
+
+    def set_filter_visible(self, visible: bool) -> None:
+        pass
 
 
 # ── fixtures ────────────────────────────────────────────────────────────────
@@ -396,6 +403,21 @@ class TestMarks:
         p, view, _vfs, _ = env
         p.navigate_to(HOME)
         assert "4 items" in view.status
+
+    def test_toggle_mark_up_marks_and_retreats(self, env):
+        p, view, _vfs, _ = env
+        p.navigate_to(HOME)
+        view.cursor = _item("readme.txt", HOME, size=100)
+        p.toggle_mark_up()
+        assert HOME / "readme.txt" in p.marks
+        assert view.cursor_retreats == 1
+
+    def test_toggle_mark_up_skips_dotdot(self, env):
+        p, view, _vfs, _ = env
+        p.navigate_to(HOME)
+        view.cursor = FileItem(name="..", path=ROOT, is_dir=True, size=0, modified=0.0)
+        p.toggle_mark_up()
+        assert len(p.marks) == 0
 
     def test_fmt_size_bytes(self):
         from biome_fm.presenters.pane_presenter import PanePresenter

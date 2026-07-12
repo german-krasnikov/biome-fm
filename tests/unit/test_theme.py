@@ -8,10 +8,10 @@ def test_all_tokens_substituted():
     assert "$" not in qss
 
 
-def test_tokyo_night_base_color_present():
+def test_macos_base_color_present():
     qss = _QSS.substitute(_TOKENS)
-    assert _TOKENS["base"] in qss      # #1A1B26
-    assert _TOKENS["accent"] in qss    # #7AA2F7
+    assert _TOKENS["base"] in qss      # #1c1c1e
+    assert _TOKENS["accent"] in qss    # #0a84ff
 
 
 def test_key_selectors_present():

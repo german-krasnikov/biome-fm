@@ -25,28 +25,28 @@ def view(qtbot):
 
 # ── Nav signals ─────────────────────────────────────────────────────────────
 
-def _nav_btn(view: PaneView, label: str) -> QPushButton:
-    return next(b for b in view.findChildren(QPushButton) if b.text() == label)
+def _nav_btn(view: PaneView, name: str) -> QPushButton:
+    return next(b for b in view.findChildren(QPushButton) if b.objectName() == name)
 
 
 def test_nav_back_signal(qtbot, view):
     with qtbot.waitSignal(view.back_requested, timeout=500):
-        _nav_btn(view, "<").click()
+        _nav_btn(view, "nav_back").click()
 
 
 def test_nav_forward_signal(qtbot, view):
     with qtbot.waitSignal(view.forward_requested, timeout=500):
-        _nav_btn(view, ">").click()
+        _nav_btn(view, "nav_forward").click()
 
 
 def test_nav_up_signal(qtbot, view):
     with qtbot.waitSignal(view.up_requested, timeout=500):
-        _nav_btn(view, "↑").click()
+        _nav_btn(view, "nav_up").click()
 
 
 def test_nav_home_signal(qtbot, view):
     with qtbot.waitSignal(view.home_requested, timeout=500):
-        _nav_btn(view, "~").click()
+        _nav_btn(view, "nav_home").click()
 
 
 # ── Sorting ─────────────────────────────────────────────────────────────────
@@ -80,6 +80,7 @@ def test_files_dropped_signal(qtbot, view):
 
 
 def test_files_dropped_move_action(qtbot, view):
+    """Shift held during drop → move=True (Shift-move detection)."""
     received: list[tuple] = []
     view.files_dropped.connect(lambda paths, move: received.append((paths, move)))
 
@@ -87,10 +88,10 @@ def test_files_dropped_move_action(qtbot, view):
     mime.setData(_MIME, b"/tmp/x.txt")
     event = QDropEvent(
         QPointF(5.0, 5.0),
-        Qt.DropAction.MoveAction,
+        Qt.DropAction.CopyAction,
         mime,
         Qt.MouseButton.LeftButton,
-        Qt.KeyboardModifier.NoModifier,
+        Qt.KeyboardModifier.ShiftModifier,
     )
     view._table.dropEvent(event)
 

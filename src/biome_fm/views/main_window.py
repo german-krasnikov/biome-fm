@@ -4,18 +4,54 @@ from __future__ import annotations
 
 from biome_fm.qt import (
     QAction,
+    QCompleter,
     QKeySequence,
     QLineEdit,
     QMainWindow,
     QShortcut,
     QSplitter,
     QStatusBar,
+    QStringListModel,
     Qt,
+    QToolBar,
     QVBoxLayout,
     QWidget,
     Signal,
 )
 from biome_fm.views.action_bar import ActionBar
+
+
+class _HistoryLineEdit(QLineEdit):
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._history: list[str] = []
+        self._idx = -1
+
+    @property
+    def history(self) -> list[str]:
+        return self._history
+
+    def push(self, cmd: str) -> None:
+        if cmd in self._history:
+            self._history.remove(cmd)
+        self._history.insert(0, cmd)
+        self._history = self._history[:30]
+
+    def keyPressEvent(self, event: object) -> None:
+        if not hasattr(event, "key"):
+            super().keyPressEvent(event)  # type: ignore[arg-type]
+            return
+        key = event.key()
+        if key == Qt.Key.Key_Up and self._history:
+            self._idx = min(self._idx + 1, len(self._history) - 1)
+            self.setText(self._history[self._idx])
+            return
+        if key == Qt.Key.Key_Down:
+            self._idx = max(self._idx - 1, -1)
+            self.setText(self._history[self._idx] if self._idx >= 0 else "")
+            return
+        self._idx = -1
+        super().keyPressEvent(event)  # type: ignore[arg-type]
 
 
 class MainWindow(QMainWindow):
@@ -24,6 +60,11 @@ class MainWindow(QMainWindow):
     forward_requested = Signal()
     up_requested = Signal()
     home_requested = Signal()
+    undo_requested = Signal()
+    redo_requested = Signal()
+    refresh_requested = Signal()
+    new_tab_requested = Signal()
+    command_submitted = Signal(str)
 
     def __init__(
         self,
@@ -35,6 +76,10 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Biome FM")
         self.resize(1200, 700)
         self._ai_panel = ai_panel
+        self._act_ai = QAction("AI", self, checkable=True)
+        self._act_ai.setToolTip("Toggle AI panel (Ctrl+I)")
+        if self._ai_panel is not None:
+            self._act_ai.toggled.connect(self._ai_panel.setVisible)
         self._setup_ui(left, right)
         self._setup_shortcuts()
 
@@ -53,9 +98,16 @@ class MainWindow(QMainWindow):
             self._ai_panel.hide()
         layout.addWidget(self._splitter, 1)
 
-        self._cmd_line = QLineEdit()
+        self._cmd_line = _HistoryLineEdit()
         self._cmd_line.setPlaceholderText("Command line...")
-        self._cmd_line.hide()
+        self._cmd_line.returnPressed.connect(self._on_cmd)
+
+        self._completer_model = QStringListModel()
+        self._completer = QCompleter(self._completer_model, self)
+        self._completer.setMaxVisibleItems(15)
+        self._completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self._cmd_line.setCompleter(self._completer)
+
         layout.addWidget(self._cmd_line)
 
         self.action_bar = ActionBar()
@@ -64,6 +116,37 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
         self.setStatusBar(QStatusBar())
         self._build_menubar()
+        self._build_toolbar()
+
+    def _on_cmd(self) -> None:
+        cmd = self._cmd_line.text().strip()
+        if not cmd:
+            return
+        self._cmd_line.push(cmd)
+        self._completer_model.setStringList(self._cmd_line.history)
+        self.command_submitted.emit(cmd)
+        self._cmd_line.clear()
+
+    def _build_toolbar(self) -> None:
+        tb = QToolBar("Navigation", self)
+        tb.setMovable(False)
+
+        act_refresh = QAction("↺ Refresh", self)
+        act_refresh.setToolTip("Refresh active pane (Ctrl+R)")
+        act_refresh.triggered.connect(self.refresh_requested)
+        tb.addAction(act_refresh)
+
+        tb.addSeparator()
+
+        act_tab = QAction("+ Tab", self)
+        act_tab.setToolTip("New tab (Ctrl+T)")
+        act_tab.triggered.connect(self.new_tab_requested)
+        tb.addAction(act_tab)
+
+        tb.addSeparator()
+        tb.addAction(self._act_ai)
+
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, tb)
 
     def _build_menubar(self) -> None:
         mb = self.menuBar()
@@ -88,8 +171,13 @@ class MainWindow(QMainWindow):
             a.triggered.connect(sig.emit)
             em.addAction(a)
         em.addSeparator()
-        for label in ("&Undo\tCtrl+Z", "&Redo\tCtrl+Shift+Z"):
-            em.addAction(QAction(label, self))
+        for label, sig in [
+            ("&Undo\tCtrl+Z", self.undo_requested),
+            ("&Redo\tCtrl+Shift+Z", self.redo_requested),
+        ]:
+            a = QAction(label, self)
+            a.triggered.connect(sig.emit)
+            em.addAction(a)
 
         nm = mb.addMenu("&Navigate")
         for label, sig in [
@@ -104,10 +192,10 @@ class MainWindow(QMainWindow):
 
         vm = mb.addMenu("&View")
         a = QAction("Toggle &AI\tCtrl+I", self)
-        a.triggered.connect(self.toggle_ai_panel)
+        a.triggered.connect(lambda: self._act_ai.toggle())
         vm.addAction(a)
         act_cmd = QAction("&Command Line", self, checkable=True)
-        act_cmd.setChecked(False)
+        act_cmd.setChecked(True)
         act_cmd.toggled.connect(self._cmd_line.setVisible)
         vm.addAction(act_cmd)
 
@@ -122,14 +210,14 @@ class MainWindow(QMainWindow):
             QShortcut(QKeySequence(key), self).activated.connect(signal)
         self.tab_shortcut = QShortcut(Qt.Key.Key_Tab, self)
 
-    def closeEvent(self, event) -> None:  # type: ignore[override]
+    def closeEvent(self, event: object) -> None:
         self.about_to_close.emit()
-        super().closeEvent(event)
+        super().closeEvent(event)  # type: ignore[arg-type]
 
     def toggle_ai_panel(self) -> None:
         if self._ai_panel is None:
             return
-        self._ai_panel.setVisible(not self._ai_panel.isVisible())
+        self._act_ai.toggle()
 
     @property
     def splitter_sizes(self) -> list[int]:

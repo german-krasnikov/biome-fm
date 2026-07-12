@@ -40,6 +40,8 @@ class ManagerPresenter:
         self._vfs = vfs
         self._history = history or CommandHistory()
         self._bus = bus
+        self._mirror = False
+        self._mirroring = False
 
     @property
     def active_pane_id(self) -> PaneId:
@@ -53,6 +55,10 @@ class ManagerPresenter:
     def can_redo(self) -> bool:
         return self._history.can_redo
 
+    @property
+    def mirror(self) -> bool:
+        return self._mirror
+
     def set_active_pane(self, pane_id: PaneId) -> None:
         if pane_id == self._active:
             return
@@ -61,6 +67,20 @@ class ManagerPresenter:
 
     def switch_active_pane(self) -> None:
         self.set_active_pane(_OTHER[self._active])
+
+    def toggle_mirror(self) -> None:
+        self._mirror = not self._mirror
+
+    def navigate_active(self, path: Path) -> None:
+        if self._mirroring:
+            return
+        self._mirroring = True
+        try:
+            self._source().navigate_to(path)
+            if self._mirror:
+                self._target().navigate_to(path)
+        finally:
+            self._mirroring = False
 
     def copy_selected(self, items: list[FileItem]) -> None:
         if not items:
@@ -84,12 +104,12 @@ class ManagerPresenter:
         self._run(MkdirCmd(path, self._vfs), f"mkdir {name}")
 
     def rename(self, item: FileItem, new_name: str) -> None:
-        self._run(RenameCmd(item.path, new_name, self._vfs), f"Rename → {new_name}")
+        self._run(RenameCmd(item.path, new_name, self._vfs), f"Rename -> {new_name}")
 
     def drop_files(self, paths: list[Path], target_pane_id: str, move: bool) -> None:
         if not paths:
             return
-        dst = self._panes[target_pane_id].current_path  # type: ignore[literal-required]
+        dst = self._panes[target_pane_id].current_path  # type: ignore[index]
         sources = [p.resolve() for p in paths if p.exists() and p.parent.resolve() != dst.resolve()]
         if not sources:
             return
@@ -103,8 +123,6 @@ class ManagerPresenter:
     def redo(self) -> None:
         self._history.redo()
         self._refresh_both()
-
-    # ── internals ─────────────────────────────────────────────────────────────
 
     def _source(self) -> PanePresenter:
         return self._panes[self._active]

@@ -64,3 +64,22 @@ class OperationFinished:
     description: str
     success: bool
     error: str = ""
+
+
+@dataclass(frozen=True)
+class PaneNavigated:
+    """Active pane navigated to a new path."""
+    pane_id: str
+    path: Path
+
+
+@dataclass(frozen=True)
+class SyncBrowsingToggled:
+    """Sync browsing mode toggled."""
+    enabled: bool
+
+
+@dataclass(frozen=True)
+class BookmarkChanged:
+    """Bookmark list changed."""
+    pass

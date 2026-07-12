@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
-from biome_fm.models.directory_model import COL_NAME, DirectoryModel, DirSortFilterProxy
+from biome_fm.models.directory_model import (
+    COL_EXT,
+    COL_MODIFIED,
+    COL_NAME,
+    COL_SIZE,
+    DirectoryModel,
+    DirSortFilterProxy,
+)
 from biome_fm.models.file_item import FileItem
 from biome_fm.qt import (
     QDrag,
@@ -16,18 +24,23 @@ from biome_fm.qt import (
     QMimeData,
     QModelIndex,
     QPushButton,
+    QStyle,
     Qt,
     QTableView,
     QVBoxLayout,
     QWidget,
     Signal,
 )
+from biome_fm.views.filter_bar import FilterBar
+from biome_fm.views.jump_bar import JumpBar
 
 _MIME = "application/x-biome-fm-paths"
 
 
 class _PaneTableView(QTableView):
-    """QTableView subclass: Space for mark toggle, drag-and-drop, context menu."""
+    """QTableView subclass: key routing, drag-and-drop, context menu."""
+
+    _uniform_row_heights: bool = False
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -37,17 +50,44 @@ class _PaneTableView(QTableView):
         self.setDefaultDropAction(Qt.DropAction.CopyAction)
         self.setDropIndicatorShown(True)
 
-    def keyPressEvent(self, event: object) -> None:  # type: ignore[override]
-        if hasattr(event, "key") and event.key() == Qt.Key.Key_Space:  # type: ignore[union-attr]
-            parent = self.parent()
-            if isinstance(parent, PaneView):
+    # QTreeView compat: QTableView lacks this; Fixed row sections achieve same effect
+    def setUniformRowHeights(self, uniform: bool) -> None:
+        self._uniform_row_heights = uniform
+
+    def uniformRowHeights(self) -> bool:
+        return self._uniform_row_heights
+
+    def keyPressEvent(self, event: object) -> None:
+        if not hasattr(event, "key"):
+            super().keyPressEvent(event)  # type: ignore[arg-type]
+            return
+        key = event.key()
+        mods = event.modifiers()  # type: ignore[attr-defined]
+        parent = self.parent()
+        if isinstance(parent, PaneView):
+            if key == Qt.Key.Key_Space:
+                parent.view_requested.emit()
+                return
+            if key == Qt.Key.Key_Down and mods & Qt.KeyboardModifier.ShiftModifier:
                 parent.mark_toggle_requested.emit()
                 return
+            if key == Qt.Key.Key_Up and mods & Qt.KeyboardModifier.ShiftModifier:
+                parent.mark_toggle_up_requested.emit()
+                return
+            if key == Qt.Key.Key_Slash:
+                parent.filter_bar.activate()
+                return
+        text = event.text()  # type: ignore[attr-defined]
+        ctrl_or_alt = Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier
+        if (text and text.isprintable() and not (mods & ctrl_or_alt)
+                and key != Qt.Key.Key_Space and isinstance(parent, PaneView)):
+            parent.jump_bar.append_char(text)
+            return
         super().keyPressEvent(event)  # type: ignore[arg-type]
 
-    def mimeData(self, indexes: object) -> QMimeData:  # type: ignore[override]
+    def mimeData(self, indexes: object) -> QMimeData:
         pane = self.parent()
-        rows = {idx.row() for idx in indexes}  # type: ignore[union-attr]
+        rows = {idx.row() for idx in indexes}  # type: ignore[attr-defined]
         paths = []
         for proxy_row in rows:
             if isinstance(pane, PaneView):
@@ -59,7 +99,7 @@ class _PaneTableView(QTableView):
         mime.setData(_MIME, "\n".join(paths).encode())
         return mime
 
-    def startDrag(self, supported_actions: Qt.DropAction) -> None:  # type: ignore[override]
+    def startDrag(self, supported_actions: Qt.DropAction) -> None:
         indexes = self.selectedIndexes()
         if not indexes:
             return
@@ -68,31 +108,31 @@ class _PaneTableView(QTableView):
         drag.setMimeData(mime)
         drag.exec(supported_actions)
 
-    def dragEnterEvent(self, event: object) -> None:  # type: ignore[override]
-        if hasattr(event, "mimeData") and event.mimeData().hasFormat(_MIME):  # type: ignore[union-attr]
-            event.acceptProposedAction()  # type: ignore[union-attr]
+    def dragEnterEvent(self, event: object) -> None:
+        if hasattr(event, "mimeData") and event.mimeData().hasFormat(_MIME):
+            event.acceptProposedAction()  # type: ignore[attr-defined]
         else:
             super().dragEnterEvent(event)  # type: ignore[arg-type]
 
-    def dragMoveEvent(self, event: object) -> None:  # type: ignore[override]
-        if hasattr(event, "mimeData") and event.mimeData().hasFormat(_MIME):  # type: ignore[union-attr]
-            event.acceptProposedAction()  # type: ignore[union-attr]
+    def dragMoveEvent(self, event: object) -> None:
+        if hasattr(event, "mimeData") and event.mimeData().hasFormat(_MIME):
+            event.acceptProposedAction()  # type: ignore[attr-defined]
         else:
             super().dragMoveEvent(event)  # type: ignore[arg-type]
 
-    def dropEvent(self, event: object) -> None:  # type: ignore[override]
-        if not (hasattr(event, "mimeData") and event.mimeData().hasFormat(_MIME)):  # type: ignore[union-attr]
+    def dropEvent(self, event: object) -> None:
+        if not (hasattr(event, "mimeData") and event.mimeData().hasFormat(_MIME)):
             super().dropEvent(event)  # type: ignore[arg-type]
             return
-        raw = event.mimeData().data(_MIME).data().decode()  # type: ignore[union-attr]
+        raw = event.mimeData().data(_MIME).data().decode()
         paths = [Path(p) for p in raw.splitlines() if p]
-        move = event.proposedAction() == Qt.DropAction.MoveAction  # type: ignore[union-attr]
-        event.acceptProposedAction()  # type: ignore[union-attr]
+        move = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)  # type: ignore[attr-defined]
+        event.acceptProposedAction()  # type: ignore[attr-defined]
         pane = self.parent()
         if isinstance(pane, PaneView):
             pane.files_dropped.emit(paths, move)
 
-    def contextMenuEvent(self, event: object) -> None:  # type: ignore[override]
+    def contextMenuEvent(self, event: object) -> None:
         p = self.parent()
         if not isinstance(p, PaneView):
             return
@@ -104,13 +144,22 @@ class _PaneTableView(QTableView):
             ("rename", "Rename\tF9"),
         ]:
             menu.addAction(label, lambda n=action_name: p.context_action_requested.emit(n))
-        menu.exec(event.globalPos())  # type: ignore[union-attr]
+        menu.addSeparator()
+        menu.addAction(
+            "Copy Path\tCtrl+Shift+C", lambda: p.context_action_requested.emit("copy_path")
+        )
+        menu.addAction("View\tF3", lambda: p.context_action_requested.emit("quick_look"))
+        finder_label = "Open in Finder" if sys.platform == "darwin" else "Open in File Manager"
+        menu.addAction(finder_label, lambda: p.context_action_requested.emit("open_finder"))
+        menu.exec(event.globalPos())  # type: ignore[attr-defined]
 
 
 class PaneView(QWidget):
     item_activated = Signal(object)           # FileItem
     path_change_requested = Signal(object)    # Path
     mark_toggle_requested = Signal()
+    view_requested = Signal()               # Space — Quick Look preview
+    mark_toggle_up_requested = Signal()     # Shift+Up — mark + retreat cursor
     back_requested = Signal()
     forward_requested = Signal()
     up_requested = Signal()
@@ -130,20 +179,23 @@ class PaneView(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2)
 
-        # nav bar (back/forward/up/home + path bar inline)
         nav = QWidget()
         nav_layout = QHBoxLayout(nav)
         nav_layout.setContentsMargins(0, 0, 0, 0)
         nav_layout.setSpacing(2)
-        for label, signal in [
-            ("<", self.back_requested),
-            (">", self.forward_requested),
-            ("↑", self.up_requested),
-            ("~", self.home_requested),
+        _SP = QStyle.StandardPixmap
+        for sp, signal, name, tip in [
+            (_SP.SP_ArrowBack, self.back_requested, "nav_back", "Back (Alt+Left)"),
+            (_SP.SP_ArrowForward, self.forward_requested, "nav_forward", "Forward (Alt+Right)"),
+            (_SP.SP_ArrowUp, self.up_requested, "nav_up", "Up (Alt+Up)"),
+            (_SP.SP_DirHomeIcon, self.home_requested, "nav_home", "Home (Alt+Home)"),
         ]:
-            btn = QPushButton(label)
+            btn = QPushButton()
+            btn.setObjectName(name)
+            btn.setIcon(self.style().standardIcon(sp))
             btn.setFixedWidth(28)
             btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            btn.setToolTip(tip)
             btn.clicked.connect(signal)
             nav_layout.addWidget(btn)
 
@@ -153,12 +205,31 @@ class PaneView(QWidget):
         nav_layout.addWidget(self._path_bar, 1)
         layout.addWidget(nav)
 
+        self.filter_bar = FilterBar(self)
+        self.filter_bar.filter_changed.connect(self._proxy.set_filter)
+        self.filter_bar.closed.connect(lambda: self._proxy.set_filter(""))
+        layout.addWidget(self.filter_bar)
+
         self._table = _PaneTableView(self)
         self._table.setModel(self._proxy)
         self._table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
-        self._table.horizontalHeader().setSectionResizeMode(
-            COL_NAME, QHeaderView.ResizeMode.Stretch
-        )
+        self._table.setShowGrid(False)
+        self._table.setAlternatingRowColors(True)
+        self._table.setUniformRowHeights(True)
+
+        vh = self._table.verticalHeader()
+        vh.setVisible(False)
+        vh.setDefaultSectionSize(22)
+        vh.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+
+        hh = self._table.horizontalHeader()
+        hh.setSectionResizeMode(COL_NAME, QHeaderView.ResizeMode.Stretch)
+        for col in (COL_SIZE, COL_MODIFIED, COL_EXT):
+            hh.setSectionResizeMode(col, QHeaderView.ResizeMode.Interactive)
+        self._table.setColumnWidth(COL_SIZE, 70)
+        self._table.setColumnWidth(COL_MODIFIED, 130)
+        self._table.setColumnWidth(COL_EXT, 45)
+
         self._table.setSortingEnabled(True)
         self._table.activated.connect(self._on_activated)
         layout.addWidget(self._table)
@@ -168,7 +239,9 @@ class PaneView(QWidget):
         self._status_label = QLabel()
         layout.addWidget(self._status_label)
 
-    # ── PaneViewProtocol implementation ──────────────────────────────────────
+        self.jump_bar = JumpBar(self)
+        self.jump_bar.jump_text_changed.connect(self._on_jump)
+        layout.addWidget(self.jump_bar)
 
     def set_items(self, items: list[FileItem]) -> None:
         self._model.set_items(items)
@@ -198,7 +271,16 @@ class PaneView(QWidget):
             if nxt < self._proxy.rowCount():
                 self._table.setCurrentIndex(self._proxy.index(nxt, idx.column()))
 
-    # ── query ─────────────────────────────────────────────────────────────────
+    def retreat_cursor(self) -> None:
+        idx = self._table.currentIndex()
+        if idx.isValid() and idx.row() > 0:
+            self._table.setCurrentIndex(self._proxy.index(idx.row() - 1, idx.column()))
+
+    def set_filter_visible(self, visible: bool) -> None:
+        if visible:
+            self.filter_bar.activate()
+        else:
+            self.filter_bar.deactivate()
 
     def selected_items(self) -> list[FileItem]:
         rows = {idx.row() for idx in self._table.selectedIndexes()}
@@ -217,7 +299,15 @@ class PaneView(QWidget):
         src = self._proxy.mapToSource(idx)
         return self._model.item_at(src.row())
 
-    # ── internal ──────────────────────────────────────────────────────────────
+    def _on_jump(self, text: str) -> None:
+        text_lower = text.lower()
+        for row in range(self._proxy.rowCount()):
+            idx = self._proxy.index(row, 0)
+            src = self._proxy.mapToSource(idx)
+            item = self._model.item_at(src.row())
+            if item and item.name.lower().startswith(text_lower):
+                self._table.setCurrentIndex(idx)
+                return
 
     def _on_activated(self, proxy_index: QModelIndex) -> None:
         src = self._proxy.mapToSource(proxy_index)

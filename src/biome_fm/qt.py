@@ -1,13 +1,15 @@
-"""Centralized PySide6 imports — edit this one file to swap Qt binding."""
+"""Centralized PySide6 imports -- edit this one file to swap Qt binding."""
 
 from PySide6.QtCore import (
     QAbstractTableModel,
+    QFileInfo,
     QMimeData,
     QModelIndex,
     QObject,
     QPersistentModelIndex,
     QSortFilterProxyModel,
     QStandardPaths,
+    QStringListModel,
     Qt,
     QTimer,
     Signal,
@@ -24,7 +26,9 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication,
+    QCompleter,
     QFileDialog,
+    QFileIconProvider,
     QFrame,
     QHBoxLayout,
     QHeaderView,
@@ -41,6 +45,7 @@ from PySide6.QtWidgets import (
     QSplitter,
     QStackedWidget,
     QStatusBar,
+    QStyle,
     QTabBar,
     QTableView,
     QTabWidget,
@@ -57,8 +62,11 @@ __all__ = [
     "QApplication",
     "QBrush",
     "QColor",
+    "QCompleter",
     "QDrag",
     "QFileDialog",
+    "QFileIconProvider",
+    "QFileInfo",
     "QFrame",
     "QHBoxLayout",
     "QHeaderView",
@@ -84,6 +92,8 @@ __all__ = [
     "QStackedWidget",
     "QStandardPaths",
     "QStatusBar",
+    "QStringListModel",
+    "QStyle",
     "QTabBar",
     "QTabWidget",
     "QTableView",
