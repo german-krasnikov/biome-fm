@@ -5,13 +5,11 @@ import warnings
 from pathlib import Path
 
 import pluggy
-import pytest
 
 from biome_fm.plugins.hookspecs import BiomeFMSpec, hookimpl
 from biome_fm.plugins.manager import PluginManager
 from biome_fm.plugins.theme_registry import ThemeRegistry
 from biome_fm.plugins.types import ActionSpec, ColumnDef
-
 
 # ── ThemeRegistry ─────────────────────────────────────────────────────────────
 

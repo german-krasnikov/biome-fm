@@ -1,5 +1,4 @@
 """Integration tests for apply_theme — requires Qt (offscreen)."""
-import pytest
 
 
 def test_apply_theme_dark(qapp):
@@ -29,6 +28,7 @@ def test_theme_switch_fires_event(qapp):
 
 def test_apply_palette_sets_colors(qapp):
     from PySide6.QtGui import QColor, QPalette
+
     from biome_fm.views.theme import apply_theme
     apply_theme(qapp, "dark")
     assert qapp.palette().color(QPalette.ColorRole.Window) == QColor("#1c1c1e")

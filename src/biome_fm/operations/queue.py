@@ -14,7 +14,15 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 
 from biome_fm.commands.base import Command
-from biome_fm.operations.task import OpDone, OpError, OpEvent, OpStarted, OpTask
+from biome_fm.operations.task import (
+    Cancelled,
+    OpCancelled,
+    OpDone,
+    OpError,
+    OpEvent,
+    OpStarted,
+    OpTask,
+)
 
 _id_gen = itertools.count(1)
 
@@ -26,10 +34,23 @@ class OpQueue:
         self._tasks: dict[int, OpTask] = {}
         self._lock = threading.Lock()
 
-    def submit(self, cmd: Command) -> OpTask:
-        task = OpTask(task_id=next(_id_gen), cmd=cmd)
+    def next_task_id(self) -> int:
+        return next(_id_gen)
+
+    def put_event(self, event: OpEvent) -> None:
+        self._events.put(event)
+
+    def submit(
+        self,
+        cmd: Command,
+        cancel: threading.Event | None = None,
+        task_id: int | None = None,
+    ) -> OpTask:
+        tid = task_id if task_id is not None else next(_id_gen)
+        c = cancel or threading.Event()
+        task = OpTask(task_id=tid, cmd=cmd, cancel=c)
         with self._lock:
-            self._tasks[task.task_id] = task
+            self._tasks[tid] = task
         self._pool.submit(self._run, task)
         return task
 
@@ -53,11 +74,16 @@ class OpQueue:
 
     def _run(self, task: OpTask) -> None:
         if task.cancel.is_set():
+            self._events.put(OpCancelled(task.task_id))
+            with self._lock:
+                self._tasks.pop(task.task_id, None)
             return
         self._events.put(OpStarted(task.task_id))
         try:
             task.cmd.execute()
             self._events.put(OpDone(task.task_id))
+        except Cancelled:
+            self._events.put(OpCancelled(task.task_id))
         except Exception as exc:
             self._events.put(OpError(task.task_id, exc))
         finally:

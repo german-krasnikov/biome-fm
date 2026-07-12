@@ -59,7 +59,7 @@ def test_sorting_enabled(view):
 
 def test_files_dropped_signal(qtbot, view):
     received: list[tuple] = []
-    view.files_dropped.connect(lambda paths, move: received.append((paths, move)))
+    view.files_dropped.connect(lambda paths, move, folder: received.append((paths, move)))
 
     mime = QMimeData()
     mime.setData(_MIME, b"/tmp/foo.txt\n/tmp/bar.txt")
@@ -82,7 +82,7 @@ def test_files_dropped_signal(qtbot, view):
 def test_files_dropped_move_action(qtbot, view):
     """Shift held during drop → move=True (Shift-move detection)."""
     received: list[tuple] = []
-    view.files_dropped.connect(lambda paths, move: received.append((paths, move)))
+    view.files_dropped.connect(lambda paths, move, folder: received.append((paths, move)))
 
     mime = QMimeData()
     mime.setData(_MIME, b"/tmp/x.txt")

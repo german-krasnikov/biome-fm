@@ -68,6 +68,7 @@ class MainWindow(QMainWindow):
     command_submitted = Signal(str)
     preview_toggle_requested = Signal()
     ai_toggle_requested = Signal()
+    settings_requested = Signal()
     detach_preview_requested = Signal()
     detach_ai_requested = Signal()
 
@@ -173,7 +174,13 @@ class MainWindow(QMainWindow):
         fm.addAction(QAction("New &Tab\tCtrl+T", self))
         fm.addAction(QAction("Close &Tab\tCtrl+W", self))
         fm.addSeparator()
+        a = QAction("&Settings\tCtrl+,", self)
+        a.setMenuRole(QAction.MenuRole.NoRole)
+        a.triggered.connect(lambda _: self.settings_requested.emit())
+        fm.addAction(a)
+        fm.addSeparator()
         a = QAction("&Quit", self)
+        a.setMenuRole(QAction.MenuRole.NoRole)
         a.triggered.connect(self.close)
         fm.addAction(a)
 

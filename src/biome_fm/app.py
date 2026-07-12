@@ -1,6 +1,7 @@
 """Application bootstrap and DI wiring."""
 from __future__ import annotations
 
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -8,15 +9,25 @@ from biome_fm.ai.provider import make_providers
 from biome_fm.commands.base import CommandHistory
 from biome_fm.commands.registry import CommandEntry, CommandRegistry
 from biome_fm.config import load_config, save_config
-from biome_fm.event_bus import ActivePaneChanged, BookmarkChanged, EventBus, ThemeChanged
+from biome_fm.event_bus import (
+    ActivePaneChanged,
+    AsyncOpSubmitted,
+    BookmarkChanged,
+    EventBus,
+    ShowHiddenToggled,
+    ThemeChanged,
+)
 from biome_fm.models.bookmark_store import BookmarkStore
 from biome_fm.models.vfs_router import VFSRouter
+from biome_fm.operations.queue import OpQueue
+from biome_fm.operations.task import OpCancelled, OpDone, OpError, OpProgress
 from biome_fm.panel_manager import PanelManager
 from biome_fm.plugins.builtin.dark_theme import BuiltinDarkTheme
 from biome_fm.plugins.manager import PluginManager
 from biome_fm.presenters.ai_presenter import AIPresenter
 from biome_fm.presenters.manager_presenter import ManagerPresenter
 from biome_fm.presenters.pane_presenter import PanePresenter, PaneViewProtocol
+from biome_fm.presenters.settings_presenter import SettingsPresenter
 from biome_fm.presenters.tabs_presenter import TabsPresenter
 from biome_fm.preview.presenter import PreviewPresenter
 from biome_fm.preview.providers.fallback import FallbackProvider
@@ -42,6 +53,8 @@ from biome_fm.views.main_window import MainWindow
 from biome_fm.views.pane_side_view import PaneSideView
 from biome_fm.views.panel_coordinator import PanelCoordinator
 from biome_fm.views.preview_panel import PreviewPanel
+from biome_fm.views.progress_dialog import ProgressDialog
+from biome_fm.views.settings_dialog import SettingsDialog
 
 
 def _config_dir() -> Path:
@@ -86,6 +99,7 @@ def create_app() -> MainWindow:
     bus = EventBus()
     history = CommandHistory()
     store = BookmarkStore(cfg_dir / "bookmarks.toml")
+    op_queue = OpQueue(max_workers=2)
 
     # ── Tabs + Panes ──────────────────────────────────────────────
     left_side = PaneSideView()
@@ -95,7 +109,10 @@ def create_app() -> MainWindow:
 
     # ── Preview (early — needed by _wire_preview, called during restore) ──
     preview_registry = PreviewRegistry()
-    for _p in [ImagePreviewProvider(), MarkdownPreviewProvider(), TextPreviewProvider(), FallbackProvider()]:
+    for _p in [
+        ImagePreviewProvider(), MarkdownPreviewProvider(),
+        TextPreviewProvider(), FallbackProvider(),
+    ]:
         preview_registry.register(_p)
     preview_panel = PreviewPanel()
     preview_presenter = PreviewPresenter(view=preview_panel, registry=preview_registry)
@@ -143,16 +160,20 @@ def create_app() -> MainWindow:
     # ── Manager ───────────────────────────────────────────────────
     manager = ManagerPresenter(
         left=left_tabs, right=right_tabs, vfs=vfs,  # type: ignore[arg-type]
-        history=history, bus=bus,
+        history=history, bus=bus, config=cfg, op_queue=op_queue,
     )
+    _progress_dialogs: dict[int, ProgressDialog] = {}
 
     # ── Wire DnD for existing tabs ────────────────────────────────────────────
+    def _wire_dnd(view: object, pane_id: str) -> None:
+        sig = getattr(view, "files_dropped", None)
+        if sig is not None:
+            pid = pane_id
+            sig.connect(lambda p, m, f, _pid=pid: manager.drop_files(p, _pid, m, f))
+
     for _pid, _tabs in [("left", left_tabs), ("right", right_tabs)]:
         for _i in range(_tabs.tab_count):
-            _v = _tabs.view_at(_i)
-            sig = getattr(_v, "files_dropped", None)
-            if sig is not None:
-                sig.connect(lambda paths, move, pid=_pid: manager.drop_files(paths, pid, move))
+            _wire_dnd(_tabs.view_at(_i), _pid)
 
     providers = make_providers(cfg)
     ai_panel = AIChatPanel()
@@ -225,12 +246,51 @@ def create_app() -> MainWindow:
     preview_timer.timeout.connect(preview_presenter.drain)
     preview_timer.start()
 
+    # ── Op queue drain ────────────────────────────────────────────
+    def _drain_op_events() -> None:
+        for event in op_queue.drain():
+            dlg = _progress_dialogs.get(event.task_id)  # type: ignore[attr-defined]
+            if isinstance(event, OpProgress):
+                if dlg:
+                    dlg.update_progress(event)
+            elif isinstance(event, OpDone):
+                cmd = manager.pop_pending_cmd(event.task_id)
+                if cmd is not None:
+                    history.push(cmd)
+                manager._refresh_both()
+                if dlg:
+                    dlg.mark_done()
+                    _progress_dialogs.pop(event.task_id, None)
+            elif isinstance(event, OpError):
+                manager._refresh_both()
+                if dlg:
+                    dlg.mark_error(event.error)
+                    _progress_dialogs.pop(event.task_id, None)
+            elif isinstance(event, OpCancelled):
+                manager._refresh_both()
+                if dlg:
+                    dlg.mark_cancelled()
+                    _progress_dialogs.pop(event.task_id, None)
+
+    def _on_async_op(ev: AsyncOpSubmitted) -> None:
+        dlg = ProgressDialog(ev.task_id, ev.description, window)
+        dlg.set_cancel_callback(lambda: op_queue.cancel(ev.task_id))
+        _progress_dialogs[ev.task_id] = dlg
+        dlg.show()
+
+    bus.subscribe(AsyncOpSubmitted, _on_async_op)
+
+    op_timer = QTimer(window)
+    op_timer.setInterval(50)
+    op_timer.timeout.connect(_drain_op_events)
+    op_timer.start()
+
     # ── Active side helper ────────────────────────────────────────
     def _active() -> TabsPresenter:
         return left_tabs if manager.active_pane_id == "left" else right_tabs
 
     def _run_cmd(cmd: str) -> None:
-        subprocess.Popen(cmd, shell=True, cwd=str(_active().current_path))
+        subprocess.Popen(shlex.split(cmd), cwd=str(_active().current_path))
 
     window.command_submitted.connect(_run_cmd)
 
@@ -245,9 +305,7 @@ def create_app() -> MainWindow:
         _wire_ctx(v)
         _wire_plugin_ctx(v, pid)
         _wire_bm(v, side)
-        sig = getattr(v, "files_dropped", None)
-        if sig is not None:
-            sig.connect(lambda paths, move, _pid=pid: manager.drop_files(paths, _pid, move))
+        _wire_dnd(v, pid)
 
     # ── Dialog helpers ────────────────────────────────────────────
     def _ask_mkdir() -> None:
@@ -334,6 +392,7 @@ def create_app() -> MainWindow:
         bus.publish(BookmarkChanged())
 
     QShortcut(QKeySequence("Ctrl+D"), window).activated.connect(_bookmark_toggle)
+    QShortcut(QKeySequence("Ctrl+H"), window).activated.connect(manager.toggle_hidden)
 
     # ── Shortcuts ─────────────────────────────────────────────────
     QShortcut(QKeySequence("Ctrl+T"), window).activated.connect(_new_tab)
@@ -355,7 +414,15 @@ def create_app() -> MainWindow:
     bar.mkdir_requested.connect(_ask_mkdir)
     bar.rename_requested.connect(_ask_rename)
     bar.exit_requested.connect(window.close)
-    window.tab_shortcut.activated.connect(manager.switch_active_pane)
+
+    def _switch_pane() -> None:
+        manager.switch_active_pane()
+        target = right_tabs if manager.active_pane_id == "right" else left_tabs
+        v = target.view_at(target.active_idx)
+        if hasattr(v, "_table"):
+            v._table.setFocus()  # type: ignore[attr-defined]
+
+    window.tab_shortcut.activated.connect(_switch_pane)
 
     # ── Nav signals from MainWindow toolbar ───────────────────────
     for attr, slot in [
@@ -407,6 +474,24 @@ def create_app() -> MainWindow:
     left_side.set_active(True)
     right_side.set_active(False)
 
+    def _all_proxies():
+        for tabs in (left_tabs, right_tabs):
+            for v in tabs._views:
+                p = getattr(v, "_proxy", None)
+                if p is not None:
+                    yield p
+
+    def _on_show_hidden(ev: ShowHiddenToggled) -> None:
+        for proxy in _all_proxies():
+            proxy.set_show_hidden(ev.enabled)
+        save_config(cfg, cfg_dir / "config.toml")
+
+    bus.subscribe(ShowHiddenToggled, _on_show_hidden)
+
+    if cfg.show_hidden:
+        for proxy in _all_proxies():
+            proxy.set_show_hidden(True)
+
     def _on_theme_changed(ev: ThemeChanged) -> None:
         for side in (left_side, right_side):
             side.style().unpolish(side)
@@ -428,6 +513,27 @@ def create_app() -> MainWindow:
 
     QApplication.instance().focusChanged.connect(_on_focus_changed)  # type: ignore[union-attr]
 
+    # ── Settings ─────────────────────────────────────────────────
+    def _open_settings() -> None:
+        themes_dir = Path(__file__).parent / "themes"
+        available_themes = sorted(p.stem for p in themes_dir.glob("*.toml"))
+        plugin_names = [p["name"] for p in plugins.get_installed_plugins()]
+        dlg = SettingsDialog(window)
+        old_theme = cfg.theme
+        presenter = SettingsPresenter(
+            cfg, dlg,
+            available_themes=available_themes,
+            available_plugins=plugin_names,
+        )
+        if dlg.exec():
+            presenter.apply()
+            if cfg.theme != old_theme:
+                from biome_fm.views.theme import apply_theme
+                apply_theme(QApplication.instance(), cfg.theme, plugin_manager=plugins)
+                # apply_theme already publishes ThemeChanged(name, tokens) via global bus
+            bus.publish(ShowHiddenToggled(enabled=cfg.show_hidden))
+            save_config(cfg, cfg_dir / "config.toml")
+
     # ── Command palette ───────────────────────────────────────────
     registry = CommandRegistry()
     plugins.call_register_commands(registry)
@@ -448,15 +554,19 @@ def create_app() -> MainWindow:
         CommandEntry("Copy Path",      "Ctrl+Shift+C", _copy_path),
         CommandEntry("Preview",        "F3",           _toggle_preview_f3),
         CommandEntry("Sync Browsing",  "Ctrl+Shift+L", manager.toggle_mirror),
+        CommandEntry("Toggle Hidden",  "Ctrl+H",       manager.toggle_hidden),
         CommandEntry("Back",           "Alt+Left",     lambda: _active().go_back()),
         CommandEntry("Forward",        "Alt+Right",    lambda: _active().go_forward()),
         CommandEntry("Up",             "Alt+Up",       lambda: _active().go_up()),
         CommandEntry("Home",           "Alt+Home",     lambda: _active().go_home()),
+        CommandEntry("Settings",         "Ctrl+,",       _open_settings),
     ]:
         registry.register(entry)
 
     palette = CommandPalette(registry, parent=window)
     QShortcut(QKeySequence("Ctrl+P"), window).activated.connect(palette.open)
+    QShortcut(QKeySequence("Ctrl+,"), window).activated.connect(_open_settings)
+    window.settings_requested.connect(_open_settings)
 
     # ── Save on close ─────────────────────────────────────────────
     def _on_close() -> None:
@@ -482,9 +592,11 @@ def create_app() -> MainWindow:
         drain_timer.stop()
         preview_presenter.shutdown()
         preview_timer.stop()
+        op_timer.stop()
+        op_queue.shutdown(wait=False)
 
     window.about_to_close.connect(_on_close)
     window._refs = (manager, left_tabs, right_tabs, ai_presenter, drain_timer, plugins,  # type: ignore[attr-defined]
-                    preview_presenter, preview_timer, coord, panel_mgr)
+                    preview_presenter, preview_timer, coord, panel_mgr, op_queue, op_timer)
 
     return window

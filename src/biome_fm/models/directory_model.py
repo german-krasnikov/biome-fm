@@ -130,20 +130,27 @@ class DirSortFilterProxy(QSortFilterProxyModel):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._filter = ""
+        self._show_hidden = False
 
     def set_filter(self, text: str) -> None:
         self._filter = text.lower()
-        self.invalidateFilter()
+        self.invalidateRowsFilter()
+
+    def set_show_hidden(self, show: bool) -> None:
+        self._show_hidden = show
+        self.invalidateRowsFilter()
 
     def filterAcceptsRow(self, source_row: int, source_parent: _Idx) -> bool:
-        if not self._filter:
-            return True
         _role = Qt.ItemDataRole.UserRole
         model = self.sourceModel()
         item: FileItem | None = model.data(model.index(source_row, COL_NAME), _role)
         if item is None or item.name == "..":
             return True
-        return self._filter in item.name.lower()
+        if not self._show_hidden and item.name.startswith("."):
+            return False
+        if self._filter:
+            return self._filter in item.name.lower()
+        return True
 
     def lessThan(self, left: _Idx, right: _Idx) -> bool:
         _role = Qt.ItemDataRole.UserRole

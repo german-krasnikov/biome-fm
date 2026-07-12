@@ -8,6 +8,10 @@ from dataclasses import dataclass, field
 from biome_fm.commands.base import Command
 
 
+class Cancelled(Exception):
+    """Raised inside a Command to signal user cancellation."""
+
+
 @dataclass(frozen=True)
 class OpStarted:
     task_id: int
@@ -16,8 +20,11 @@ class OpStarted:
 @dataclass(frozen=True)
 class OpProgress:
     task_id: int
-    done: int
-    total: int
+    files_done: int
+    files_total: int
+    bytes_done: int
+    bytes_total: int
+    current_file: str
 
 
 @dataclass(frozen=True)
@@ -31,7 +38,12 @@ class OpError:
     error: Exception
 
 
-OpEvent = OpStarted | OpProgress | OpDone | OpError
+@dataclass(frozen=True)
+class OpCancelled:
+    task_id: int
+
+
+OpEvent = OpStarted | OpProgress | OpDone | OpError | OpCancelled
 
 
 @dataclass

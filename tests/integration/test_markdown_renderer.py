@@ -1,8 +1,6 @@
 """Integration tests for markdown_renderer — requires QApplication."""
 import os
 
-import pytest
-
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 

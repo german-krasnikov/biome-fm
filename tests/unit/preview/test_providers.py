@@ -1,8 +1,6 @@
 """Unit tests for preview providers — no Qt."""
 from pathlib import Path
 
-import pytest
-
 from biome_fm.preview.provider import ContentKind, PreviewRequest
 from biome_fm.preview.providers.fallback import FallbackProvider
 from biome_fm.preview.providers.image import ImagePreviewProvider

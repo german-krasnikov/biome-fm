@@ -33,6 +33,15 @@ class CommandHistory:
                 self._undo_stack.pop(0)
         self._redo_stack.clear()
 
+    def push(self, cmd: Command) -> None:
+        """Record an already-executed command for undo (no execute call)."""
+        if not cmd.undoable:
+            return
+        self._undo_stack.append(cmd)
+        if len(self._undo_stack) > self._max_depth:
+            self._undo_stack.pop(0)
+        self._redo_stack.clear()
+
     def undo(self) -> None:
         if not self._undo_stack:
             return

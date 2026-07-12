@@ -197,8 +197,21 @@ QFrame#command-palette {
 }
 
 PaneSideView[active="true"] {
-    border: 1px solid $accent;
+    border-left: 3px solid $accent;
+    border-top: 1px solid $accent;
+    border-right: none;
+    border-bottom: none;
 }
 PaneSideView[active="false"] {
-    border: 1px solid transparent;
+    border-left: 3px solid transparent;
+    border-top: 1px solid transparent;
+    border-right: none;
+    border-bottom: none;
+}
+PaneSideView[active="false"] QTableView {
+    selection-background-color: $surface2;
+    selection-color: $text_dim;
+}
+PaneSideView[active="false"] QTabBar::tab:selected {
+    border-bottom-color: $border;
 }

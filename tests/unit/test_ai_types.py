@@ -1,7 +1,7 @@
 """Tests for AI content types."""
 from pathlib import Path
 
-from biome_fm.ai.types import ImageContent, FileContent
+from biome_fm.ai.types import FileContent, ImageContent
 
 
 def test_image_content_frozen():

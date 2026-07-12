@@ -6,6 +6,7 @@ from pathlib import Path as _P
 from biome_fm.qt import (
     QApplication,
     QStackedWidget,
+    QTableView,
     Qt,
     QTabBar,
     QVBoxLayout,
@@ -40,13 +41,14 @@ class PaneSideView(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._tab_bar = _PathTabBar()
         self._tab_bar.setTabsClosable(False)
         self._tab_bar.setMovable(True)
         self._stack = QStackedWidget()
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(3, 1, 0, 0)
         layout.setSpacing(0)
         layout.addWidget(self._tab_bar)
         layout.addWidget(self._stack)
@@ -98,8 +100,13 @@ class PaneSideView(QWidget):
 
     def set_active(self, active: bool) -> None:
         self.setProperty("active", active)
-        self.style().unpolish(self)
-        self.style().polish(self)
+        s = self.style()
+        s.unpolish(self)
+        s.polish(self)
+        self.update()
+        for tv in self.findChildren(QTableView):
+            s.unpolish(tv)
+            s.polish(tv)
 
     # ── Factory ──────────────────────────────────────────────────
 

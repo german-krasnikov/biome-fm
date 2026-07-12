@@ -1,5 +1,6 @@
 """Integration tests for dynamic tab close button."""
 import pytest
+
 from biome_fm.views.pane_side_view import PaneSideView
 
 

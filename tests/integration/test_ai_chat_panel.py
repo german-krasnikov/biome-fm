@@ -1,9 +1,7 @@
 """Integration tests for AIChatPanel — Qt required."""
-from pathlib import Path
 
 import pytest
 from PySide6.QtCore import QMimeData, QUrl
-
 
 from biome_fm.views.ai_chat_panel import AIChatPanel
 

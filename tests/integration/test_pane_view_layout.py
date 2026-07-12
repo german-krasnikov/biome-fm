@@ -1,5 +1,6 @@
 """Integration tests for PaneView table layout."""
 import pytest
+
 from biome_fm.models.directory_model import COL_EXT, COL_MODIFIED, COL_NAME, COL_SIZE
 from biome_fm.qt import QHeaderView
 from biome_fm.views.pane_view import PaneView

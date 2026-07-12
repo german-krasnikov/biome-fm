@@ -1,8 +1,6 @@
 """Integration tests for PreviewPanel — requires Qt (offscreen)."""
 import os
 
-import pytest
-
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from biome_fm.preview.provider import ContentKind, PreviewResult

@@ -1,8 +1,6 @@
 """Bookmark dropdown menu widget."""
 from __future__ import annotations
 
-from pathlib import Path
-
 from biome_fm.qt import QHBoxLayout, QMenu, Qt, QToolButton, QWidget, Signal
 
 

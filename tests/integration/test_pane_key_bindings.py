@@ -1,8 +1,10 @@
 """Integration tests for PaneView key bindings."""
-import pytest
 from pathlib import Path
+
+import pytest
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QKeyEvent
+
 from biome_fm.models.file_item import FileItem
 from biome_fm.views.pane_view import PaneView
 

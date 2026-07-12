@@ -1,6 +1,8 @@
 """Integration tests for BookmarkMenu widget."""
 from pathlib import Path
+
 import pytest
+
 from biome_fm.models.bookmark_store import BookmarkStore
 from biome_fm.views.bookmark_menu import BookmarkMenu
 

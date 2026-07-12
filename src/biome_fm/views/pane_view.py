@@ -17,6 +17,7 @@ from biome_fm.models.file_item import FileItem
 from biome_fm.qt import (
     QComboBox,
     QDrag,
+    QEvent,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -25,6 +26,7 @@ from biome_fm.qt import (
     QModelIndex,
     QPushButton,
     QStyle,
+    QStyledItemDelegate,
     Qt,
     QTableView,
     QVBoxLayout,
@@ -56,10 +58,30 @@ class _PathComboBox(QComboBox):
             self.path_entered.emit(text)
 
 
+class _DropHintDelegate(QStyledItemDelegate):
+    """Draws highlight border around folder row during DnD hover."""
+
+    def __init__(self, table: _PaneTableView) -> None:
+        super().__init__(table)
+        self._table = table
+
+    def paint(self, painter, option, index) -> None:
+        super().paint(painter, option, index)
+        if index.row() == self._table._drop_hint_row:
+            painter.save()
+            pen = painter.pen()
+            pen.setColor(option.palette.highlight().color())
+            pen.setWidth(2)
+            painter.setPen(pen)
+            painter.drawRect(option.rect.adjusted(1, 1, -1, -1))
+            painter.restore()
+
+
 class _PaneTableView(QTableView):
     """QTableView subclass: key routing, drag-and-drop, context menu."""
 
     _uniform_row_heights: bool = False
+    _drop_hint_row: int = -1
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -68,6 +90,7 @@ class _PaneTableView(QTableView):
         self.setDragDropMode(QTableView.DragDropMode.DragDrop)
         self.setDefaultDropAction(Qt.DropAction.CopyAction)
         self.setDropIndicatorShown(True)
+        self.setItemDelegate(_DropHintDelegate(self))
 
     # QTreeView compat: QTableView lacks this; Fixed row sections achieve same effect
     def setUniformRowHeights(self, uniform: bool) -> None:
@@ -75,6 +98,21 @@ class _PaneTableView(QTableView):
 
     def uniformRowHeights(self) -> bool:
         return self._uniform_row_heights
+
+    def event(self, event: object) -> bool:
+        # Intercept Tab at event() level — before Qt's focus-traversal machinery
+        # (QAbstractItemView accepts ShortcutOverride for Tab, suppressing QShortcut)
+        if (hasattr(event, "type") and
+                event.type() == QEvent.Type.KeyPress and  # type: ignore[attr-defined]
+                hasattr(event, "key") and
+                event.key() == Qt.Key.Key_Tab and  # type: ignore[attr-defined]
+                not (event.modifiers() & Qt.KeyboardModifier.ControlModifier)):  # type: ignore[attr-defined]
+            ts = getattr(self.window(), "tab_shortcut", None)
+            if ts is not None:
+                ts.activated.emit()
+            event.accept()  # type: ignore[attr-defined]
+            return True
+        return super().event(event)  # type: ignore[arg-type]
 
     def keyPressEvent(self, event: object) -> None:
         if not hasattr(event, "key"):
@@ -134,10 +172,30 @@ class _PaneTableView(QTableView):
             super().dragEnterEvent(event)  # type: ignore[arg-type]
 
     def dragMoveEvent(self, event: object) -> None:
-        if hasattr(event, "mimeData") and event.mimeData().hasFormat(_MIME):
-            event.acceptProposedAction()  # type: ignore[attr-defined]
-        else:
+        if not (hasattr(event, "mimeData") and event.mimeData().hasFormat(_MIME)):
             super().dragMoveEvent(event)  # type: ignore[arg-type]
+            return
+        idx = self.indexAt(event.pos())  # type: ignore[attr-defined]
+        pane = self.parent()
+        if idx.isValid() and isinstance(pane, PaneView):
+            src_idx = pane._proxy.mapToSource(pane._proxy.index(idx.row(), 0))
+            item = pane._model.item_at(src_idx.row())
+            self._drop_hint_row = (
+                idx.row() if (item and item.is_dir and item.name != "..") else -1
+            )
+        else:
+            self._drop_hint_row = -1
+        self.viewport().update()
+        if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:  # type: ignore[attr-defined]
+            event.setDropAction(Qt.DropAction.MoveAction)  # type: ignore[attr-defined]
+        else:
+            event.setDropAction(Qt.DropAction.CopyAction)  # type: ignore[attr-defined]
+        event.accept()  # type: ignore[attr-defined]
+
+    def dragLeaveEvent(self, event: object) -> None:
+        self._drop_hint_row = -1
+        self.viewport().update()
+        super().dragLeaveEvent(event)  # type: ignore[arg-type]
 
     def dropEvent(self, event: object) -> None:
         if not (hasattr(event, "mimeData") and event.mimeData().hasFormat(_MIME)):
@@ -146,10 +204,22 @@ class _PaneTableView(QTableView):
         raw = event.mimeData().data(_MIME).data().decode()
         paths = [Path(p) for p in raw.splitlines() if p]
         move = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)  # type: ignore[attr-defined]
+        target_folder = None
+        if self._drop_hint_row != -1:
+            pane = self.parent()
+            if isinstance(pane, PaneView):
+                src_idx = pane._proxy.mapToSource(
+                    pane._proxy.index(self._drop_hint_row, 0)
+                )
+                item = pane._model.item_at(src_idx.row())
+                if item and item.is_dir:
+                    target_folder = item.path
+        self._drop_hint_row = -1
+        self.viewport().update()
         event.acceptProposedAction()  # type: ignore[attr-defined]
         pane = self.parent()
         if isinstance(pane, PaneView):
-            pane.files_dropped.emit(paths, move)
+            pane.files_dropped.emit(paths, move, target_folder)
 
     def contextMenuEvent(self, event: object) -> None:
         p = self.parent()
@@ -192,7 +262,7 @@ class PaneView(QWidget):
     forward_requested = Signal()
     up_requested = Signal()
     home_requested = Signal()
-    files_dropped = Signal(list, bool)        # [Path], move: bool
+    files_dropped = Signal(list, bool, object)  # [Path], move: bool, target_folder: Path|None
     context_action_requested = Signal(str)    # "copy"|"move"|"delete"|"rename"
     bookmark_chosen = Signal(object)          # Path
     edit_bookmarks_requested = Signal()

@@ -3,6 +3,29 @@
 All notable changes to Biome FM are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.9.0] — 2026-07-12
+
+### Added
+- **Toggle Hidden Files (`Ctrl+H`)** — `DirSortFilterProxy.set_show_hidden(bool)` filters dotfiles;
+  `ManagerPresenter.toggle_hidden()` flips `Config.show_hidden` and publishes `ShowHiddenToggled`;
+  persisted to config; both panes/all tabs updated via `app.py` EventBus subscriber
+- **Enhanced Active Pane Highlight** — 3px left accent border + 1px top accent border replaces
+  the previous 1px all-sides border; inactive pane uses transparent borders of same width
+  to prevent layout shift
+- **DnD Folder Highlight + Drop-to-Folder** — `_DropHintDelegate` draws 2px highlight rect
+  around folder under cursor during drag; `_drop_hint_row` tracks it; dropping on a folder
+  drops into it (`target_folder` arg); `files_dropped` signal is now 3-arg
+  `(list[Path], bool, Path | None)`
+- **File Operation Progress + Cancel** — `ProgressCopyCmd` (256KB chunks) and `ProgressMoveCmd`
+  with `cancel: threading.Event` and `report` callback; `Cancelled` exception; `OpCancelled`
+  event; `CommandHistory.push()` records already-executed commands; `OpQueue.submit()` accepts
+  external cancel + task_id; `ProgressDialog` (modeless) shows per-file + overall progress bars
+  with Cancel button; `AsyncOpSubmitted` event wires presenter → dialog in `app.py`
+- **Settings Window (`Ctrl+,`)** — `SettingsPresenter` (Qt-free) + `SettingsViewProtocol` +
+  `SettingsDialog` (4 tabs: General / Appearance / AI / Plugins); saves to TOML and publishes
+  live events on accept
+- 667 tests (up from 628)
+
 ## [v0.8.0] — 2026-07-12
 
 ### Added

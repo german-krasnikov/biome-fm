@@ -92,5 +92,5 @@ class BookmarkDialog(QDialog):
 
     def _publish(self) -> None:
         if self._bus:
-            from biome_fm.event_bus import BookmarkChanged  # noqa: PLC0415
+            from biome_fm.event_bus import BookmarkChanged
             self._bus.publish(BookmarkChanged())

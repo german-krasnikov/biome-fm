@@ -92,3 +92,15 @@ class ThemeChanged:
     tokens: dict[str, str]
 
 
+@dataclass(frozen=True)
+class ShowHiddenToggled:
+    """Show/hide dotfiles toggled."""
+    enabled: bool
+
+
+@dataclass(frozen=True)
+class AsyncOpSubmitted:
+    """An async file operation was submitted to OpQueue."""
+    task_id: int
+    description: str
+    cancel: object  # threading.Event

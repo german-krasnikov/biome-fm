@@ -115,6 +115,7 @@ def test_claude_normalize_image_content():
 
 def test_claude_normalize_file_content():
     from pathlib import Path
+
     from biome_fm.ai.claude_provider import ClaudeProvider
     from biome_fm.ai.types import FileContent
     provider = ClaudeProvider.__new__(ClaudeProvider)

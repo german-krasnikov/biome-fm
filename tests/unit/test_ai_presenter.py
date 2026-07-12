@@ -9,12 +9,11 @@ from pathlib import Path
 
 from biome_fm.models.file_item import FileItem
 from biome_fm.presenters.ai_presenter import (
+    MAX_ATTACHMENTS,
+    MAX_FILE_BYTES,
     AIPresenter,
     Attachment,
-    MAX_FILE_BYTES,
-    MAX_ATTACHMENTS,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fakes

@@ -1,5 +1,4 @@
 """Unit tests for PreviewPresenter — fully Qt-free."""
-import queue
 from pathlib import Path
 from unittest.mock import Mock
 

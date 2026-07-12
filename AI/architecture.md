@@ -22,7 +22,9 @@ src/biome_fm/
 ├── event_bus.py        # Decoupled pub/sub (EventBus singleton);
 │                       #   events: FilesChanged, ActivePaneChanged, OperationStarted,
 │                       #   OperationFinished, PaneNavigated, SyncBrowsingToggled,
-│                       #   BookmarkChanged, ThemeChanged(name, tokens)
+│                       #   BookmarkChanged, ThemeChanged(name, tokens),
+│                       #   ShowHiddenToggled(enabled: bool),
+│                       #   AsyncOpSubmitted(task_id, description, cancel)
 │
 ├── models/
 │   ├── file_item.py        # FileItem frozen dataclass (slots=True); size_str property
@@ -36,7 +38,8 @@ src/biome_fm/
 │   │                       #   (archives=orange, images=pink, code=green, docs=blue, media=yellow);
 │   │                       #   hidden files dimmed (#565F89); ToolTipRole = path + modified + size;
 │   │                       #   DirSortFilterProxy: '..' pinned first, dirs before files,
-│   │                       #   set_filter(text) for Quick Filter
+│   │                       #   set_filter(text) for Quick Filter,
+│   │                       #   set_show_hidden(bool) hides dotfiles when False
 │   ├── bookmark_store.py   # TOML-backed list[Path]; add/remove/all/__contains__;
 │   │                       #   reads/writes [bookmarks] paths = [...] via tomllib
 │   ├── icon_provider.py    # icon_for_extension(ext) — @lru_cache(256), QFileIconProvider;
@@ -60,13 +63,19 @@ src/biome_fm/
 │   │                         #   tabs display abbreviated path (~/... or …/name if >30 chars);
 │   │                         #   tooltip = full str(path); opener param passed to each PanePresenter
 │   ├── manager_presenter.py  # Inter-pane ops (copy, move, delete, mkdir, rename);
-│   │                         #   drop_files(paths, target_pane_id, move) — DnD with path validation;
+│   │                         #   drop_files(paths, target_pane_id, move, target_folder) — DnD;
+│   │                         #   async path: ProgressCopyCmd/ProgressMoveCmd submitted to OpQueue,
+│   │                         #   publishes AsyncOpSubmitted(task_id, desc, cancel);
 │   │                         #   toggle_mirror() / navigate_active() for Sync Browsing;
+│   │                         #   toggle_hidden() — flips Config.show_hidden, publishes ShowHiddenToggled;
 │   │                         #   undo/redo via CommandHistory → refresh_both()
 │   ├── ai_presenter.py       # AI chat bridge (AIProvider ↔ AIChatViewProtocol)
 │   ├── compare_presenter.py  # Directory diff (left vs right pane)
 │   ├── rename_presenter.py   # Multi-rename (pattern, counter, ext substitution)
-│   └── search_presenter.py   # File search (name glob + content grep)
+│   ├── search_presenter.py   # File search (name glob + content grep)
+│   └── settings_presenter.py # SettingsPresenter (no Qt) + SettingsViewProtocol;
+│                               #   load/save Config fields via protocol methods;
+│                               #   tabs: General, Appearance, AI, Plugins
 │
 ├── views/
 │   ├── main_window.py    # QMainWindow: splitter, AI panel toggle (checkable QAction in toolbar),
@@ -92,9 +101,15 @@ src/biome_fm/
 │   │                     #   alternatingRowColors, 22px rows, vertical header hidden;
 │   │                     #   Name=Stretch, Size/Modified/Ext=Interactive;
 │   │                     #   retreat_cursor() for Shift+Up mark; advance_cursor() for mark;
+│   │                     #   _DropHintDelegate: QStyledItemDelegate draws 2px highlight border
+│   │                     #   around folder row when _drop_hint_row matches; _drop_hint_row
+│   │                     #   set in dragMoveEvent (folder under cursor) / cleared on dragLeave;
+│   │                     #   drop on folder → emits target_folder path; drop on blank → None;
 │   │                     #   10 signals: item_activated, path_change_requested,
 │   │                     #   mark_toggle_requested, mark_toggle_up_requested, view_requested,
-│   │                     #   back/forward/up/home_requested, files_dropped, context_action_requested
+│   │                     #   back/forward/up/home_requested, context_action_requested;
+│   │                     #   files_dropped = Signal(list, bool, object)
+│   │                     #     → (paths: list[Path], move: bool, target_folder: Path | None)
 │   ├── filter_bar.py     # FilterBar: QLineEdit-based quick filter; hidden by default;
 │   │                     #   activate() shows + focuses; Escape → deactivate + closed signal;
 │   │                     #   filter_changed(str) signal → DirSortFilterProxy.set_filter()
@@ -115,6 +130,16 @@ src/biome_fm/
 │   │                         #   _saved_sizes keyed by widget; _hidden_widget tracks displaced pane;
 │   │                         #   detach() creates floating QDialog; save_state/restore_state
 │   │                         #   round-trips overlay_side to PanelSession
+│   ├── settings_dialog.py # QDialog (4 tabs: General/Appearance/AI/Plugins);
+│   │                      #   passive view implementing SettingsViewProtocol;
+│   │                      #   General: show_hidden QCheckBox, sync_browsing QCheckBox;
+│   │                      #   Appearance: theme QComboBox, file_type_colors QCheckBox;
+│   │                      #   AI: provider QComboBox, API key QLineEdits, Ollama URL/model;
+│   │                      #   Plugins: read-only QListWidget of installed plugins
+│   ├── progress_dialog.py # Modeless QDialog for async file ops; shows file label,
+│   │                      #   bytes QProgressBar, overall label, files QProgressBar, Cancel button;
+│   │                      #   update(files_done, files_total, bytes_done, bytes_total, name);
+│   │                      #   Cancel button sets threading.Event; auto-closes on OpDone/OpCancelled
 │   └── theme.py          # TOML-based theme system; load_theme(name) resolves plugin hook
 │                          #   → TOML inheritance (meta.inherits) → _DARK_FALLBACK;
 │                          #   _find_theme(): user AppConfig/biome-fm/themes/ first, then
@@ -123,18 +148,31 @@ src/biome_fm/
 │                          #   _TOKENS alias kept for backward compat; Template(_QSS_TMPL) fills QSS
 │
 ├── commands/
-│   ├── base.py           # Command ABC (execute/undo/undoable) + CommandHistory (50 levels)
+│   ├── base.py           # Command ABC (execute/undo/undoable) + CommandHistory (50 levels);
+│   │                     #   CommandHistory.push(cmd) records already-executed cmd for undo
 │   ├── registry.py       # CommandRegistry + CommandEntry (id, name, shortcut, fn)
-│   ├── copy_cmd.py       # CopyCmd (shutil.copy2)
-│   ├── move_cmd.py       # MoveCmd
+│   ├── copy_cmd.py       # CopyCmd (shutil.copy2);
+│   │                     #   ProgressCopyCmd: 256KB-chunk copy with cancel (threading.Event)
+│   │                     #   + report(files_done, files_total, bytes_done, bytes_total, name);
+│   │                     #   raises Cancelled on cancel.is_set(); undo deletes created files
+│   ├── move_cmd.py       # MoveCmd;
+│   │                     #   ProgressMoveCmd: same cancel + report API, wraps shutil.move
 │   ├── delete_cmd.py     # DeleteCmd (send2trash)
 │   ├── rename_cmd.py     # RenameCmd
 │   ├── mkdir_cmd.py      # MkdirCmd
 │   └── multi_rename_cmd.py # MultiRenameCmd (batch with pattern/counter)
 │
 ├── operations/
-│   ├── queue.py          # OpQueue: asyncio + ThreadPoolExecutor
-│   └── task.py           # OpTask: priority, cancel, progress callback
+│   ├── queue.py          # OpQueue: asyncio + ThreadPoolExecutor;
+│   │                     #   submit(cmd, cancel, task_id) — accepts external cancel Event;
+│   │                     #   next_task_id() / put_event() for async path in ManagerPresenter;
+│   │                     #   _run() catches Cancelled → emits OpCancelled
+│   └── task.py           # OpTask: priority, cancel (threading.Event), progress callback;
+│                         #   Cancelled exception (raised inside Command to signal cancellation);
+│                         #   OpStarted, OpProgress(task_id, files_done, files_total,
+│                         #     bytes_done, bytes_total, current_file),
+│                         #   OpDone, OpError, OpCancelled;
+│                         #   OpEvent = union of all above
 │
 ├── preview/
 │   ├── provider.py       # PreviewProvider Protocol (priority, can_handle, render);
@@ -243,18 +281,24 @@ A 100ms QTimer drains the AI stream in `app.py`.
 
 ### Drag and Drop
 `_PaneTableView` (inner class in pane_view.py) subclasses QTableView to override
-`mimeData`/`startDrag`/`dragEnterEvent`/`dragMoveEvent`/`dropEvent`.
+`mimeData`/`startDrag`/`dragEnterEvent`/`dragMoveEvent`/`dragLeaveEvent`/`dropEvent`.
 MIME type: `application/x-biome-fm-paths` (newline-joined absolute paths).
-Drops emit `files_dropped(paths: list[Path], move: bool)` on `PaneView`
-(move=True when Shift held during drop).
-`app.py` wires this to `ManagerPresenter.drop_files(paths, target_pane_id, move)`,
-which resolves paths, filters same-dir no-ops, then dispatches CopyCmd or MoveCmd.
-`DirectoryModel.flags()` adds `ItemIsDragEnabled` — the root-cause fix that made DnD work.
+Folder highlight: `_DropHintDelegate` paints a 2px accent-colored rect around the row
+stored in `_drop_hint_row`; `dragMoveEvent` sets it to the row under cursor if that
+row is a non-`..` directory, or -1 otherwise; `dragLeaveEvent` clears it.
+Drops emit `files_dropped(paths: list[Path], move: bool, target_folder: Path | None)`
+on `PaneView`. `target_folder` is the hovered folder's path if dropping on a folder,
+else None (drop goes to pane's current directory).
+`app.py` wires this to `ManagerPresenter.drop_files(paths, target_pane_id, move, target_folder)`,
+which resolves paths, filters same-dir no-ops, then dispatches ProgressCopyCmd or ProgressMoveCmd
+via OpQueue (async path). `DirectoryModel.flags()` adds `ItemIsDragEnabled`.
 
 ### Active Pane Tracking
 `app.py` tracks focus via `focusChanged` (QApplication signal).
 The active `PaneSideView` receives `set_active(True)`, the inactive one `False`.
-`set_active()` toggles QSS dynamic property `active`; `theme.py` applies a blue border.
+`set_active()` toggles QSS dynamic property `active`; `_base.qss.tmpl` applies a
+3px left accent border + 1px top accent border (transparent borders of same width
+for inactive pane to prevent layout shift).
 `ManagerPresenter.set_active_pane(pane_id)` keeps the presenter layer in sync for
 operations that target the opposite pane.
 `ActivePaneChanged` event is published to the EventBus on every switch.
@@ -421,3 +465,54 @@ Local plugin contract: must expose top-level `Plugin` class; loaded as `biome_fm
 
 `ThemeRegistry(pm).resolve(name)` = thin helper that calls `provide_theme` firstresult
 hook then merges over `_DARK_FALLBACK`; used in `theme.py`'s `load_theme()`.
+
+### Async File Operations with Progress + Cancel (v0.9.0)
+
+`ManagerPresenter.drop_files()` dispatches through an async path via `OpQueue`:
+
+```
+drop_files(paths, target_pane_id, move, target_folder)
+      │
+      ├─ resolve dest_dir (target_folder or pane's cwd)
+      ├─ cancel = threading.Event()
+      ├─ task_id = queue.next_task_id()
+      ├─ cmd = ProgressCopyCmd / ProgressMoveCmd
+      │         (sources, dest_dir, vfs, cancel, _noop_report)
+      ├─ queue.submit(cmd, cancel=cancel, task_id=task_id)
+      │         ThreadPoolExecutor._run():
+      │           cmd.execute() → 256KB chunks → cancel.is_set() → raise Cancelled
+      │           Cancelled → put(OpCancelled)
+      │           done      → put(OpDone)
+      └─ publish(AsyncOpSubmitted(task_id, desc, cancel))
+               ▼
+         app.py._on_async_op()
+               ▼
+         ProgressDialog(task_id, desc, parent=window)
+               │  Cancel button → cancel.set()
+               │  OpProgress events → update bars
+               └─ OpDone / OpCancelled → dialog.close()
+```
+
+`ProgressCopyCmd.execute()` copies source-by-source; `_copy_file()` reads in 256KB
+chunks, checks `cancel.is_set()` each chunk (partial file deleted on cancel).
+`ProgressMoveCmd` calls `shutil.move` per file (atomic on same FS, copy+delete otherwise).
+Both support undo: `CommandHistory.push(cmd)` records the already-executed command
+after successful completion so Ctrl+Z can reverse it.
+
+### Settings Window (v0.9.0)
+
+`SettingsPresenter` is Qt-free; `SettingsViewProtocol` is a structural Protocol with
+`set_*/get_*` methods for each config field. `SettingsDialog` (4-tab QDialog) implements
+the protocol. `app.py` wires `Ctrl+,` → `_open_settings()` which creates a
+`SettingsDialog`, a `SettingsPresenter(cfg, dialog, bus, plugin_manager)`, calls
+`presenter.load()`, shows the dialog, and on `Accepted` calls `presenter.save()`.
+`save()` persists to TOML and publishes events (`ShowHiddenToggled`, `ThemeChanged`)
+as needed so the live UI reflects changes immediately.
+
+### Toggle Hidden Files (v0.9.0)
+
+`Ctrl+H` → `ManagerPresenter.toggle_hidden()` → flips `Config.show_hidden` →
+publishes `ShowHiddenToggled(enabled)`. `app.py` subscribes: `_on_show_hidden(ev)`
+calls `proxy.set_show_hidden(ev.enabled)` on every `DirSortFilterProxy` (both panes,
+all tabs). `DirSortFilterProxy.filterAcceptsRow()` rejects dotfile names when
+`_show_hidden=False`. Setting persisted to config on next `save_config()` call.

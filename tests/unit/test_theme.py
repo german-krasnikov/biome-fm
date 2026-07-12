@@ -1,5 +1,6 @@
 """Unit tests for theme QSS generation — no Qt needed."""
 import pytest
+
 from biome_fm.views.theme import _QSS, _TOKENS
 
 
@@ -30,19 +31,19 @@ _REQUIRED_TOKENS = {"base", "surface", "surface2", "border", "text", "text_dim",
 def test_dark_theme_loads_all_tokens():
     from biome_fm.views.theme import load_theme
     tokens = load_theme("dark")
-    assert _REQUIRED_TOKENS <= set(tokens.keys())
+    assert set(tokens.keys()) >= _REQUIRED_TOKENS
 
 
 def test_light_theme_loads_all_tokens():
     from biome_fm.views.theme import load_theme
     tokens = load_theme("light")
-    assert _REQUIRED_TOKENS <= set(tokens.keys())
+    assert set(tokens.keys()) >= _REQUIRED_TOKENS
 
 
 def test_catppuccin_mocha_loads_all_tokens():
     from biome_fm.views.theme import load_theme
     tokens = load_theme("catppuccin-mocha")
-    assert _REQUIRED_TOKENS <= set(tokens.keys())
+    assert set(tokens.keys()) >= _REQUIRED_TOKENS
 
 
 def test_unknown_theme_falls_back_to_dark():
@@ -54,6 +55,7 @@ def test_unknown_theme_falls_back_to_dark():
 @pytest.mark.parametrize("name", ["dark", "light", "catppuccin-mocha"])
 def test_no_unresolved_tokens(name):
     from string import Template
+
     from biome_fm.views.theme import _QSS_TMPL, load_theme
     tokens = load_theme(name)
     qss = Template(_QSS_TMPL).substitute(tokens)
