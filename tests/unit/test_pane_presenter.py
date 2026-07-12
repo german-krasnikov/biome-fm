@@ -53,6 +53,7 @@ class FakePaneView:
     cursor: FileItem | None = None
     cursor_advances: int = 0
     cursor_retreats: int = 0
+    nav_history: list[Path] = field(default_factory=list)
 
     def set_items(self, items: list[FileItem]) -> None:
         self.items = list(items)
@@ -80,6 +81,9 @@ class FakePaneView:
 
     def set_filter_visible(self, visible: bool) -> None:
         pass
+
+    def set_nav_history(self, paths: list[Path]) -> None:
+        self.nav_history = list(paths)
 
 
 # ── fixtures ────────────────────────────────────────────────────────────────
@@ -426,3 +430,44 @@ class TestMarks:
     def test_fmt_size_mb(self):
         from biome_fm.presenters.pane_presenter import PanePresenter
         assert "MB" in PanePresenter._fmt_size(2_500_000)
+
+
+class TestNavHistory:
+    def test_navigate_pushes_history(self, env):
+        p, view, _vfs, _ = env
+        p.navigate_to(HOME)
+        assert HOME in view.nav_history
+
+    def test_history_deduplicates(self, env):
+        p, view, _vfs, _ = env
+        p.navigate_to(HOME)
+        p.navigate_to(DOCS)
+        p.navigate_to(HOME)
+        assert view.nav_history.count(HOME) == 1
+
+    def test_history_most_recent_first(self, env):
+        p, view, _vfs, _ = env
+        p.navigate_to(HOME)
+        p.navigate_to(DOCS)
+        assert view.nav_history[0] == DOCS
+
+    def test_history_capped_at_30_visible(self, env):
+        p, view, vfs, _ = env
+        for i in range(35):
+            d = HOME / f"dir{i}"
+            vfs._tree[d] = []
+            p.navigate_to(d)
+        assert len(view.nav_history) == 30
+
+    def test_internal_history_capped_at_60(self, env):
+        p, view, vfs, _ = env
+        for i in range(65):
+            d = HOME / f"dir{i}"
+            vfs._tree[d] = []
+            p.navigate_to(d)
+        assert len(p._nav_history) == 60
+
+    def test_failed_navigate_no_history(self, env):
+        p, view, _vfs, _ = env
+        p.navigate_to(HOME / "nonexistent_xyz")
+        assert len(view.nav_history) == 0

@@ -64,6 +64,15 @@ class _FakePaneView:
     def advance_cursor(self) -> None:
         pass
 
+    def retreat_cursor(self) -> None:
+        pass
+
+    def set_filter_visible(self, visible: bool) -> None:
+        pass
+
+    def set_nav_history(self, paths: list) -> None:
+        pass
+
 
 # ── fixtures ─────────────────────────────────────────────────────────────────
 

@@ -44,3 +44,31 @@ class TestBookmarkStore:
         for p in paths:
             store.add(p)
         assert store.all() == paths
+
+    def test_move_up(self, tmp_path):
+        s = BookmarkStore(tmp_path / "bm.toml")
+        s.add(Path("/a")); s.add(Path("/b")); s.add(Path("/c"))
+        s.move_up(Path("/b"))
+        items = s.all()
+        assert items.index(Path("/b")) < items.index(Path("/a"))
+
+    def test_move_up_at_top_noop(self, tmp_path):
+        s = BookmarkStore(tmp_path / "bm.toml")
+        s.add(Path("/a")); s.add(Path("/b"))
+        first = s.all()[0]
+        s.move_up(first)
+        assert s.all()[0] == first
+
+    def test_move_down(self, tmp_path):
+        s = BookmarkStore(tmp_path / "bm.toml")
+        s.add(Path("/a")); s.add(Path("/b")); s.add(Path("/c"))
+        s.move_down(Path("/b"))
+        items = s.all()
+        assert items.index(Path("/b")) > items.index(Path("/c"))
+
+    def test_replace(self, tmp_path):
+        s = BookmarkStore(tmp_path / "bm.toml")
+        s.add(Path("/a")); s.add(Path("/b"))
+        s.replace(Path("/a"), Path("/x"))
+        assert Path("/x") in s
+        assert Path("/a") not in s

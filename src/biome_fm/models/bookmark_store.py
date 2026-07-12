@@ -21,6 +21,27 @@ class BookmarkStore:
             self._items.remove(path)
             self._save()
 
+    def move_up(self, path: Path) -> None:
+        if path not in self._items:
+            return
+        i = self._items.index(path)
+        if i > 0:
+            self._items[i - 1], self._items[i] = self._items[i], self._items[i - 1]
+            self._save()
+
+    def move_down(self, path: Path) -> None:
+        if path not in self._items:
+            return
+        i = self._items.index(path)
+        if i < len(self._items) - 1:
+            self._items[i], self._items[i + 1] = self._items[i + 1], self._items[i]
+            self._save()
+
+    def replace(self, old: Path, new: Path) -> None:
+        if old in self._items:
+            self._items[self._items.index(old)] = new
+            self._save()
+
     def all(self) -> list[Path]:
         return list(self._items)
 

@@ -33,6 +33,7 @@ class PaneViewProtocol(Protocol):
     def advance_cursor(self) -> None: ...
     def retreat_cursor(self) -> None: ...
     def set_filter_visible(self, visible: bool) -> None: ...
+    def set_nav_history(self, paths: list[Path]) -> None: ...
 
 
 def _sort(items: list[FileItem]) -> list[FileItem]:
@@ -61,6 +62,7 @@ class PanePresenter:
         self._forward: list[Path] = []
         self._items: list[FileItem] = []
         self._marks: set[Path] = set()
+        self._nav_history: list[Path] = []
 
     @property
     def current_path(self) -> Path:
@@ -83,6 +85,17 @@ class PanePresenter:
     @property
     def marked_items(self) -> list[FileItem]:
         return [i for i in self._items if i.path in self._marks]
+
+    @property
+    def nav_history(self) -> list[Path]:
+        return list(self._nav_history)
+
+    def _push_history(self, path: Path) -> None:
+        if path in self._nav_history:
+            self._nav_history.remove(path)
+        self._nav_history.insert(0, path)
+        self._nav_history = self._nav_history[:60]
+        self._view.set_nav_history(self._nav_history[:30])
 
     def current_item(self) -> FileItem | None:
         return self._view.current_cursor_item()
@@ -216,6 +229,7 @@ class PanePresenter:
             dotdot = FileItem(name="..", path=path.parent, is_dir=True, size=0, modified=0.0)
             items = [dotdot, *items]
         self._cwd = path
+        self._push_history(path)
         self._view.set_path(path)
         self._view.set_items(items)
         self._view.set_marked(set(self._marks))

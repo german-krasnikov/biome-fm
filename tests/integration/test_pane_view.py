@@ -32,11 +32,11 @@ class TestPaneView:
 
     def test_set_path_updates_path_bar(self, view):
         view.set_path(Path("/home/user"))
-        assert view._path_bar.text() == "/home/user"
+        assert view._path_bar.lineEdit().text() == "/home/user"
 
     def test_show_error_displays_message(self, view):
         view.show_error("Permission denied")
-        assert "Permission denied" in view._path_bar.text()
+        assert "Permission denied" in view._path_bar.lineEdit().text()
 
     def test_item_activated_signal_on_activation(self, qtbot, view):
         items = [_item("docs", is_dir=True)]
@@ -52,8 +52,8 @@ class TestPaneView:
     def test_path_change_requested_on_enter(self, qtbot, view):
         received: list[Path] = []
         view.path_change_requested.connect(received.append)
-        view._path_bar.setText("/tmp/test")
-        view._path_bar.returnPressed.emit()
+        view._path_bar.lineEdit().setText("/tmp/test")
+        view._path_bar.lineEdit().returnPressed.emit()
         assert received == [Path("/tmp/test")]
 
     def test_selected_items_returns_fileitem_list(self, view):

@@ -3,6 +3,21 @@
 All notable changes to Biome FM are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.6.0] — 2026-07-12
+
+### Added
+- **Path History Dropdown** — `_PathComboBox` replaces QLineEdit in PaneView nav bar; per-pane navigation history (60 stored, 30 visible); dedup move-to-front on revisit
+- **Bookmarks Dropdown** — ★ QToolButton with InstantPopup QMenu in each pane's nav bar; click to navigate, menu rebuilds on `aboutToShow`
+- **Bookmark Edit Dialog** — QDialog with QListWidget + Remove/Up/Down/Edit Path/Close buttons; live mutations persist immediately to TOML
+- `BookmarkStore.move_up()`, `move_down()`, `replace()` methods
+- `PanePresenter._nav_history` with `nav_history` property and `set_nav_history` protocol method
+- `Ctrl+D` toggles bookmark for current path + publishes `BookmarkChanged`
+- 431 tests (up from 410)
+
+### Fixed
+- `BookmarkDialog._refresh()` preserves selection row after mutations
+- `move_up`/`move_down` guard against path not in store (no ValueError)
+
 ## [v0.5.0] — 2026-07-12
 
 ### Added

@@ -15,11 +15,11 @@ from biome_fm.models.directory_model import (
 )
 from biome_fm.models.file_item import FileItem
 from biome_fm.qt import (
+    QComboBox,
     QDrag,
     QHBoxLayout,
     QHeaderView,
     QLabel,
-    QLineEdit,
     QMenu,
     QMimeData,
     QModelIndex,
@@ -31,10 +31,29 @@ from biome_fm.qt import (
     QWidget,
     Signal,
 )
+from biome_fm.views.bookmark_menu import BookmarkMenu
 from biome_fm.views.filter_bar import FilterBar
 from biome_fm.views.jump_bar import JumpBar
 
 _MIME = "application/x-biome-fm-paths"
+
+
+class _PathComboBox(QComboBox):
+    path_entered = Signal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setEditable(True)
+        self.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.setMaxVisibleItems(30)
+        self.lineEdit().setPlaceholderText("Path...")
+        self.lineEdit().returnPressed.connect(self._emit)
+        self.activated.connect(lambda _i: self._emit())
+
+    def _emit(self):
+        text = self.lineEdit().text().strip()
+        if text:
+            self.path_entered.emit(text)
 
 
 class _PaneTableView(QTableView):
@@ -166,6 +185,8 @@ class PaneView(QWidget):
     home_requested = Signal()
     files_dropped = Signal(list, bool)        # [Path], move: bool
     context_action_requested = Signal(str)    # "copy"|"move"|"delete"|"rename"
+    bookmark_chosen = Signal(object)          # Path
+    edit_bookmarks_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -199,10 +220,15 @@ class PaneView(QWidget):
             btn.clicked.connect(signal)
             nav_layout.addWidget(btn)
 
-        self._path_bar = QLineEdit()
-        self._path_bar.setPlaceholderText("Path...")
-        self._path_bar.returnPressed.connect(self._on_path_entered)
+        self._path_bar = _PathComboBox(self)
+        self._path_bar.path_entered.connect(self._on_path_entered_text)
         nav_layout.addWidget(self._path_bar, 1)
+
+        self._bookmark_menu = BookmarkMenu(self)
+        self._bookmark_menu.bookmark_chosen.connect(self.bookmark_chosen)
+        self._bookmark_menu.edit_requested.connect(self.edit_bookmarks_requested)
+        nav_layout.addWidget(self._bookmark_menu)
+
         layout.addWidget(nav)
 
         self.filter_bar = FilterBar(self)
@@ -243,14 +269,25 @@ class PaneView(QWidget):
         self.jump_bar.jump_text_changed.connect(self._on_jump)
         layout.addWidget(self.jump_bar)
 
+    def set_bookmark_store(self, store) -> None:
+        self._bookmark_menu.set_store(store)
+
     def set_items(self, items: list[FileItem]) -> None:
         self._model.set_items(items)
 
     def set_path(self, path: Path) -> None:
-        self._path_bar.setText(str(path))
+        self._path_bar.lineEdit().setText(str(path))
 
     def show_error(self, message: str) -> None:
-        self._path_bar.setText(f"Error: {message}")
+        self._path_bar.lineEdit().setText(f"Error: {message}")
+
+    def set_nav_history(self, paths: list[Path]) -> None:
+        self._path_bar.blockSignals(True)
+        current = self._path_bar.lineEdit().text()
+        self._path_bar.clear()
+        self._path_bar.addItems([str(p) for p in paths])
+        self._path_bar.lineEdit().setText(current)
+        self._path_bar.blockSignals(False)
 
     def set_status(self, text: str) -> None:
         self._status_label.setText(text)
@@ -315,7 +352,5 @@ class PaneView(QWidget):
         if item is not None:
             self.item_activated.emit(item)
 
-    def _on_path_entered(self) -> None:
-        text = self._path_bar.text().strip()
-        if text:
-            self.path_change_requested.emit(Path(text))
+    def _on_path_entered_text(self, text: str) -> None:
+        self.path_change_requested.emit(Path(text))

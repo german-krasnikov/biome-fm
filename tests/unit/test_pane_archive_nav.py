@@ -51,6 +51,7 @@ class FakePaneView:
     def advance_cursor(self): self.cursor_advances += 1
     def retreat_cursor(self): pass
     def set_filter_visible(self, visible: bool) -> None: pass
+    def set_nav_history(self, paths: list) -> None: pass
 
 
 HOME = Path("/home")

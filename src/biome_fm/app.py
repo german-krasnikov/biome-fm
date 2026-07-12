@@ -8,7 +8,8 @@ from biome_fm.ai.provider import make_provider
 from biome_fm.commands.base import CommandHistory
 from biome_fm.commands.registry import CommandEntry, CommandRegistry
 from biome_fm.config import load_config, save_config
-from biome_fm.event_bus import ActivePaneChanged, EventBus
+from biome_fm.event_bus import ActivePaneChanged, BookmarkChanged, EventBus
+from biome_fm.models.bookmark_store import BookmarkStore
 from biome_fm.models.vfs_router import VFSRouter
 from biome_fm.plugins.manager import PluginManager
 from biome_fm.presenters.ai_presenter import AIPresenter
@@ -20,6 +21,7 @@ from biome_fm.session import PaneSideState, SessionState, TabState, load_session
 from biome_fm.utils.opener import open_file
 from biome_fm.utils.platform import quick_look_item, reveal_in_finder
 from biome_fm.views.ai_chat_panel import AIChatPanel
+from biome_fm.views.bookmark_dialog import BookmarkDialog
 from biome_fm.views.command_palette import CommandPalette
 from biome_fm.views.main_window import MainWindow
 from biome_fm.views.pane_side_view import PaneSideView
@@ -60,6 +62,7 @@ def create_app() -> MainWindow:
     vfs = VFSRouter()
     bus = EventBus()
     history = CommandHistory()
+    store = BookmarkStore(cfg_dir / "bookmarks.toml")
 
     # ── Tabs + Panes ──────────────────────────────────────────────
     left_side = PaneSideView()
@@ -127,6 +130,7 @@ def create_app() -> MainWindow:
         v = side.view_at(side.tab_count - 1)
         _wire_pane(v, p)
         _wire_ctx(v)
+        _wire_bm(v, side)
         sig = getattr(v, "files_dropped", None)
         if sig is not None:
             sig.connect(lambda paths, move, _pid=pid: manager.drop_files(paths, _pid, move))
@@ -183,6 +187,31 @@ def create_app() -> MainWindow:
     for _pid2, _tabs2 in [("left", left_tabs), ("right", right_tabs)]:
         for _i2 in range(_tabs2.tab_count):
             _wire_ctx(_tabs2.view_at(_i2))
+
+    # ── Bookmarks ──────────────────────────────────────────────────
+    def _wire_bm(view: object, tabs: TabsPresenter) -> None:
+        if hasattr(view, "set_bookmark_store"):
+            view.set_bookmark_store(store)  # type: ignore[union-attr]
+        sig = getattr(view, "bookmark_chosen", None)
+        if sig is not None:
+            sig.connect(tabs.navigate_to)
+        sig2 = getattr(view, "edit_bookmarks_requested", None)
+        if sig2 is not None:
+            sig2.connect(lambda: BookmarkDialog(store, bus, window).exec())
+
+    for _tabs_bm in (left_tabs, right_tabs):
+        for _i_bm in range(_tabs_bm.tab_count):
+            _wire_bm(_tabs_bm.view_at(_i_bm), _tabs_bm)
+
+    def _bookmark_toggle() -> None:
+        path = _active().current_path
+        if path in store:
+            store.remove(path)
+        else:
+            store.add(path)
+        bus.publish(BookmarkChanged())
+
+    QShortcut(QKeySequence("Ctrl+D"), window).activated.connect(_bookmark_toggle)
 
     # ── Shortcuts ─────────────────────────────────────────────────
     QShortcut(QKeySequence("Ctrl+T"), window).activated.connect(_new_tab)
