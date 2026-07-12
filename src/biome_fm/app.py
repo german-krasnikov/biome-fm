@@ -31,6 +31,7 @@ from biome_fm.presenters.settings_presenter import SettingsPresenter
 from biome_fm.presenters.tabs_presenter import TabsPresenter
 from biome_fm.preview.presenter import PreviewPresenter
 from biome_fm.preview.providers.fallback import FallbackProvider
+from biome_fm.preview.providers.code import CodePreviewProvider
 from biome_fm.preview.providers.image import ImagePreviewProvider
 from biome_fm.preview.providers.markdown import MarkdownPreviewProvider
 from biome_fm.preview.providers.text import TextPreviewProvider
@@ -111,7 +112,7 @@ def create_app() -> MainWindow:
     preview_registry = PreviewRegistry()
     for _p in [
         ImagePreviewProvider(), MarkdownPreviewProvider(),
-        TextPreviewProvider(), FallbackProvider(),
+        CodePreviewProvider(), TextPreviewProvider(), FallbackProvider(),
     ]:
         preview_registry.register(_p)
     preview_panel = PreviewPanel()

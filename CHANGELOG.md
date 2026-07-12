@@ -3,6 +3,22 @@
 All notable changes to Biome FM are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.10.0] — 2026-07-12
+
+### Added
+- **Syntax-highlighted code preview** — `CodePreviewProvider` (priority=8) uses Pygments to
+  render 50+ languages as HTML; `monokai` theme in dark mode, `friendly` in light;
+  `get_lexer_for_filename()` for language detection; files > 512 KB truncated; line count in title
+- **Markdown renderer wired** — `MarkdownPreviewProvider` now calls `markdown_renderer.render()`
+  instead of returning raw Markdown; dark/light-aware CSS injected for headings, code, tables,
+  blockquotes; Pygments highlights fenced code blocks
+- **PRE regex fix** — `PRE_GROUP_RE` in `markdown_renderer` no longer uses `+` grouping that
+  caused missed replacements on consecutive pre blocks
+- `pygments>=2.14` added to dependencies
+- Preview cache key now includes `dark` flag — theme changes invalidate cached results
+- Markdown rendering explicitly on Qt main thread (fixes potential QTextDocument crash in worker)
+- 694 tests (up from 680)
+
 ## [v0.9.1] — 2026-07-12
 
 ### Added

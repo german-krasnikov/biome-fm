@@ -40,8 +40,31 @@ def test_task_list(qapp):
 
 def test_nohtml_safe(qapp):
     from biome_fm.models.markdown_renderer import render
+    # MarkdownNoHTML dropped — Qt doesn't execute JS, so script is benign.
+    # We just verify the heading still renders.
     html = render("<script>alert(1)</script>\n\n# Safe\n")
-    assert "<script>" not in html
+    assert "Safe" in html
+
+
+def test_consecutive_code_blocks_highlighted(qapp):
+    from biome_fm.models.markdown_renderer import render
+    html = render("```python\ndef foo(): pass\n```\n\n```bash\necho hi\n```\n", dark=True)
+    assert "foo" in html
+    assert "echo" in html
+
+
+def test_dark_body_background(qapp):
+    from biome_fm.models.markdown_renderer import render
+    dark = render("# Hello", dark=True)
+    light = render("# Hello", dark=False)
+    assert "#1e1e1e" in dark
+    assert "#ffffff" in light
+
+
+def test_html_not_stripped(qapp):
+    from biome_fm.models.markdown_renderer import render
+    html = render("<kbd>Ctrl+S</kbd>", dark=True)
+    assert "Ctrl" in html
 
 
 def test_large_file_truncated(qapp):

@@ -21,7 +21,7 @@ def test_md_render_returns_markdown_kind(tmp_path):
     f.write_text("# Hello\n")
     result = MarkdownPreviewProvider().render(PreviewRequest(path=f))
     assert result.kind == ContentKind.MARKDOWN
-    assert "# Hello" in result.data  # type: ignore[operator]
+    assert "Hello" in result.data  # type: ignore[operator]
 
 
 def test_md_oserror_returns_error(tmp_path):

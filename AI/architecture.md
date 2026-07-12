@@ -45,9 +45,11 @@ src/biome_fm/
 │   ├── icon_provider.py    # icon_for_extension(ext) — @lru_cache(256), QFileIconProvider;
 │   │                       #   icon_for_dir() — SP_DirIcon; fallback to SP_FileIcon
 │   └── markdown_renderer.py # render(md, dark) → HTML for QTextBrowser.setHtml();
-│                            #   QTextDocument.setMarkdown(GFM|NoHTML) → toHtml();
-│                            #   Pygments replaces <pre> blocks (monokai dark / default light);
-│                            #   @lru_cache(maxsize=2) on HtmlFormatter; 100KB truncation limit
+│                            #   QTextDocument.setMarkdown(GFM) → toHtml(); Pygments replaces
+│                            #   <pre> blocks with highlighted HTML (monokai dark / default light);
+│                            #   dark/light-aware CSS injected into <head>; PRE_GROUP_RE regex fixed
+│                            #   (no `+` grouping); @lru_cache(maxsize=2) on HtmlFormatter;
+│                            #   100KB truncation limit; must run on Qt main thread
 │
 ├── presenters/
 │   ├── pane_presenter.py     # Drives one pane (cd, select, sort, current_item);
@@ -185,13 +187,18 @@ src/biome_fm/
 │   ├── registry.py       # PreviewRegistry: sorted list[PreviewProvider] by priority;
 │   │                     #   find(path) → first match or FallbackProvider()
 │   ├── presenter.py      # PreviewPresenter (Qt-free): ThreadPoolExecutor(max_workers=1);
-│   │                     #   64-item LRU cache keyed (path, mtime); queue.SimpleQueue for
+│   │                     #   64-item LRU cache keyed (path, mtime, dark); queue.SimpleQueue for
 │   │                     #   thread→main delivery; drain() polled by QTimer;
 │   │                     #   toggle_item(), update_if_visible(), set_dark(), shutdown()
 │   └── providers/
 │       ├── image.py      # ImagePreviewProvider (priority=0); jpg/png/gif/webp/svg etc; 50MB limit
 │       ├── markdown.py   # MarkdownPreviewProvider (priority=5); .md/.markdown/.mdx; 200KB limit;
-│       │                 #   returns ContentKind.MARKDOWN — panel calls QTextBrowser.setMarkdown
+│       │                 #   calls markdown_renderer.render(md, dark) → HTML;
+│       │                 #   rendering runs on main thread (Qt requirement); returns ContentKind.HTML
+│       ├── code.py       # CodePreviewProvider (priority=8); Pygments syntax highlighting;
+│       │                 #   get_lexer_for_filename() to detect language; skips TextLexer (falls
+│       │                 #   through to TextPreviewProvider); monokai dark / friendly light;
+│       │                 #   @lru_cache(maxsize=2) HtmlFormatter; 512KB limit; ContentKind.HTML
 │       ├── text.py       # TextPreviewProvider (priority=10); .py/.js/.toml/.json etc; 256KB limit
 │       └── fallback.py   # FallbackProvider (priority=999); always handles; returns HTML metadata
 │

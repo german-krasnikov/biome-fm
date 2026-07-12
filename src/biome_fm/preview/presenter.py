@@ -27,7 +27,7 @@ class PreviewPresenter:
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="preview")
         self._queue: queue.SimpleQueue[PreviewResult] = queue.SimpleQueue()
         self._current: Path | None = None
-        self._cache: dict[tuple[Path, float], PreviewResult] = {}
+        self._cache: dict[tuple[Path, float, bool], PreviewResult] = {}
         self._dark = True  # theme hint; updated via set_dark()
 
     def set_dark(self, dark: bool) -> None:
@@ -60,7 +60,7 @@ class PreviewPresenter:
 
     def _render_item(self, item: FileItem) -> None:
         self._current = item.path
-        cache_key = (item.path, item.modified)
+        cache_key = (item.path, item.modified, self._dark)
         if cache_key in self._cache:
             self._view.show_result(self._cache[cache_key])
             return
@@ -69,7 +69,7 @@ class PreviewPresenter:
         req = PreviewRequest(path=item.path, dark=self._dark)
         self._pool.submit(self._run, provider, req, cache_key)
 
-    def _run(self, provider, req: PreviewRequest, cache_key: tuple[Path, float]) -> None:
+    def _run(self, provider, req: PreviewRequest, cache_key: tuple[Path, float, bool]) -> None:
         """Background thread — must not touch Qt."""
         try:
             result = provider.render(req)

@@ -302,6 +302,7 @@ version = "0.8.0"
 source = { editable = "." }
 dependencies = [
     { name = "pluggy" },
+    { name = "pygments" },
     { name = "pyside6" },
 ]
 
@@ -339,6 +340,7 @@ requires-dist = [
     { name = "pluggy", specifier = ">=1.4" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.7" },
     { name = "pyfakefs", marker = "extra == 'dev'", specifier = ">=5.6" },
+    { name = "pygments", specifier = ">=2.14" },
     { name = "pyside6", specifier = ">=6.7" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24" },

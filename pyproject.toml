@@ -13,6 +13,7 @@ authors = [{ name = "German Krasnikov", email = "german.krasnikov@gmail.com" }]
 dependencies = [
     "PySide6>=6.7",
     "pluggy>=1.4",
+    "pygments>=2.14",
 ]
 
 [project.optional-dependencies]

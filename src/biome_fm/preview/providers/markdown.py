@@ -17,9 +17,12 @@ class MarkdownPreviewProvider:
 
     def render(self, req: PreviewRequest) -> PreviewResult:
         try:
-            text = req.path.read_text(encoding="utf-8", errors="replace")
-            if len(text) > _MAX_BYTES:
-                text = text[:_MAX_BYTES] + "\n\n*(truncated)*"
-            return PreviewResult(kind=ContentKind.MARKDOWN, data=text, title=req.path.name)
+            raw = req.path.read_bytes()
         except OSError as e:
             return PreviewResult(kind=ContentKind.ERROR, data=str(e))
+
+        text = raw[:_MAX_BYTES].decode("utf-8", errors="replace")
+        if len(raw) > _MAX_BYTES:
+            text += "\n\n*(truncated)*"
+
+        return PreviewResult(kind=ContentKind.MARKDOWN, data=text, title=req.path.name)
