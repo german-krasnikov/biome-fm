@@ -75,3 +75,21 @@ def test_config_roundtrip_new_fields(tmp_path: Path) -> None:
     assert cfg.sync_browsing is True
     assert cfg.file_type_colors is False
     assert cfg.show_hidden is True
+
+
+def test_config_ai_fields_have_defaults() -> None:
+    cfg = Config()
+    assert cfg.ai_default_provider == "claude"
+    assert cfg.ai_claude_model == "claude-sonnet-4-20250514"
+    assert cfg.ai_openai_model == "gpt-4o"
+    assert cfg.ai_ollama_url == "http://localhost:11434"
+    assert cfg.ai_ollama_model == "llama3.2"
+
+
+def test_config_round_trip_ai_fields(tmp_path: Path) -> None:
+    cfg = Config(ai_claude_key="sk-test", ai_openai_key="sk-oai", ai_ollama_model="mistral")
+    save_config(cfg, tmp_path / "config.toml")
+    loaded = load_config(tmp_path / "config.toml")
+    assert loaded.ai_claude_key == "sk-test"
+    assert loaded.ai_openai_key == "sk-oai"
+    assert loaded.ai_ollama_model == "mistral"

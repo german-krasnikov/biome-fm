@@ -3,6 +3,21 @@
 All notable changes to Biome FM are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.8.0] — 2026-07-12
+
+### Added
+- **Multi-model AI chat** — `AIProviderProtocol` with `chat_stream()` for streaming; `ClaudeProvider`, `OpenAIProvider`, `OllamaProvider`; model selector dropdown in AI panel
+- **AI chat panel redesign** — `ChatLog` (bubble-style HTML with token-by-token streaming), `ContextBar` (DnD file attachment chips), `ai/types.py` (`FileContent`, `ImageContent`)
+- **Opposite-pane overlay** — Preview/AI panels now open in the pane opposite the active one (active left → overlay replaces right; active right → overlay replaces left)
+- **PanelManager** (`panel_manager.py`) — pure-Python state machine; states HIDDEN/OVERLAY/FLOATING; produces `Effect` objects (no Qt dependency; fully unit-tested)
+- **PanelCoordinator** (`views/panel_coordinator.py`) — QObject that dispatches Effects to Qt widgets; accepts `left_side` + `right_side`; `toggle(name, active_side)` drives overlay placement; `_saved_sizes` restores splitter on hide; `_hidden_widget` tracks displaced pane
+- **Detachable panels** — Preview and AI panels can be torn off into floating `QDialog` windows via View → Detach Preview / Detach AI
+- **Session persistence** — `PanelSession.overlay_side` field in `session.py` survives restarts
+- **Splitter handle context menu** — right-click or middle-click on splitter handle for 25/75, 50/50, 75/25 pane ratios
+- 628 tests (up from 531)
+- `tests/unit/test_panel_manager.py`, `tests/unit/test_ai_providers.py`, `tests/unit/test_ai_types.py`
+- `tests/integration/test_panel_coordinator.py`, `tests/integration/test_overlay_panels.py`
+
 ## [v0.7.0] — 2026-07-12
 
 ### Added

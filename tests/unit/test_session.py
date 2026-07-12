@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from biome_fm.session import (
+    PanelSession,
     PaneSideState,
     SessionState,
     TabState,
@@ -79,3 +80,39 @@ def test_save_creates_parent_dirs(tmp_path: Path) -> None:
     p = tmp_path / "a" / "b" / "session.json"
     save_session(SessionState(), p)
     assert p.exists()
+
+
+def test_panel_session_defaults() -> None:
+    ps = PanelSession()
+    assert ps.state == "hidden"
+    assert ps.float_geometry == ""
+
+
+def test_panel_session_roundtrip(tmp_path: Path) -> None:
+    p = tmp_path / "session.json"
+    state = SessionState(
+        left=PaneSideState(tabs=[TabState("/a")], active_idx=0),
+        right=PaneSideState(tabs=[TabState("/b")], active_idx=0),
+        preview=PanelSession(state="overlay", float_geometry=""),
+        ai=PanelSession(state="floating", float_geometry="10,20,600,800"),
+    )
+    save_session(state, p)
+    loaded = load_session(p)
+    assert loaded is not None
+    assert loaded.preview.state == "overlay"
+    assert loaded.ai.state == "floating"
+    assert loaded.ai.float_geometry == "10,20,600,800"
+
+
+def test_old_session_without_panels_loads_with_defaults(tmp_path: Path) -> None:
+    """Backward compat: old JSON without preview/ai fields."""
+    p = tmp_path / "session.json"
+    p.write_text(
+        '{"left": {"tabs": [{"path": "/a"}], "active_idx": 0},'
+        ' "right": {"tabs": [{"path": "/b"}], "active_idx": 0}}',
+        encoding="utf-8",
+    )
+    loaded = load_session(p)
+    assert loaded is not None
+    assert loaded.preview.state == "hidden"
+    assert loaded.ai.state == "hidden"

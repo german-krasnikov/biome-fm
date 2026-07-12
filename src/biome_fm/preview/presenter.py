@@ -45,6 +45,12 @@ class PreviewPresenter:
         else:
             self._render_item(item)
 
+    def render_item(self, item: FileItem | None) -> None:
+        """Render content only — no visibility change."""
+        if item is None or item.name == "..":
+            return
+        self._render_item(item)
+
     def update_if_visible(self, item: FileItem | None) -> None:
         if not self._view.is_panel_visible():
             return

@@ -15,6 +15,13 @@ class Config:
     window_geometry: str = ""
     recent_dirs: list[str] = field(default_factory=list)
     ai_api_key: str = ""
+    ai_default_provider: str = "claude"
+    ai_claude_key: str = ""
+    ai_claude_model: str = "claude-sonnet-4-20250514"
+    ai_openai_key: str = ""
+    ai_openai_model: str = "gpt-4o"
+    ai_ollama_url: str = "http://localhost:11434"
+    ai_ollama_model: str = "llama3.2"
     bookmarks: list[str] = field(default_factory=list)
     sync_browsing: bool = False
     file_type_colors: bool = True

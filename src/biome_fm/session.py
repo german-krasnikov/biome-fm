@@ -18,9 +18,18 @@ class PaneSideState:
 
 
 @dataclass
+class PanelSession:
+    state: str = "hidden"
+    float_geometry: str = ""
+    overlay_side: str = "right"
+
+
+@dataclass
 class SessionState:
     left: PaneSideState = field(default_factory=PaneSideState)
     right: PaneSideState = field(default_factory=PaneSideState)
+    preview: PanelSession = field(default_factory=PanelSession)
+    ai: PanelSession = field(default_factory=PanelSession)
 
 
 def load_session(path: Path) -> SessionState | None:
@@ -39,7 +48,9 @@ def load_session(path: Path) -> SessionState | None:
             return None
         left.active_idx = max(0, min(left.active_idx, len(left.tabs) - 1))
         right.active_idx = max(0, min(right.active_idx, len(right.tabs) - 1))
-        return SessionState(left=left, right=right)
+        preview = PanelSession(**data.get("preview", {})) if "preview" in data else PanelSession()
+        ai = PanelSession(**data.get("ai", {})) if "ai" in data else PanelSession()
+        return SessionState(left=left, right=right, preview=preview, ai=ai)
     except (FileNotFoundError, json.JSONDecodeError, KeyError, TypeError):
         return None
 

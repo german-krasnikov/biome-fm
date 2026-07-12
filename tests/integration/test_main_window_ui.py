@@ -1,5 +1,6 @@
 """Integration tests for main_window UI polish."""
 import pytest
+from PySide6.QtWidgets import QWidget
 
 from biome_fm.views.main_window import MainWindow
 
@@ -9,6 +10,19 @@ def win(qtbot):
     w = MainWindow()
     qtbot.addWidget(w)
     w.show()
+    return w
+
+
+@pytest.fixture
+def win_panes(qtbot):
+    left, right = QWidget(), QWidget()
+    w = MainWindow(left, right)
+    w.resize(1000, 600)
+    qtbot.addWidget(w)
+    w.show()
+    qtbot.waitExposed(w)
+    # Ensure panes have non-zero sizes before tests manipulate them
+    w._splitter.setSizes([600, 400])
     return w
 
 
@@ -58,3 +72,26 @@ def test_cmd_empty_not_submitted(qtbot, win):
     win._cmd_line.setText("   ")
     win._cmd_line.returnPressed.emit()
     assert received == []
+
+
+def test_pane_ratio_5050(qtbot, win_panes):
+    total = sum(win_panes._splitter.sizes()[:2])
+    win_panes._set_pane_ratio(0.5)
+    s = win_panes._splitter.sizes()
+    assert s[0] + s[1] == total
+    assert abs(s[0] - s[1]) <= 1  # equal halves (floor/ceil for odd totals)
+
+
+def test_pane_ratio_2575(qtbot, win_panes):
+    total = sum(win_panes._splitter.sizes()[:2])
+    win_panes._set_pane_ratio(0.25)
+    s = win_panes._splitter.sizes()
+    assert s[0] + s[1] == total
+    assert s[0] == int(total * 0.25)
+
+
+def test_handle_has_context_menu_policy(win_panes):
+    from PySide6.QtCore import Qt
+    handle = win_panes._splitter.handle(1)
+    assert handle is not None
+    assert handle.contextMenuPolicy() == Qt.ContextMenuPolicy.CustomContextMenu

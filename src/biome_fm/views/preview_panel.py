@@ -3,7 +3,15 @@ from __future__ import annotations
 
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, Signal
 from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QLabel, QStackedWidget, QTextBrowser, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QStackedWidget,
+    QTextBrowser,
+    QVBoxLayout,
+    QWidget,
+)
 
 from biome_fm.preview.provider import ContentKind, PreviewResult
 
@@ -11,6 +19,8 @@ from biome_fm.preview.provider import ContentKind, PreviewResult
 class PreviewPanel(QWidget):
     _DEFAULT_WIDTH = 350
     visibility_changed = Signal(bool)
+    detach_requested = Signal()
+    close_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -31,6 +41,24 @@ class PreviewPanel(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
+
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        header.setSpacing(2)
+        header.addWidget(QLabel("Preview"))
+        header.addStretch()
+        btn_detach = QPushButton("⬒")
+        btn_detach.setFixedSize(24, 24)
+        btn_detach.setToolTip("Detach to window")
+        btn_detach.clicked.connect(self.detach_requested)
+        btn_close = QPushButton("✕")
+        btn_close.setFixedSize(24, 24)
+        btn_close.setToolTip("Close")
+        btn_close.clicked.connect(self.close_requested)
+        header.addWidget(btn_detach)
+        header.addWidget(btn_close)
+        layout.addLayout(header)
+
         layout.addWidget(self._stack)
 
     # ── PreviewViewProtocol ──────────────────────────────────────────────

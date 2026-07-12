@@ -8,6 +8,7 @@ from biome_fm.qt import (
     QKeySequence,
     QLineEdit,
     QMainWindow,
+    QMenu,
     QShortcut,
     QSplitter,
     QStatusBar,
@@ -66,6 +67,9 @@ class MainWindow(QMainWindow):
     new_tab_requested = Signal()
     command_submitted = Signal(str)
     preview_toggle_requested = Signal()
+    ai_toggle_requested = Signal()
+    detach_preview_requested = Signal()
+    detach_ai_requested = Signal()
 
     def __init__(
         self,
@@ -81,11 +85,10 @@ class MainWindow(QMainWindow):
         self._preview_panel = preview_panel
         self._act_ai = QAction("AI", self, checkable=True)
         self._act_ai.setToolTip("Toggle AI panel (Ctrl+I)")
-        if self._ai_panel is not None:
-            self._act_ai.toggled.connect(self._ai_panel.setVisible)
+        self._act_ai.triggered.connect(lambda _: self.ai_toggle_requested.emit())
         self._act_preview = QAction("Preview", self, checkable=True)
         self._act_preview.setToolTip("Toggle Preview panel (Space / F3)")
-        self._act_preview.triggered.connect(self.preview_toggle_requested)
+        self._act_preview.triggered.connect(lambda _: self.preview_toggle_requested.emit())
         self._setup_ui(left, right)
         self._setup_shortcuts()
 
@@ -105,6 +108,11 @@ class MainWindow(QMainWindow):
         if self._ai_panel is not None:
             self._splitter.addWidget(self._ai_panel)
             self._ai_panel.hide()
+        handle = self._splitter.handle(1)
+        if handle is not None:
+            handle.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            handle.customContextMenuRequested.connect(self._show_ratio_menu)
+            handle.installEventFilter(self)
         layout.addWidget(self._splitter, 1)
 
         self._cmd_line = _HistoryLineEdit()
@@ -202,15 +210,22 @@ class MainWindow(QMainWindow):
 
         vm = mb.addMenu("&View")
         a = QAction("Toggle &Preview\tF3", self)
-        a.triggered.connect(self.preview_toggle_requested)
+        a.triggered.connect(lambda _: self.preview_toggle_requested.emit())
         vm.addAction(a)
         a = QAction("Toggle &AI\tCtrl+I", self)
-        a.triggered.connect(lambda: self._act_ai.toggle())
+        a.triggered.connect(lambda _: self.ai_toggle_requested.emit())
         vm.addAction(a)
         act_cmd = QAction("&Command Line", self, checkable=True)
         act_cmd.setChecked(True)
         act_cmd.toggled.connect(self._cmd_line.setVisible)
         vm.addAction(act_cmd)
+        vm.addSeparator()
+        a = QAction("Detach Preview", self)
+        a.triggered.connect(lambda _: self.detach_preview_requested.emit())
+        vm.addAction(a)
+        a = QAction("Detach AI", self)
+        a.triggered.connect(lambda _: self.detach_ai_requested.emit())
+        vm.addAction(a)
 
     def _setup_shortcuts(self) -> None:
         for key, signal in [
@@ -223,17 +238,48 @@ class MainWindow(QMainWindow):
             QShortcut(QKeySequence(key), self).activated.connect(signal)
         self.tab_shortcut = QShortcut(Qt.Key.Key_Tab, self)
 
+    def _show_ratio_menu(self, pos: object) -> None:
+        menu = QMenu(self)
+        for label, ratio in [("25 / 75", 0.25), ("50 / 50", 0.5), ("75 / 25", 0.75)]:
+            action = menu.addAction(label)
+            action.triggered.connect(lambda checked=False, r=ratio: self._set_pane_ratio(r))
+        handle = self._splitter.handle(1)
+        menu.exec(handle.mapToGlobal(pos))  # type: ignore[arg-type]
+
+    def _set_pane_ratio(self, left_ratio: float) -> None:
+        sizes = self._splitter.sizes()
+        pane_total = sizes[0] + sizes[1]
+        if pane_total > 0:
+            sizes[0] = int(pane_total * left_ratio)
+            sizes[1] = pane_total - sizes[0]
+            self._splitter.setSizes(sizes)
+
+    def eventFilter(self, obj: object, event: object) -> bool:
+        from PySide6.QtCore import QEvent
+        if (
+            obj is self._splitter.handle(1)
+            and hasattr(event, "type")
+            and hasattr(event, "button")
+            and event.type() == QEvent.Type.MouseButtonRelease  # type: ignore[union-attr]
+            and event.button() == Qt.MouseButton.MiddleButton  # type: ignore[union-attr]
+        ):
+            self._show_ratio_menu(event.pos())  # type: ignore[union-attr]
+            return True
+        return super().eventFilter(obj, event)  # type: ignore[arg-type]
+
     def closeEvent(self, event: object) -> None:
         self.about_to_close.emit()
         super().closeEvent(event)  # type: ignore[arg-type]
 
     def toggle_ai_panel(self) -> None:
-        if self._ai_panel is None:
-            return
-        self._act_ai.toggle()
+        self.ai_toggle_requested.emit()
 
     def toggle_preview_panel(self) -> None:
         self.preview_toggle_requested.emit()
+
+    @property
+    def splitter(self) -> QSplitter:
+        return self._splitter
 
     @property
     def splitter_sizes(self) -> list[int]:

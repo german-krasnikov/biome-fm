@@ -13,7 +13,12 @@ src/biome_fm/
 │                       #   _wire_pane() / _wire_ctx() / _new_tab() helpers
 ├── qt.py               # Centralised PySide6 imports (Anki pattern); includes QMimeData, QDrag
 ├── config.py           # @dataclass Config + TOML loader (save_config / load_config)
-├── session.py          # SessionState / PaneSideState / TabState → JSON persistence
+├── session.py          # SessionState / PaneSideState / TabState / PanelSession → JSON persistence;
+│                       #   PanelSession.overlay_side persists which pane the panel occupies
+├── panel_manager.py    # Pure-Python state machine (no Qt); states: HIDDEN / OVERLAY / FLOATING;
+│                       #   Effect dataclass (kind, target_side); kind values:
+│                       #   show_overlay, show_floating, hide, focus_floating, set_opposite_visible;
+│                       #   PanelManager.toggle(name, active_side) → list[Effect]
 ├── event_bus.py        # Decoupled pub/sub (EventBus singleton);
 │                       #   events: FilesChanged, ActivePaneChanged, OperationStarted,
 │                       #   OperationFinished, PaneNavigated, SyncBrowsingToggled,
@@ -103,6 +108,13 @@ src/biome_fm/
 │   │                     #   (busy label, image QLabel, QTextBrowser); animated slide on
 │   │                     #   maximumWidth (150ms OutCubic); DEFAULT_WIDTH=350;
 │   │                     #   visibility_changed(bool) signal; implements PreviewViewProtocol
+│   ├── panel_coordinator.py  # QObject: dispatches Effect → Qt widget ops;
+│   │                         #   accepts left_side + right_side PaneSideView widgets;
+│   │                         #   toggle(name, active_side="left") opens panel in the
+│   │                         #   OPPOSITE pane (active left → right; active right → left);
+│   │                         #   _saved_sizes keyed by widget; _hidden_widget tracks displaced pane;
+│   │                         #   detach() creates floating QDialog; save_state/restore_state
+│   │                         #   round-trips overlay_side to PanelSession
 │   └── theme.py          # TOML-based theme system; load_theme(name) resolves plugin hook
 │                          #   → TOML inheritance (meta.inherits) → _DARK_FALLBACK;
 │                          #   _find_theme(): user AppConfig/biome-fm/themes/ first, then
@@ -172,8 +184,13 @@ src/biome_fm/
 │                         #   provide_theme("dark") → _DARK_FALLBACK copy; None for other names
 │
 ├── ai/
-│   ├── provider.py       # AIProvider Protocol + NoOpProvider + make_provider factory
-│   └── claude_provider.py # ClaudeProvider (anthropic SDK, streaming)
+│   ├── __init__.py       # Package init
+│   ├── provider.py       # AIProviderProtocol (runtime-checkable) + NoOpProvider +
+│   │                     #   make_providers(cfg) factory → dict[str, AIProviderProtocol]
+│   ├── claude_provider.py # ClaudeProvider (anthropic SDK, chat + chat_stream)
+│   ├── openai_provider.py # OpenAIProvider (openai SDK, chat + chat_stream)
+│   ├── ollama_provider.py # OllamaProvider (HTTP API, chat + chat_stream)
+│   └── types.py          # FileContent, ImageContent dataclasses for attachments
 │
 └── utils/
     ├── platform.py       # IS_MAC / IS_WIN / IS_LINUX; quick_look(path), quick_look_item(item),
@@ -215,10 +232,13 @@ owning N PanePresenters. Tabs persist to session.json via SessionState.
 `_PathTabBar` (QTabBar subclass): middle-click or Ctrl+click copies full path from tooltip.
 `_sync_closable()` shows close buttons only when tab count > 1.
 
-### AI Integration
-AIProvider Protocol with NoOpProvider (default) and ClaudeProvider (optional).
-Every feature works without AI. AIChatPanel is passive — emits message_submitted,
-AIChatViewProtocol pushes responses in. AIPresenter bridges the two.
+### AI Integration (Multi-Model)
+`AIProviderProtocol` with `chat()` and `chat_stream()` methods. Three providers:
+`ClaudeProvider`, `OpenAIProvider`, `OllamaProvider`. `make_providers(cfg)` builds
+available providers from config/env at startup; `NoOpProvider` fallback if none configured.
+`AIChatPanel` composed of `ChatLog` (bubble-style HTML with streaming), `ContextBar`
+(DnD file attachment chips), and model selector `QComboBox`. `AIPresenter` manages
+active provider + model; streams tokens via `queue.SimpleQueue` → `QTimer` drain.
 A 100ms QTimer drains the AI stream in `app.py`.
 
 ### Drag and Drop
@@ -301,6 +321,36 @@ apply_theme(app, name, plugin_manager)
 Bundled themes: `dark`, `light`, `catppuccin-mocha`.
 User themes: drop `<name>.toml` into `~/.config/biome-fm/themes/`.
 `_TOKENS` and `_QSS` are backward-compat aliases in `theme.py`.
+
+### Overlay / Detachable Panel System (v0.8.0)
+
+Preview and AI panels open in the pane *opposite* the active one.
+`PanelManager` (pure Python, no Qt) owns the state and produces `Effect` objects.
+`PanelCoordinator` (QObject) consumes Effects and drives Qt widgets.
+
+```
+User presses Space/F3 (preview) or Ctrl+I (AI)
+      │
+      ▼
+PanelCoordinator.toggle(name, active_side)
+      │
+      ▼
+PanelManager.toggle(name, active_side) → list[Effect]
+      │
+      ├─ Effect(show_overlay, target_side=opposite)
+      │       hide pane widget on opposite side (_hidden_widget)
+      │       show panel widget in its place
+      │       save splitter sizes
+      │
+      ├─ Effect(set_opposite_visible, False)
+      │       replaces right pane when active=left, left pane when active=right
+      │
+      └─ Effect(show_floating) — via View → Detach Preview / Detach AI
+              panel detached into QDialog; pane widget restored
+```
+
+States: `HIDDEN → OVERLAY → FLOATING` (and back). Each named panel tracks its own state.
+Session: `PanelSession(overlay_side)` saved to `session.json` so overlay side survives restart.
 
 ### Preview System (v0.7.0)
 

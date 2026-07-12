@@ -106,3 +106,23 @@ def test_toggle_new_file_when_visible():
     presenter._current = item1.path
     presenter.toggle_item(item2)
     view.set_busy.assert_called_with(True)
+
+
+def test_render_item_queues_render():
+    presenter, view = _make_presenter(is_visible=False)
+    presenter.render_item(_make_item())
+    view.set_busy.assert_called_with(True)
+    view.set_visible.assert_not_called()
+
+
+def test_render_item_skips_none():
+    presenter, view = _make_presenter()
+    presenter.render_item(None)
+    view.set_busy.assert_not_called()
+
+
+def test_render_item_skips_dotdot():
+    presenter, view = _make_presenter()
+    item = FileItem(name="..", path=Path("/tmp"), is_dir=True, size=0, modified=0.0)
+    presenter.render_item(item)
+    view.set_busy.assert_not_called()

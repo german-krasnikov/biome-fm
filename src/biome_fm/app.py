@@ -4,13 +4,14 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from biome_fm.ai.provider import make_provider
+from biome_fm.ai.provider import make_providers
 from biome_fm.commands.base import CommandHistory
 from biome_fm.commands.registry import CommandEntry, CommandRegistry
 from biome_fm.config import load_config, save_config
 from biome_fm.event_bus import ActivePaneChanged, BookmarkChanged, EventBus, ThemeChanged
 from biome_fm.models.bookmark_store import BookmarkStore
 from biome_fm.models.vfs_router import VFSRouter
+from biome_fm.panel_manager import PanelManager
 from biome_fm.plugins.builtin.dark_theme import BuiltinDarkTheme
 from biome_fm.plugins.manager import PluginManager
 from biome_fm.presenters.ai_presenter import AIPresenter
@@ -24,7 +25,14 @@ from biome_fm.preview.providers.markdown import MarkdownPreviewProvider
 from biome_fm.preview.providers.text import TextPreviewProvider
 from biome_fm.preview.registry import PreviewRegistry
 from biome_fm.qt import QApplication, QInputDialog, QKeySequence, QShortcut, QStandardPaths, QTimer
-from biome_fm.session import PaneSideState, SessionState, TabState, load_session, save_session
+from biome_fm.session import (
+    PanelSession,
+    PaneSideState,
+    SessionState,
+    TabState,
+    load_session,
+    save_session,
+)
 from biome_fm.utils.opener import open_file
 from biome_fm.utils.platform import reveal_in_finder
 from biome_fm.views.ai_chat_panel import AIChatPanel
@@ -32,6 +40,7 @@ from biome_fm.views.bookmark_dialog import BookmarkDialog
 from biome_fm.views.command_palette import CommandPalette
 from biome_fm.views.main_window import MainWindow
 from biome_fm.views.pane_side_view import PaneSideView
+from biome_fm.views.panel_coordinator import PanelCoordinator
 from biome_fm.views.preview_panel import PreviewPanel
 
 
@@ -92,12 +101,19 @@ def create_app() -> MainWindow:
     preview_presenter = PreviewPresenter(view=preview_panel, registry=preview_registry)
     preview_presenter.set_dark("dark" in cfg.theme.lower())
 
+    coord: PanelCoordinator | None = None  # late-bound; set after window creation
+
     def _wire_preview(view: object) -> None:
         sig = getattr(view, "view_requested", None)
         if sig is not None:
-            sig.connect(lambda p=view: preview_presenter.toggle_item(
-                p.current_item() if hasattr(p, "current_item") else None  # type: ignore[union-attr]
-            ))
+            def _on_view(p: object = view) -> None:
+                if coord is None:
+                    return
+                item = p.current_item() if hasattr(p, "current_item") else None  # type: ignore[union-attr]
+                if item is not None and item.name != "..":
+                    preview_presenter.render_item(item)
+                coord.toggle("preview", manager.active_pane_id)
+            sig.connect(_on_view)
         sig2 = getattr(view, "cursor_changed", None)
         if sig2 is not None:
             sig2.connect(preview_presenter.update_if_visible)
@@ -138,18 +154,69 @@ def create_app() -> MainWindow:
             if sig is not None:
                 sig.connect(lambda paths, move, pid=_pid: manager.drop_files(paths, pid, move))
 
-    ai_provider = make_provider(cfg.ai_api_key)
+    providers = make_providers(cfg)
     ai_panel = AIChatPanel()
-    ai_presenter = AIPresenter(view=ai_panel, provider=ai_provider)
+    ai_presenter = AIPresenter(view=ai_panel, providers=providers,
+                               default_provider=cfg.ai_default_provider)
     ai_panel.message_submitted.connect(ai_presenter.send)
+    ai_panel.provider_changed.connect(ai_presenter.switch_provider)
+    ai_panel.model_changed.connect(ai_presenter.switch_model)
+    ai_panel.cancel_requested.connect(ai_presenter.cancel)
+    ai_panel.attachment_dropped.connect(ai_presenter.add_attachment)
+    ai_panel._context_bar.chip_removed.connect(ai_presenter.remove_attachment)
+    # Init provider list in UI
+    if providers:
+        default = cfg.ai_default_provider
+        key = default if default in providers else next(iter(providers))
+        p = providers[key]
+        ai_panel.set_provider_list(list(providers), key, p.models, p.active_model)
 
     # ── Window ────────────────────────────────────────────────────
     window = MainWindow(left_side, right_side, ai_panel, preview_panel)
-    window.preview_toggle_requested.connect(preview_presenter.toggle_panel)
-    preview_panel.visibility_changed.connect(window._act_preview.setChecked)
+
+    panel_mgr = PanelManager()
+    coord = PanelCoordinator(
+        panel_mgr,
+        panels={"preview": preview_panel, "ai": ai_panel},
+        left_side=left_side,
+        right_side=right_side,
+        splitter=window.splitter,
+        main_window=window,
+    )
+
+    window.preview_toggle_requested.connect(lambda: coord.toggle("preview", manager.active_pane_id))
+    window.ai_toggle_requested.connect(lambda: coord.toggle("ai", manager.active_pane_id))
+
+    def _on_panel_state_changed(name: str, state: str) -> None:
+        visible = state != "hidden"
+        if name == "preview":
+            window._act_preview.setChecked(visible)
+        else:
+            window._act_ai.setChecked(visible)
+    coord.state_changed.connect(_on_panel_state_changed)
+
+    preview_panel.detach_requested.connect(lambda: coord.detach("preview"))
+    preview_panel.close_requested.connect(lambda: coord.toggle("preview"))
+    ai_panel.detach_requested.connect(lambda: coord.detach("ai"))
+    ai_panel.close_requested.connect(lambda: coord.toggle("ai"))
+    window.detach_preview_requested.connect(lambda: coord.detach("preview"))
+    window.detach_ai_requested.connect(lambda: coord.detach("ai"))
+
+    def _init_layout() -> None:
+        window.splitter.setSizes([600, 600, 0, 0])
+        if session:
+            coord.restore_state({
+                "preview": {
+                    "state": session.preview.state,
+                    "float_geometry": session.preview.float_geometry,
+                },
+                "ai": {"state": session.ai.state, "float_geometry": session.ai.float_geometry},
+            })
+
+    QTimer.singleShot(0, _init_layout)
 
     drain_timer = QTimer(window)
-    drain_timer.setInterval(100)
+    drain_timer.setInterval(50)
     drain_timer.timeout.connect(ai_presenter.drain)
     drain_timer.start()
 
@@ -228,7 +295,8 @@ def create_app() -> MainWindow:
             elif action == "copy_path":
                 _copy_path()
             elif action == "quick_look":
-                preview_presenter.toggle_item(_active().current_item())
+                preview_presenter.render_item(_active().current_item())
+                coord.toggle("preview", manager.active_pane_id)
             elif action == "open_finder":
                 _reveal_in_finder()
         sig = getattr(view, "context_action_requested", None)
@@ -307,10 +375,17 @@ def create_app() -> MainWindow:
     QShortcut(QKeySequence("Alt+Home"),  window).activated.connect(lambda: _active().go_home())
 
     # ── Misc shortcuts ────────────────────────────────────────────
+    def _toggle_preview_f3() -> None:
+        if coord is None:
+            return
+        item = _active().current_item()
+        if item is not None and item.name != "..":
+            preview_presenter.render_item(item)
+        coord.toggle("preview", manager.active_pane_id)
+
+    bar.view_requested.connect(_toggle_preview_f3)
     QShortcut(QKeySequence("Ctrl+Shift+C"), window).activated.connect(_copy_path)
-    QShortcut(QKeySequence("F3"),           window).activated.connect(
-        lambda: preview_presenter.toggle_item(_active().current_item())
-    )
+    QShortcut(QKeySequence("F3"),           window).activated.connect(_toggle_preview_f3)
     QShortcut(QKeySequence("Ctrl+Z"),       window).activated.connect(manager.undo)
     QShortcut(QKeySequence("Ctrl+Shift+Z"), window).activated.connect(manager.redo)
     QShortcut(QKeySequence("Ctrl+Shift+L"), window).activated.connect(manager.toggle_mirror)
@@ -368,10 +443,10 @@ def create_app() -> MainWindow:
         CommandEntry("Quit",           "Alt+F4",       window.close),  # type: ignore[arg-type]
         CommandEntry("New Tab",        "Ctrl+T",       _new_tab),
         CommandEntry("Close Tab",      "Ctrl+W",       lambda: _active().close_tab(_active().active_idx)),  # noqa: E501
-        CommandEntry("Toggle AI",      "Ctrl+I",       window.toggle_ai_panel),
+        CommandEntry("Toggle AI",      "Ctrl+I",       lambda: coord.toggle("ai", manager.active_pane_id)),  # noqa: E501
         CommandEntry("Refresh",        "Ctrl+R",       lambda: _active().refresh()),
         CommandEntry("Copy Path",      "Ctrl+Shift+C", _copy_path),
-        CommandEntry("Preview",        "F3",           lambda: preview_presenter.toggle_item(_active().current_item())),
+        CommandEntry("Preview",        "F3",           _toggle_preview_f3),
         CommandEntry("Sync Browsing",  "Ctrl+Shift+L", manager.toggle_mirror),
         CommandEntry("Back",           "Alt+Left",     lambda: _active().go_back()),
         CommandEntry("Forward",        "Alt+Right",    lambda: _active().go_forward()),
@@ -385,6 +460,7 @@ def create_app() -> MainWindow:
 
     # ── Save on close ─────────────────────────────────────────────
     def _on_close() -> None:
+        panel_states = coord.save_state()
         save_session(
             SessionState(
                 left=PaneSideState(
@@ -395,6 +471,8 @@ def create_app() -> MainWindow:
                     tabs=[TabState(str(p)) for p in right_tabs.paths()],
                     active_idx=right_tabs.active_idx,
                 ),
+                preview=PanelSession(**panel_states.get("preview", {})),
+                ai=PanelSession(**panel_states.get("ai", {})),
             ),
             cfg_dir / "session.json",
         )
@@ -407,6 +485,6 @@ def create_app() -> MainWindow:
 
     window.about_to_close.connect(_on_close)
     window._refs = (manager, left_tabs, right_tabs, ai_presenter, drain_timer, plugins,  # type: ignore[attr-defined]
-                    preview_presenter, preview_timer)
+                    preview_presenter, preview_timer, coord, panel_mgr)
 
     return window
