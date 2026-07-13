@@ -33,8 +33,11 @@ _DARK_FALLBACK: ThemeTokens = {
 _TOKENS = _DARK_FALLBACK
 
 _GLASS_KEYS: frozenset[str] = frozenset({"base", "surface", "surface2"})
-_GLASS_ALPHA = 120  # ~47% opacity — enough to see blur through
-_GLASS_SELECTION_ALPHA = 140  # selection slightly more opaque for readability
+_SELECTION_BUMP = 20
+
+
+def _opacity_to_alpha(opacity_pct: int) -> int:
+    return max(0, min(255, int(2.55 * opacity_pct)))
 
 
 def _hex_to_rgba(hex_color: str, alpha: int) -> str:
@@ -45,14 +48,17 @@ def _hex_to_rgba(hex_color: str, alpha: int) -> str:
     return f"rgba({r}, {g}, {b}, {alpha})"
 
 
-def _apply_glass_alpha(tokens: dict) -> dict:
+def _apply_glass_alpha(tokens: dict, opacity_pct: int = 47) -> dict:
+    alpha = _opacity_to_alpha(opacity_pct)
+    sel_alpha = min(alpha + _SELECTION_BUMP, 255)
     result = dict(tokens)
     result["base_bg"] = "transparent"
     for key in _GLASS_KEYS - {"base"}:
         if key in result:
-            result[key] = _hex_to_rgba(result[key], _GLASS_ALPHA)
+            result[f"{key}_opaque"] = result[key]
+            result[key] = _hex_to_rgba(result[key], alpha)
     accent = tokens.get("accent", _DARK_FALLBACK["accent"])
-    result["selection_bg"] = _hex_to_rgba(accent, _GLASS_SELECTION_ALPHA)
+    result["selection_bg"] = _hex_to_rgba(accent, sel_alpha)
     return result
 
 
@@ -120,7 +126,11 @@ def load_theme(
     return tokens  # type: ignore[return-value]
 
 
-def _apply_palette(app: QApplication, tokens: ThemeTokens, glass: bool = False) -> None:
+def _apply_palette(
+    app: QApplication, tokens: ThemeTokens, glass: bool = False, opacity_pct: int = 47,
+) -> None:
+    alpha = _opacity_to_alpha(opacity_pct)
+    sel_alpha = min(alpha + _SELECTION_BUMP, 255)
     p = QPalette()
     window_color = QColor(0, 0, 0, 0) if glass else QColor(tokens["base"])
     p.setColor(QPalette.ColorRole.Window,         window_color)
@@ -128,8 +138,8 @@ def _apply_palette(app: QApplication, tokens: ThemeTokens, glass: bool = False) 
     base_color = QColor(tokens["surface"])
     alt_color = QColor(tokens["surface2"])
     if glass:
-        base_color.setAlpha(_GLASS_ALPHA)
-        alt_color.setAlpha(_GLASS_ALPHA)
+        base_color.setAlpha(alpha)
+        alt_color.setAlpha(alpha)
     p.setColor(QPalette.ColorRole.Base,            base_color)
     p.setColor(QPalette.ColorRole.AlternateBase,   alt_color)
     p.setColor(QPalette.ColorRole.Text,            QColor(tokens["text"]))
@@ -137,8 +147,8 @@ def _apply_palette(app: QApplication, tokens: ThemeTokens, glass: bool = False) 
     btn_color = QColor(tokens["surface2"])
     highlight_color = QColor(tokens["accent"])
     if glass:
-        btn_color.setAlpha(_GLASS_ALPHA)
-        highlight_color.setAlpha(_GLASS_SELECTION_ALPHA)
+        btn_color.setAlpha(alpha)
+        highlight_color.setAlpha(sel_alpha)
     p.setColor(QPalette.ColorRole.Button,          btn_color)
     p.setColor(QPalette.ColorRole.ButtonText,      QColor(tokens["text"]))
     p.setColor(QPalette.ColorRole.Highlight,       highlight_color)
@@ -157,10 +167,11 @@ def apply_theme(
     name: str = "dark",
     plugin_manager: object = None,
     glass: bool = False,
+    glass_opacity: int = 47,
 ) -> None:
     tokens = load_theme(name, plugin_manager=plugin_manager)
-    _apply_palette(app, tokens, glass=glass)
-    qss_tokens = _apply_glass_alpha(tokens) if glass else tokens
+    _apply_palette(app, tokens, glass=glass, opacity_pct=glass_opacity)
+    qss_tokens = _apply_glass_alpha(tokens, glass_opacity) if glass else tokens
     app.setStyleSheet(Template(_QSS_TMPL).substitute(qss_tokens))
     from biome_fm.event_bus import ThemeChanged, bus  # lazy — avoids circular import
     bus.publish(ThemeChanged(name=name, tokens=tokens))

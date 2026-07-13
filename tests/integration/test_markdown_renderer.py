@@ -53,12 +53,12 @@ def test_consecutive_code_blocks_highlighted(qapp):
     assert "echo" in html
 
 
-def test_dark_body_background(qapp):
+def test_body_background_transparent(qapp):
     from biome_fm.models.markdown_renderer import render
     dark = render("# Hello", dark=True)
     light = render("# Hello", dark=False)
-    assert "#1e1e1e" in dark
-    assert "#ffffff" in light
+    assert "background:transparent" in dark
+    assert "background:transparent" in light
 
 
 def test_html_not_stripped(qapp):

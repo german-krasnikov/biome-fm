@@ -35,6 +35,7 @@ class PreviewPanel(QWidget):
         self._text_view.setReadOnly(True)
         self._text_view.setOpenExternalLinks(True)
         self._dark = True
+        self._code_alpha = 140
 
         for w in (self._busy_label, self._img_label, self._text_view):
             self._stack.addWidget(w)
@@ -84,7 +85,7 @@ class PreviewPanel(QWidget):
                 self._stack.setCurrentWidget(self._text_view)
             case ContentKind.MARKDOWN:
                 from biome_fm.models.markdown_renderer import render as _md_render
-                self._text_view.setHtml(_md_render(result.data, self._dark))  # type: ignore[arg-type]
+                self._text_view.setHtml(_md_render(result.data, self._dark, self._code_alpha))  # type: ignore[arg-type]
                 self._stack.setCurrentWidget(self._text_view)
             case _:  # ERROR
                 self._text_view.setPlainText(f"Error: {result.data}")
@@ -92,6 +93,9 @@ class PreviewPanel(QWidget):
 
     def set_dark(self, dark: bool) -> None:
         self._dark = dark
+
+    def set_code_alpha(self, alpha: int) -> None:
+        self._code_alpha = alpha
 
     def set_busy(self, busy: bool) -> None:
         if busy:

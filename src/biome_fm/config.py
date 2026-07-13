@@ -30,6 +30,7 @@ class Config:
     file_type_colors: bool = True
     show_hidden: bool = False
     glass: bool = False
+    glass_opacity: int = 47
 
 
 def load_config(path: Path) -> Config:

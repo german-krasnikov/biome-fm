@@ -25,6 +25,8 @@ class SettingsViewProtocol(Protocol):
     def set_plugins_list(self, names: list[str]) -> None: ...
     def set_glass(self, val: bool) -> None: ...
     def get_glass(self) -> bool: ...
+    def set_glass_opacity(self, val: int) -> None: ...
+    def get_glass_opacity(self) -> int: ...
 
 
 class SettingsPresenter:
@@ -50,6 +52,7 @@ class SettingsPresenter:
         self._view.set_ai_keys(self._config.ai_claude_key, self._config.ai_openai_key)
         self._view.set_ollama(self._config.ai_ollama_url, self._config.ai_ollama_model)
         self._view.set_glass(self._config.glass)
+        self._view.set_glass_opacity(self._config.glass_opacity)
 
     def apply(self) -> Config:
         """Read view state → update config → return it."""
@@ -65,4 +68,5 @@ class SettingsPresenter:
         self._config.ai_ollama_url = url
         self._config.ai_ollama_model = model
         self._config.glass = self._view.get_glass()
+        self._config.glass_opacity = self._view.get_glass_opacity()
         return self._config

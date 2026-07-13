@@ -98,7 +98,7 @@ def create_app() -> MainWindow:
     plugins.load_local_plugins()
 
     from biome_fm.views.theme import apply_theme
-    apply_theme(QApplication.instance(), cfg.theme, plugin_manager=plugins, glass=cfg.glass)  # type: ignore[arg-type]
+    apply_theme(QApplication.instance(), cfg.theme, plugin_manager=plugins, glass=cfg.glass, glass_opacity=cfg.glass_opacity)  # type: ignore[arg-type]
 
     # ── Core services ─────────────────────────────────────────────
     vfs = VFSRouter(plugin_manager=plugins)
@@ -123,6 +123,9 @@ def create_app() -> MainWindow:
     preview_panel = PreviewPanel()
     preview_presenter = PreviewPresenter(view=preview_panel, registry=preview_registry)
     preview_presenter.set_dark("dark" in cfg.theme.lower())
+    if cfg.glass:
+        from biome_fm.views.theme import _opacity_to_alpha, _SELECTION_BUMP
+        preview_panel.set_code_alpha(min(_opacity_to_alpha(cfg.glass_opacity) + _SELECTION_BUMP, 255))
 
     coord: PanelCoordinator | None = None  # late-bound; set after window creation
 
@@ -693,7 +696,7 @@ def create_app() -> MainWindow:
         if dlg.exec():
             presenter.apply()
             from biome_fm.views.theme import apply_theme
-            apply_theme(QApplication.instance(), cfg.theme, plugin_manager=plugins, glass=cfg.glass)
+            apply_theme(QApplication.instance(), cfg.theme, plugin_manager=plugins, glass=cfg.glass, glass_opacity=cfg.glass_opacity)
             # apply_theme already publishes ThemeChanged(name, tokens) via global bus
             nonlocal _glass_active
             from biome_fm.views.glass import disable_glass, enable_glass, prepare_glass
@@ -710,6 +713,11 @@ def create_app() -> MainWindow:
                 unmark_glass(window, recursive=True)
                 QApplication.instance().setStyle("Fusion")
                 _glass_active = False
+            if cfg.glass:
+                from biome_fm.views.theme import _opacity_to_alpha, _SELECTION_BUMP
+                preview_panel.set_code_alpha(min(_opacity_to_alpha(cfg.glass_opacity) + _SELECTION_BUMP, 255))
+            else:
+                preview_panel.set_code_alpha(255)
             bus.publish(ShowHiddenToggled(enabled=cfg.show_hidden))
             save_config(cfg, cfg_dir / "config.toml")
 

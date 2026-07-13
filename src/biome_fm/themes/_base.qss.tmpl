@@ -11,7 +11,10 @@ QMainWindow, QFrame {
 
 QSplitter::handle {
     background-color: $border;
-    width: 1px;
+    width: 5px;
+}
+QSplitter::handle:hover {
+    background-color: $accent;
 }
 
 QLineEdit {
@@ -65,8 +68,8 @@ QPushButton:pressed {
 
 ActionBar QPushButton {
     min-width: 0;
-    padding: 1px 6px;
-    font-size: 11px;
+    padding: 4px 6px;
+    font-size: 12px;
 }
 
 QToolBar {
@@ -123,7 +126,7 @@ QTabBar::close-button:hover {
 }
 
 QMenu {
-    background-color: $surface;
+    background-color: $surface_opaque;
     color: $text;
     border: 1px solid $border;
     border-radius: 6px;

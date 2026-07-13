@@ -3,6 +3,19 @@
 All notable changes to Biome FM are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.16.1] — 2026-07-13
+
+### Added
+- **Glass opacity slider** — `cfg.glass_opacity` (int, default 47) persisted to TOML; Settings →
+  Appearance → Opacity QSlider (range 10-90, step 5) drives `_apply_glass_alpha(tokens, opacity_pct)`
+  and `_apply_palette()` as a single multiplier for all translucent elements
+
+### Fixed
+- Markdown code blocks semi-transparent in glass mode
+- MD preview transparent body + opaque QMenu in glass mode
+- Splitter context menu (RMB) + wider handle with hover accent
+- Larger action bar buttons, zero gap to command line
+
 ## [v0.16.0] — 2026-07-13
 
 ### Added

@@ -98,6 +98,7 @@ class MainWindow(QMainWindow):
         central = QWidget()
         layout = QVBoxLayout(central)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
         self._splitter = QSplitter(Qt.Orientation.Horizontal)
         if left is not None:
@@ -127,10 +128,10 @@ class MainWindow(QMainWindow):
         self._completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
         self._cmd_line.setCompleter(self._completer)
 
-        layout.addWidget(self._cmd_line)
-
         self.action_bar = ActionBar()
         layout.addWidget(self.action_bar)
+
+        layout.addWidget(self._cmd_line)
 
         self.setCentralWidget(central)
         self.setStatusBar(QStatusBar())
@@ -246,13 +247,12 @@ class MainWindow(QMainWindow):
             QShortcut(QKeySequence(key), self).activated.connect(signal)
         self.tab_shortcut = QShortcut(Qt.Key.Key_Tab, self)
 
-    def _show_ratio_menu(self, pos: object) -> None:
+    def _show_ratio_menu(self, global_pos: object) -> None:
         menu = QMenu(self)
         for label, ratio in [("25 / 75", 0.25), ("50 / 50", 0.5), ("75 / 25", 0.75)]:
             action = menu.addAction(label)
             action.triggered.connect(lambda checked=False, r=ratio: self._set_pane_ratio(r))
-        handle = self._splitter.handle(1)
-        menu.exec(handle.mapToGlobal(pos))  # type: ignore[arg-type]
+        menu.exec(global_pos)  # type: ignore[arg-type]
 
     def _set_pane_ratio(self, left_ratio: float) -> None:
         sizes = self._splitter.sizes()
@@ -264,15 +264,18 @@ class MainWindow(QMainWindow):
 
     def eventFilter(self, obj: object, event: object) -> bool:
         from PySide6.QtCore import QEvent
-        if (
-            obj is self._splitter.handle(1)
-            and hasattr(event, "type")
-            and hasattr(event, "button")
-            and event.type() == QEvent.Type.MouseButtonRelease  # type: ignore[union-attr]
-            and event.button() == Qt.MouseButton.MiddleButton  # type: ignore[union-attr]
-        ):
-            self._show_ratio_menu(event.pos())  # type: ignore[union-attr]
-            return True
+        if obj is self._splitter.handle(1) and hasattr(event, "type"):
+            etype = event.type()  # type: ignore[union-attr]
+            if etype == QEvent.Type.ContextMenu:
+                self._show_ratio_menu(event.globalPos())  # type: ignore[union-attr]
+                return True
+            if (
+                hasattr(event, "button")
+                and etype == QEvent.Type.MouseButtonRelease
+                and event.button() == Qt.MouseButton.MiddleButton  # type: ignore[union-attr]
+            ):
+                self._show_ratio_menu(event.globalPos())  # type: ignore[union-attr]
+                return True
         return super().eventFilter(obj, event)  # type: ignore[arg-type]
 
     def closeEvent(self, event: object) -> None:

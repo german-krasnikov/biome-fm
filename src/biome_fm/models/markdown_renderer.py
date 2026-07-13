@@ -16,14 +16,14 @@ def _formatter(dark: bool):
     return HtmlFormatter(style="monokai" if dark else "default", noclasses=True, nowrap=False)
 
 
-def _css(dark: bool) -> str:
+def _css(dark: bool, code_alpha: int = 140) -> str:
     bg, text, code_bg, border, muted = (
-        ("#1e1e1e", "#d4d4d4", "#2d2d2d", "#444", "#888")
+        ("#1e1e1e", "#d4d4d4", f"rgba(45,45,46,{code_alpha})", "#444", "#888")
         if dark else
-        ("#ffffff", "#111111", "#f0f0f0", "#ccc", "#666")
+        ("#ffffff", "#111111", f"rgba(240,240,240,{code_alpha})", "#ccc", "#666")
     )
     return f"""
-body {{ background:{bg}; color:{text}; font-family:system-ui,sans-serif;
+body {{ background:transparent; color:{text}; font-family:system-ui,sans-serif;
         font-size:13px; line-height:1.65; padding:12px 16px; margin:0; }}
 h1,h2,h3,h4,h5,h6 {{ margin:1.2em 0 0.4em; line-height:1.3; }}
 h1 {{ font-size:1.8em; }} h2 {{ font-size:1.45em; }} h3 {{ font-size:1.2em; }}
@@ -39,14 +39,14 @@ a {{ color:#4ea6dc; }} a:visited {{ color:#9b7fcc; }}
 """
 
 
-def _inject_css(html: str, dark: bool) -> str:
-    css = _css(dark)
+def _inject_css(html: str, dark: bool, code_alpha: int = 140) -> str:
+    css = _css(dark, code_alpha)
     if "</style></head>" in html:
         return html.replace("</style></head>", f"\n{css}</style></head>", 1)
     return f"<html><head><style>{css}</style></head><body>{html}</body></html>"
 
 
-def render(md: str, dark: bool = True) -> str:
+def render(md: str, dark: bool = True, code_alpha: int = 140) -> str:
     """Return HTML for QTextBrowser.setHtml(). Requires QApplication."""
     from pygments import highlight
     from pygments.lexers import TextLexer, get_lexer_by_name
@@ -77,4 +77,4 @@ def render(md: str, dark: bool = True) -> str:
         return highlight(code, lexer, formatter)
 
     html = PRE_RE.sub(_replace_pre, html)
-    return _inject_css(html, dark)
+    return _inject_css(html, dark, code_alpha)

@@ -45,7 +45,7 @@ src/biome_fm/
 │   │                       #   reads/writes [bookmarks] paths = [...] via tomllib
 │   ├── icon_provider.py    # icon_for_extension(ext) — @lru_cache(256), QFileIconProvider;
 │   │                       #   icon_for_dir() — SP_DirIcon; fallback to SP_FileIcon
-│   └── markdown_renderer.py # render(md, dark) → HTML for QTextBrowser.setHtml();
+│   └── markdown_renderer.py # render(md, dark, code_alpha=140) → HTML for QTextBrowser.setHtml();
 │                            #   QTextDocument.setMarkdown(GFM) → toHtml(); Pygments replaces
 │                            #   <pre> blocks with highlighted HTML (monokai dark / default light);
 │                            #   dark/light-aware CSS injected into <head>; PRE_GROUP_RE regex fixed
@@ -91,7 +91,10 @@ src/biome_fm/
 │   │                     #   _HistoryLineEdit (30-item dedup history, Up/Down nav) +
 │   │                     #   case-insensitive QCompleter (dropdown history);
 │   │                     #   signals: back/forward/up/home + undo/redo/refresh/new_tab _requested,
-│   │                     #   command_submitted, about_to_close; tab_shortcut (Tab key QShortcut)
+│   │                     #   command_submitted, about_to_close; tab_shortcut (Tab key QShortcut);
+│   │                     #   splitter handle(1): 5px wide, accent on hover; RMB or MiddleButton →
+│   │                     #   _show_ratio_menu(global_pos) → 25/75, 50/50, 75/25 via _set_pane_ratio();
+│   │                     #   eventFilter catches QEvent.Type.ContextMenu + MiddleButton on handle
 │   ├── pane_side_view.py # _PathTabBar (Ctrl+click / middle-click copies full path from tooltip);
 │   │                     #   tabs movable; _sync_closable() — close buttons only when >1 tab;
 │   │                     #   set_tab_title() sets abbreviated display + full tooltip;
@@ -129,7 +132,8 @@ src/biome_fm/
 │   ├── preview_panel.py  # PreviewPanel (QWidget): QStackedWidget with 3 widgets
 │   │                     #   (busy label, image QLabel, QTextBrowser); animated slide on
 │   │                     #   maximumWidth (150ms OutCubic); DEFAULT_WIDTH=350;
-│   │                     #   visibility_changed(bool) signal; implements PreviewViewProtocol
+│   │                     #   visibility_changed(bool) signal; implements PreviewViewProtocol;
+│   │                     #   set_code_alpha(alpha) controls code block opacity in MD preview
 │   ├── panel_coordinator.py  # QObject: dispatches Effect → Qt widget ops;
 │   │                         #   accepts left_side + right_side PaneSideView widgets;
 │   │                         #   toggle(name, active_side="left") opens panel in the
@@ -159,7 +163,11 @@ src/biome_fm/
 │                          #   _find_theme(): user AppConfig/biome-fm/themes/ first, then
 │                          #   importlib.resources; _apply_palette() maps 10 tokens to QPalette;
 │                          #   apply_theme(app, name, plugin_manager) publishes ThemeChanged;
-│                          #   _TOKENS alias kept for backward compat; Template(_QSS_TMPL) fills QSS
+│                          #   _TOKENS alias kept for backward compat; Template(_QSS_TMPL) fills QSS;
+│                          #   glass opacity: _opacity_to_alpha(pct) → int; _apply_glass_alpha(tokens,
+│                          #   opacity_pct=47) converts surface/surface2 to rgba(), preserves originals
+│                          #   as surface_opaque/surface2_opaque (used by QMenu); selection alpha =
+│                          #   surface alpha + 20; $surface_opaque token in QSS keeps QMenu opaque
 │
 ├── commands/
 │   ├── base.py           # Command ABC (execute/undo/undoable) + CommandHistory (50 levels);
@@ -201,7 +209,7 @@ src/biome_fm/
 │   └── providers/
 │       ├── image.py      # ImagePreviewProvider (priority=0); jpg/png/gif/webp/svg etc; 50MB limit
 │       ├── markdown.py   # MarkdownPreviewProvider (priority=5); .md/.markdown/.mdx; 200KB limit;
-│       │                 #   calls markdown_renderer.render(md, dark) → HTML;
+│       │                 #   calls markdown_renderer.render(md, dark, code_alpha) → HTML;
 │       │                 #   rendering runs on main thread (Qt requirement); returns ContentKind.HTML
 │       ├── code.py       # CodePreviewProvider (priority=8); Pygments syntax highlighting;
 │       │                 #   get_lexer_for_filename() to detect language; skips TextLexer (falls
@@ -489,7 +497,7 @@ Provider priority (ascending = higher wins; first `can_handle` match used):
 
 Cache: 64 entries, key `(path, mtime)`. FIFO eviction (oldest dropped when full).
 `ThemeChanged` event → `PreviewPresenter.set_dark()` so next render picks correct palette.
-`models/markdown_renderer.render(md, dark)` is a Pygments-enhanced HTML path separate
+`models/markdown_renderer.render(md, dark, code_alpha=140)` is a Pygments-enhanced HTML path separate
 from `MarkdownPreviewProvider` (which returns raw Markdown for `QTextBrowser.setMarkdown`).
 
 ### Plugin System Enhancements (v0.7.0)

@@ -2,14 +2,17 @@
 from __future__ import annotations
 
 from biome_fm.qt import (
+    Qt,
     QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QListWidget,
+    QSlider,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -45,6 +48,17 @@ class SettingsDialog(QDialog):
         al.addRow("Theme:", self._theme_combo)
         self._glass_cb = QCheckBox("Glass effect")
         al.addRow(self._glass_cb)
+        opacity_row = QHBoxLayout()
+        self._opacity_slider = QSlider(Qt.Orientation.Horizontal)
+        self._opacity_slider.setRange(10, 90)
+        self._opacity_slider.setSingleStep(5)
+        self._opacity_label = QLabel("47%")
+        self._opacity_slider.valueChanged.connect(
+            lambda v: self._opacity_label.setText(f"{v}%")
+        )
+        opacity_row.addWidget(self._opacity_slider)
+        opacity_row.addWidget(self._opacity_label)
+        al.addRow("Glass opacity:", opacity_row)
         self._tabs.addTab(appearance, "Appearance")
 
         # ── AI ────────────────────────────────────────────────────────────────
@@ -133,6 +147,12 @@ class SettingsDialog(QDialog):
 
     def get_glass(self) -> bool:
         return self._glass_cb.isChecked()
+
+    def set_glass_opacity(self, val: int) -> None:
+        self._opacity_slider.setValue(val)
+
+    def get_glass_opacity(self) -> int:
+        return self._opacity_slider.value()
 
     def set_ollama(self, url: str, model: str) -> None:
         self._ollama_url.setText(url)

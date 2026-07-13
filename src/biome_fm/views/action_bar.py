@@ -30,8 +30,8 @@ class ActionBar(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(2, 2, 2, 2)
-        layout.setSpacing(2)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(1)
         for label, sig_name, tip in self._BUTTONS:
             btn = QPushButton(label)
             btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
