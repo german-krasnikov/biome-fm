@@ -50,6 +50,7 @@ class AIChatPanel(QWidget):
     attachment_dropped = Signal(object)  # Path
     detach_requested = Signal()
     close_requested = Signal()
+    file_link_clicked = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -88,6 +89,7 @@ class AIChatPanel(QWidget):
         # Chat log (bubbles)
         self._log = ChatLog()
         self._log.setPlaceholderText("Ask the AI about your files...")
+        self._log.path_link_clicked.connect(self.file_link_clicked)
         layout.addWidget(self._log, 1)
 
         # Context bar (attachment chips)
@@ -135,12 +137,22 @@ class AIChatPanel(QWidget):
         self._send_btn.setEnabled(not busy)
         self._input.setEnabled(not busy)
         self._cancel_btn.setVisible(busy)
+        if busy:
+            self._log.show_thinking()
+        else:
+            self._log.hide_thinking()
+
+    def append_tool_event(self, description: str) -> None:
+        self._log.append_tool_event(description)
 
     def append_token(self, token: str) -> None:
         self._log.stream_token(token)
 
     def finalize_stream(self) -> None:
         self._log.stream_end()
+
+    def discard_stream(self) -> None:
+        self._log.stream_discard()
 
     def add_attachment_chip(self, name: str) -> None:
         self._context_bar.add_chip(name)

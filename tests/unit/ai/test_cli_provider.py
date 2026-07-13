@@ -1,9 +1,5 @@
 """Tests for CliProvider — subprocess mocked, no real binary needed."""
-import io
-import subprocess
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from biome_fm.ai.cli.backend_def import CLAUDE_CODE
 from biome_fm.ai.cli.cli_provider import CliProvider

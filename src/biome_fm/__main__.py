@@ -17,11 +17,19 @@ def main() -> int:
     from biome_fm.views.theme import apply_theme
 
     qt_app = QApplication(sys.argv)
-    qt_app.setStyle("Fusion")  # must precede setStyleSheet; fixes native controls on macOS
+    qt_app.setStyle("Fusion")
     apply_theme(qt_app)
     window = create_app()
 
-    window.show()
+    if getattr(window, "_glass_cfg", False):
+        from biome_fm.views.glass import enable_glass, prepare_glass
+        from biome_fm.views.glass_style import GlassStyle
+        qt_app.setStyle(GlassStyle())
+        prepare_glass(window)
+        enable_glass(window)
+    else:
+        window.show()
+
     return qt_app.exec()
 
 

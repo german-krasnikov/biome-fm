@@ -3,6 +3,96 @@
 All notable changes to Biome FM are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.16.0] — 2026-07-13
+
+### Added
+- **Glass / frosted-glass mode** — native macOS blur via pyqt-liquidglass, `_GlassClearFilter` on
+  all translucent widgets, `GlassStyle(QProxyStyle)`, semi-transparent surface tokens, Settings toggle
+- **Global search** — `SearchDialog` + `SearchResultsPanel` + `SearchPresenter` with streaming results
+- **DnD improvements** — self-copy guard via `Path.is_relative_to()`, Alt=Move modifier,
+  outbound drag to external apps (uri-list + text/plain)
+- **Bookmark dialog** — DnD support, Add/Rename/Remove, display names, file bookmark navigation
+- **AI chat** — markdown rendering, biome: path hyperlinks, CLI providers, streaming, cancel
+- **BreadcrumbBar** — scroll + arrows, RMB context menu, swipe navigation
+- 946 tests, 0 failures
+
+## [v0.15.0] — 2026-07-13
+
+### Added
+- **Glass / frosted-glass mode** — macOS NSVisualEffectView blur via `pyqt-liquidglass` ([glass]
+  optional extra); `views/glass.py` thin wrapper (`prepare_glass`/`enable_glass`/`disable_glass`);
+  `views/glass_style.py` provides `GlassStyle(QProxyStyle)` (wraps Fusion, skips opaque fills for
+  glass-tagged widgets) + `mark_glass`/`unmark_glass` + `_GlassClearFilter(QObject)` event filter
+  (CompositionMode_Clear before paint, installed on viewport for `QAbstractScrollArea`, on widget
+  itself for everything else); `views/theme.py` `_apply_glass_alpha()` makes surface tokens
+  semi-transparent (`_GLASS_ALPHA=120`, `_GLASS_SELECTION_ALPHA=140`), `base_bg=transparent`,
+  `selection_bg` recolored; QPalette `Base`/`AlternateBase`/`Button`/`Highlight` get alpha;
+  `PaneView.scrollContentsBy` calls `viewport().update()` to avoid ghost pixels in glass mode;
+  toggled via Settings → Appearance → Glass checkbox (`cfg.glass`)
+- **DnD self-copy guard** — `ManagerPresenter` blocks dropping a folder into itself or any of its
+  subdirectories via `Path.is_relative_to()`; 3 new unit tests in `test_dnd_folder.py`
+- **Alt=Move modifier** — `_MOVE_MODS = Qt.ShiftModifier | Qt.AltModifier` in `pane_view.py`;
+  Alt held during drop or Alt-drag to text editors send text-only MIME (no URLs, macOS constraint);
+  1 new integration test (`test_alt_drag_no_urls`)
+- 28 new tests (7 `test_glass_theme.py` + 4 `test_glass_platform.py` + 9 `test_glass_style.py` +
+  4 `test_settings_glass.py` + 3 `test_dnd_folder.py` + 1 `test_external_dnd.py`); 946 tests total
+
+## [v0.14.3] — 2026-07-13
+
+### Added
+- **Outbound drag-and-drop to external apps** — `PaneView.mimeData()` sets all three MIME types
+  simultaneously: internal `application/x-biome-fm-paths`, `text/uri-list` (Finder/Explorer/desktop),
+  and `text/plain` (text editors and terminals); `..` entries excluded from URL list
+- 5 tests (`test_external_dnd.py`); 918 tests total
+
+## [v0.14.2] — 2026-07-13
+
+### Added
+- **Bookmark default names** — `display_label()` now returns `path.name` as fallback (computed,
+  not stored in TOML); all bookmark items display "Name — /path" without requiring an explicit rename
+- **File bookmark navigation** — clicking a file bookmark navigates the active pane to the parent
+  directory and selects the file (`select_item(filename)`) instead of navigating into the file
+- 9 new tests (3 `test_bookmark_store.py` + 4 `test_bookmark_navigation.py` + 2 `test_bookmark_dialog.py`);
+  913 tests total
+
+## [v0.14.1] — 2026-07-13
+
+### Added
+- **Bookmark names** — `BookmarkStore` gains `_names: dict[str, str]`, `get_name()`, `set_name()`,
+  `display_label()`; TOML persists a parallel `names = [...]` array; corrupt TOML silently resets names
+  without crashing; `BookmarkDialog` "Rename" button calls `set_name()` and refreshes list items as
+  "Name — /path"; `bookmark_menu.py` uses `display_label()` so named bookmarks show their label
+- **AI model persistence for all providers** — `_model_fields` in `app.py` now covers all 6 providers
+  (`claude`, `openai`, `ollama` + 3 CLI); `_on_provider_changed` saves `ai_default_provider` to
+  `config.toml` immediately on every provider switch (not just at app close)
+- 3 new tests (`test_bookmark_store.py`: `replace_carries_name`, `name_with_quotes_roundtrip`,
+  `corrupt_toml_does_not_crash`); 904 tests total
+
+## [v0.14.0] — 2026-07-13
+
+### Added
+- **Bookmark dialog enhancements** — `BookmarkDialog` is now a non-modal `Qt.WindowType.Tool`
+  singleton (singleton ref in `app.py._bm_dialog`; toggle show/raise instead of `.exec()`);
+  "Add" button opens `QInputDialog.getText` → `Path(text).expanduser()` → `store.add()`; accepts
+  DnD of `application/x-biome-fm-paths` and `text/uri-list`, guarding against empty and duplicate paths
+- **"Add to Bookmarks" context menu** — `PaneView` context menu exposes "Add to Bookmarks" for
+  files and folders; dispatched through `app.py:_on_add_bookmark()`
+- 17 tests (13 `test_bookmark_dialog.py` + 4 `test_bookmark_menu.py`)
+
+## [v0.13.1] — 2026-07-13
+
+### Fixed
+- **Breadcrumb disappears after repeated navigation** — `_SegmentButton` click handler changed
+  from lambda closure to `_emit_navigated()` bound method (prevents stale captures); `_CrumbRow.set_path()`
+  now passes `parent=self` to child widgets and defers `adjustSize()` via `QTimer.singleShot(0, ...)`
+  so Qt can polish new buttons before sizing; `BreadcrumbBar.set_path()` chains a 10ms timer for
+  `scroll_to_end` to run after the deferred resize
+- **AI chat bubbles merging + typing indicator misaligned** — `_insert_clean_block()` static helper
+  in `_chat_log.py` inserts a default `QTextBlockFormat` block before every `insertHtml()`, resetting
+  alignment inherited from the previous bubble; all roles (`append_bubble`, `show_thinking`,
+  `stream_start`) use this helper; `_tick_dots()` changed `<div>` → `<span>` inside existing block
+- 881 tests (up from 877)
+
 ## [v0.11.0] — 2026-07-13
 
 ### Added

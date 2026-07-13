@@ -19,7 +19,7 @@ class Effect:
 
 
 class PanelManager:
-    PANELS = ("preview", "ai")
+    PANELS = ("preview", "ai", "search")
 
     def __init__(self) -> None:
         self._states: dict[str, PanelState] = {p: PanelState.HIDDEN for p in self.PANELS}
@@ -56,13 +56,15 @@ class PanelManager:
         return self._transition(name, new)
 
     def _transition(self, name: str, new: PanelState) -> list[Effect]:
-        other = next(p for p in self.PANELS if p != name)
+        others = [p for p in self.PANELS if p != name]
         effects: list[Effect] = []
 
-        # Mutual exclusion: if other is OVERLAY and we're going OVERLAY, push other to HIDDEN
-        if new == PanelState.OVERLAY and self._states[other] == PanelState.OVERLAY:
-            self._states[other] = PanelState.HIDDEN
-            effects.append(Effect("hide", panel=other))
+        # Mutual exclusion: hide any other OVERLAY panels when going OVERLAY
+        if new == PanelState.OVERLAY:
+            for other in others:
+                if self._states[other] == PanelState.OVERLAY:
+                    self._states[other] = PanelState.HIDDEN
+                    effects.append(Effect("hide", panel=other))
 
         self._states[name] = new
 

@@ -6,9 +6,9 @@ from pathlib import Path as _P
 from biome_fm.qt import (
     QApplication,
     QStackedWidget,
-    QTableView,
     Qt,
     QTabBar,
+    QTableView,
     QVBoxLayout,
     QWidget,
     Signal,

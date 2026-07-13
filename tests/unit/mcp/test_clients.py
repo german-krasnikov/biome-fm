@@ -1,6 +1,5 @@
 """Tests for mcp.clients registry and detection."""
 
-from pathlib import Path
 
 from biome_fm.mcp.clients import CLIENT_REGISTRY, ClientInfo, detect_installed
 
@@ -33,6 +32,7 @@ def test_detect_installed_returns_when_config_exists(tmp_path, monkeypatch):
 
 def test_detect_installed_returns_when_binary_found(tmp_path, monkeypatch):
     import shutil
+
     import biome_fm.mcp.clients as mod
 
     fake_client = ClientInfo(

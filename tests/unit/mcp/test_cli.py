@@ -74,6 +74,7 @@ def test_configure_no_clients_detected(monkeypatch):
 
 def test_doctor_reports_status(tmp_path, monkeypatch, capsys):
     import json
+
     from biome_fm.mcp.clients import SERVER_NAME
 
     cfg = tmp_path / "mcp.json"

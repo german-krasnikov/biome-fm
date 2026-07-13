@@ -15,7 +15,8 @@ def _formatter(dark: bool):
     return HtmlFormatter(
         style="monokai" if dark else "friendly",
         noclasses=True,
-        prestyles="font-family: monospace; font-size: 12px;",
+        nobackground=True,
+        prestyles="font-family: monospace; font-size: 12px; background: transparent;",
     )
 
 

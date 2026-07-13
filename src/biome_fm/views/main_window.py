@@ -71,6 +71,7 @@ class MainWindow(QMainWindow):
     settings_requested = Signal()
     detach_preview_requested = Signal()
     detach_ai_requested = Signal()
+    search_requested = Signal()
 
     def __init__(
         self,

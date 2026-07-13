@@ -43,6 +43,8 @@ class SettingsDialog(QDialog):
         al = QFormLayout(appearance)
         self._theme_combo = QComboBox()
         al.addRow("Theme:", self._theme_combo)
+        self._glass_cb = QCheckBox("Glass effect")
+        al.addRow(self._glass_cb)
         self._tabs.addTab(appearance, "Appearance")
 
         # ── AI ────────────────────────────────────────────────────────────────
@@ -125,6 +127,12 @@ class SettingsDialog(QDialog):
     def set_plugins_list(self, names: list[str]) -> None:
         self._plugins_list.clear()
         self._plugins_list.addItems(names)
+
+    def set_glass(self, val: bool) -> None:
+        self._glass_cb.setChecked(val)
+
+    def get_glass(self) -> bool:
+        return self._glass_cb.isChecked()
 
     def set_ollama(self, url: str, model: str) -> None:
         self._ollama_url.setText(url)

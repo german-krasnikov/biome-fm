@@ -1,8 +1,6 @@
 """Unit tests for breadcrumb path_segments — no Qt."""
 from pathlib import Path
 
-import pytest
-
 from biome_fm.views.breadcrumb_bar import path_segments
 
 

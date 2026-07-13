@@ -9,7 +9,9 @@ from biome_fm.views.bookmark_menu import BookmarkMenu
 
 @pytest.fixture
 def store(tmp_path):
-    s = BookmarkStore(tmp_path / "bm.toml")
+    bm_path = tmp_path / "bm.toml"
+    bm_path.write_text("[bookmarks]\npaths = []\n")  # prevent default dirs being loaded
+    s = BookmarkStore(bm_path)
     s.add(Path("/home/user/Documents"))
     s.add(Path("/tmp"))
     return s
@@ -43,7 +45,9 @@ def test_edit_action_emits_signal(menu, qtbot):
 
 
 def test_empty_store_only_edit(qtbot, tmp_path):
-    s = BookmarkStore(tmp_path / "empty.toml")
+    p = tmp_path / "empty.toml"
+    p.write_text("[bookmarks]\npaths = []\n")
+    s = BookmarkStore(p)
     w = BookmarkMenu()
     w.set_store(s)
     qtbot.addWidget(w)

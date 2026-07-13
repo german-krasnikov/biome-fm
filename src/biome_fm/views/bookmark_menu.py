@@ -31,7 +31,7 @@ class BookmarkMenu(QWidget):
         self._menu.clear()
         if self._store:
             for p in self._store.all():
-                act = self._menu.addAction(p.name or str(p))
+                act = self._menu.addAction(self._store.display_label(p))
                 act.setToolTip(str(p))
                 act.triggered.connect(lambda checked, path=p: self.bookmark_chosen.emit(path))
         self._menu.addSeparator()

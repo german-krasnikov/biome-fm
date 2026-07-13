@@ -22,10 +22,14 @@ class Config:
     ai_openai_model: str = "gpt-4o"
     ai_ollama_url: str = "http://localhost:11434"
     ai_ollama_model: str = "llama3.2"
+    ai_cli_claude_code_model: str = ""
+    ai_cli_codex_model: str = ""
+    ai_cli_opencode_model: str = ""
     bookmarks: list[str] = field(default_factory=list)
     sync_browsing: bool = False
     file_type_colors: bool = True
     show_hidden: bool = False
+    glass: bool = False
 
 
 def load_config(path: Path) -> Config:

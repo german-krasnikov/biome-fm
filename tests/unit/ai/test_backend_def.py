@@ -1,9 +1,13 @@
 """Tests for BackendDef discovery."""
 from unittest.mock import patch
 
-import pytest
-
-from biome_fm.ai.cli.backend_def import ALL_BACKENDS, CLAUDE_CODE, CODEX, OPENCODE, make_cli_providers
+from biome_fm.ai.cli.backend_def import (
+    ALL_BACKENDS,
+    CLAUDE_CODE,
+    CODEX,
+    OPENCODE,
+    make_cli_providers,
+)
 
 
 def test_resolve_binary_found():
@@ -37,10 +41,11 @@ def test_all_backends_count():
 
 
 def test_build_argv_claude():
-    argv = CLAUDE_CODE.build_argv("hello", "claude-sonnet-4-20250514")
+    argv = CLAUDE_CODE.build_argv("hello", "claude-sonnet-5")
     assert argv[0] == "claude"
     assert "--output-format" in argv
     assert "stream-json" in argv
+    assert "--verbose" in argv
 
 
 def test_build_argv_codex():

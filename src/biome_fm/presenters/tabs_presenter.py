@@ -151,3 +151,6 @@ class TabsPresenter:
 
     def on_item_activated(self, item: FileItem) -> None:
         self.active.on_item_activated(item)
+        p = self.active.current_path
+        self._tabs_view.set_tab_title(self._active_idx, p.name or str(p))
+        self._tabs_view.set_tab_tooltip(self._active_idx, str(p))

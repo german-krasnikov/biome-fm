@@ -74,6 +74,7 @@ def _configure(argv: list[str]) -> int:
 def _doctor() -> int:
     import json
     import tomllib
+
     from . import clients
 
     found = False

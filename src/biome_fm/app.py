@@ -1,8 +1,10 @@
 """Application bootstrap and DI wiring."""
 from __future__ import annotations
 
+import queue
 import shlex
 import subprocess
+import threading
 from pathlib import Path
 
 from biome_fm.ai.provider import make_providers
@@ -27,11 +29,12 @@ from biome_fm.plugins.manager import PluginManager
 from biome_fm.presenters.ai_presenter import AIPresenter
 from biome_fm.presenters.manager_presenter import ManagerPresenter
 from biome_fm.presenters.pane_presenter import PanePresenter, PaneViewProtocol
+from biome_fm.presenters.search_presenter import SearchPresenter, SearchResult
 from biome_fm.presenters.settings_presenter import SettingsPresenter
 from biome_fm.presenters.tabs_presenter import TabsPresenter
 from biome_fm.preview.presenter import PreviewPresenter
-from biome_fm.preview.providers.fallback import FallbackProvider
 from biome_fm.preview.providers.code import CodePreviewProvider
+from biome_fm.preview.providers.fallback import FallbackProvider
 from biome_fm.preview.providers.image import ImagePreviewProvider
 from biome_fm.preview.providers.markdown import MarkdownPreviewProvider
 from biome_fm.preview.providers.text import TextPreviewProvider
@@ -55,6 +58,8 @@ from biome_fm.views.pane_side_view import PaneSideView
 from biome_fm.views.panel_coordinator import PanelCoordinator
 from biome_fm.views.preview_panel import PreviewPanel
 from biome_fm.views.progress_dialog import ProgressDialog
+from biome_fm.views.search_dialog import SearchDialog
+from biome_fm.views.search_panel import SearchResultsPanel
 from biome_fm.views.settings_dialog import SettingsDialog
 
 
@@ -93,7 +98,7 @@ def create_app() -> MainWindow:
     plugins.load_local_plugins()
 
     from biome_fm.views.theme import apply_theme
-    apply_theme(QApplication.instance(), cfg.theme, plugin_manager=plugins)  # type: ignore[arg-type]
+    apply_theme(QApplication.instance(), cfg.theme, plugin_manager=plugins, glass=cfg.glass)  # type: ignore[arg-type]
 
     # ── Core services ─────────────────────────────────────────────
     vfs = VFSRouter(plugin_manager=plugins)
@@ -177,15 +182,58 @@ def create_app() -> MainWindow:
             _wire_dnd(_tabs.view_at(_i), _pid)
 
     providers = make_providers(cfg)
+    _model_fields = {
+        "claude":       "ai_claude_model",
+        "openai":       "ai_openai_model",
+        "ollama":       "ai_ollama_model",
+        "claude-code":  "ai_cli_claude_code_model",
+        "codex":        "ai_cli_codex_model",
+        "opencode":     "ai_cli_opencode_model",
+    }
+    for _pname, _p in providers.items():
+        _field = _model_fields.get(_pname)
+        if _field:
+            _saved = getattr(cfg, _field, "")
+            if _saved and _saved in _p.models:
+                _p.set_model(_saved)
     ai_panel = AIChatPanel()
     ai_presenter = AIPresenter(view=ai_panel, providers=providers,
                                default_provider=cfg.ai_default_provider)
     ai_panel.message_submitted.connect(ai_presenter.send)
     ai_panel.provider_changed.connect(ai_presenter.switch_provider)
+    def _on_provider_changed(name: str) -> None:
+        cfg.ai_default_provider = name
+        save_config(cfg, cfg_dir / "config.toml")
+    ai_panel.provider_changed.connect(_on_provider_changed)
     ai_panel.model_changed.connect(ai_presenter.switch_model)
     ai_panel.cancel_requested.connect(ai_presenter.cancel)
     ai_panel.attachment_dropped.connect(ai_presenter.add_attachment)
     ai_panel._context_bar.chip_removed.connect(ai_presenter.remove_attachment)
+
+    def _on_ai_model_changed(model: str) -> None:
+        field = _model_fields.get(ai_presenter._active_key)
+        if field:
+            setattr(cfg, field, model)
+            save_config(cfg, cfg_dir / "config.toml")
+
+    ai_panel.model_changed.connect(_on_ai_model_changed)
+
+    def _on_ai_navigate(path_str: str) -> None:
+        path = Path(path_str).expanduser()
+        if not path.is_absolute():
+            path = (_active().current_path / path_str)
+        path = path.resolve()
+        if not path.exists():
+            return
+        inactive = right_tabs if manager.active_pane_id == "left" else left_tabs
+        target = path if path.is_dir() else path.parent
+        inactive.navigate_to(target)
+        if path.is_file():
+            v = inactive.view_at(inactive.active_idx)
+            if hasattr(v, "select_item"):
+                v.select_item(path.name)
+
+    ai_panel.file_link_clicked.connect(_on_ai_navigate)
     # Init provider list in UI
     if providers:
         default = cfg.ai_default_provider
@@ -193,13 +241,22 @@ def create_app() -> MainWindow:
         p = providers[key]
         ai_panel.set_provider_list(list(providers), key, p.models, p.active_model)
 
+    search_panel = SearchResultsPanel()
+
     # ── Window ────────────────────────────────────────────────────
     window = MainWindow(left_side, right_side, ai_panel, preview_panel)
+    _glass_active = cfg.glass  # actual enable happens in __main__ after show()
+    window._glass_cfg = cfg.glass
+    if cfg.glass:
+        from biome_fm.views.glass_style import mark_glass
+        mark_glass(window, recursive=True)
+    window.splitter.addWidget(search_panel)
+    search_panel.hide()
 
     panel_mgr = PanelManager()
     coord = PanelCoordinator(
         panel_mgr,
-        panels={"preview": preview_panel, "ai": ai_panel},
+        panels={"preview": preview_panel, "ai": ai_panel, "search": search_panel},
         left_side=left_side,
         right_side=right_side,
         splitter=window.splitter,
@@ -213,7 +270,7 @@ def create_app() -> MainWindow:
         visible = state != "hidden"
         if name == "preview":
             window._act_preview.setChecked(visible)
-        else:
+        elif name == "ai":
             window._act_ai.setChecked(visible)
     coord.state_changed.connect(_on_panel_state_changed)
 
@@ -225,7 +282,7 @@ def create_app() -> MainWindow:
     window.detach_ai_requested.connect(lambda: coord.detach("ai"))
 
     def _init_layout() -> None:
-        window.splitter.setSizes([600, 600, 0, 0])
+        window.splitter.setSizes([600, 600, 0, 0, 0])
         if session:
             coord.restore_state({
                 "preview": {
@@ -298,6 +355,81 @@ def create_app() -> MainWindow:
 
     window.command_submitted.connect(_run_cmd)
 
+    # ── Search ────────────────────────────────────────────────────
+    _search_presenter: SearchPresenter | None = None
+    _search_queue: queue.SimpleQueue[SearchResult | None] = queue.SimpleQueue()
+    _CANCELLED = object()
+
+    def _on_search_requested() -> None:
+        nonlocal _search_presenter, _search_queue
+        if _search_presenter is not None:
+            _search_presenter.cancel()
+        _search_queue = queue.SimpleQueue()
+        params = SearchDialog.get_params(_active().current_path, window)
+        if params is None:
+            return
+        query, mode, max_results = params
+        _search_presenter = SearchPresenter(vfs, _active().current_path)
+        search_panel.on_search_started(query)
+        coord.toggle("search", manager.active_pane_id)
+        q = _search_queue
+
+        def _run() -> None:
+            _search_presenter.search(  # type: ignore[union-attr]
+                query, mode=mode, max_results=max_results,
+                on_match=q.put,
+            )
+            sentinel = _CANCELLED if _search_presenter._cancel.is_set() else None  # type: ignore[union-attr]
+            q.put(sentinel)
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _drain_search() -> None:
+        batch: list[SearchResult] = []
+        done = False
+        cancelled = False
+        try:
+            while True:
+                item = _search_queue.get_nowait()
+                if item is None:
+                    done = True
+                    break
+                if item is _CANCELLED:
+                    done = True
+                    cancelled = True
+                    break
+                batch.append(item)
+        except queue.Empty:
+            pass
+        if batch:
+            search_panel.add_results(batch)
+        if done:
+            if cancelled:
+                search_panel.on_cancelled()
+            else:
+                search_panel.on_finished(search_panel.result_count)
+
+    search_timer = QTimer(window)
+    search_timer.setInterval(50)
+    search_timer.timeout.connect(_drain_search)
+    search_timer.start()
+
+    window.search_requested.connect(_on_search_requested)
+    search_panel.close_requested.connect(lambda: coord.toggle("search", manager.active_pane_id))
+    search_panel.stop_requested.connect(
+        lambda: _search_presenter.cancel() if _search_presenter else None
+    )
+    search_panel.detach_requested.connect(lambda: coord.detach("search"))
+
+    def _on_navigate_to_file(parent_dir: object, filename: str) -> None:
+        tabs = _active()
+        tabs.navigate_to(parent_dir)  # type: ignore[arg-type]
+        v = tabs.view_at(tabs.active_idx)
+        if hasattr(v, "select_item"):
+            v.select_item(filename)  # type: ignore[union-attr]
+
+    search_panel.navigate_to_file.connect(_on_navigate_to_file)
+
     # ── New tab ───────────────────────────────────────────────────
     def _new_tab() -> None:
         side = _active()
@@ -361,6 +493,13 @@ def create_app() -> MainWindow:
                 coord.toggle("preview", manager.active_pane_id)
             elif action == "open_finder":
                 _reveal_in_finder()
+            elif action == "add_bookmark":
+                item = _active().current_item()
+                if item and item.name != "..":
+                    store.add(item.path)
+                else:
+                    store.add(_active().current_path)
+                bus.publish(BookmarkChanged())
         sig = getattr(view, "context_action_requested", None)
         if sig is not None:
             sig.connect(_dispatch)
@@ -373,15 +512,34 @@ def create_app() -> MainWindow:
             _wire_plugin_ctx(_v2, _pid2)
 
     # ── Bookmarks ──────────────────────────────────────────────────
+    _bm_dialog: BookmarkDialog | None = None
+
+    def _open_bm_dialog() -> None:
+        nonlocal _bm_dialog
+        if _bm_dialog is None or not _bm_dialog.isVisible():
+            _bm_dialog = BookmarkDialog(store, bus, window)
+            _bm_dialog.show()
+        else:
+            _bm_dialog._refresh()
+            _bm_dialog.raise_()
+            _bm_dialog.activateWindow()
+
     def _wire_bm(view: object, tabs: TabsPresenter) -> None:
         if hasattr(view, "set_bookmark_store"):
             view.set_bookmark_store(store)  # type: ignore[union-attr]
         sig = getattr(view, "bookmark_chosen", None)
         if sig is not None:
-            sig.connect(tabs.navigate_to)
+            def _on_bm(path: Path, _tabs=tabs) -> None:
+                target = path if path.is_dir() else path.parent
+                _tabs.navigate_to(target)
+                if not path.is_dir():
+                    v = _tabs.view_at(_tabs.active_idx)
+                    if hasattr(v, "select_item"):
+                        v.select_item(path.name)
+            sig.connect(_on_bm)
         sig2 = getattr(view, "edit_bookmarks_requested", None)
         if sig2 is not None:
-            sig2.connect(lambda: BookmarkDialog(store, bus, window).exec())
+            sig2.connect(_open_bm_dialog)
 
     for _tabs_bm in (left_tabs, right_tabs):
         for _i_bm in range(_tabs_bm.tab_count):
@@ -397,6 +555,7 @@ def create_app() -> MainWindow:
 
     QShortcut(QKeySequence("Ctrl+D"), window).activated.connect(_bookmark_toggle)
     QShortcut(QKeySequence("Ctrl+H"), window).activated.connect(manager.toggle_hidden)
+    QShortcut(QKeySequence("Ctrl+Shift+F"), window).activated.connect(_on_search_requested)
 
     # ── Shortcuts ─────────────────────────────────────────────────
     QShortcut(QKeySequence("Ctrl+T"), window).activated.connect(_new_tab)
@@ -533,10 +692,24 @@ def create_app() -> MainWindow:
         )
         if dlg.exec():
             presenter.apply()
-            if cfg.theme != old_theme:
-                from biome_fm.views.theme import apply_theme
-                apply_theme(QApplication.instance(), cfg.theme, plugin_manager=plugins)
-                # apply_theme already publishes ThemeChanged(name, tokens) via global bus
+            from biome_fm.views.theme import apply_theme
+            apply_theme(QApplication.instance(), cfg.theme, plugin_manager=plugins, glass=cfg.glass)
+            # apply_theme already publishes ThemeChanged(name, tokens) via global bus
+            nonlocal _glass_active
+            from biome_fm.views.glass import disable_glass, enable_glass, prepare_glass
+            if cfg.glass and not _glass_active:
+                from biome_fm.views.glass_style import GlassStyle, mark_glass
+                QApplication.instance().setStyle(GlassStyle())
+                mark_glass(window, recursive=True)
+                prepare_glass(window)
+                enable_glass(window)
+                _glass_active = True
+            elif not cfg.glass and _glass_active:
+                disable_glass(window)
+                from biome_fm.views.glass_style import unmark_glass
+                unmark_glass(window, recursive=True)
+                QApplication.instance().setStyle("Fusion")
+                _glass_active = False
             bus.publish(ShowHiddenToggled(enabled=cfg.show_hidden))
             save_config(cfg, cfg_dir / "config.toml")
 
@@ -566,6 +739,7 @@ def create_app() -> MainWindow:
         CommandEntry("Up",             "Alt+Up",       lambda: _active().go_up()),
         CommandEntry("Home",           "Alt+Home",     lambda: _active().go_home()),
         CommandEntry("Settings",         "Ctrl+,",       _open_settings),
+        CommandEntry("Find Files",       "Ctrl+Shift+F", _on_search_requested),
     ]:
         registry.register(entry)
 
@@ -593,16 +767,21 @@ def create_app() -> MainWindow:
             cfg_dir / "session.json",
         )
         cfg.splitter_sizes = window.splitter_sizes
+        _close_field = _model_fields.get(ai_presenter._active_key)
+        if _close_field:
+            setattr(cfg, _close_field, ai_presenter._provider.active_model)
         save_config(cfg, cfg_dir / "config.toml")
         ai_presenter.shutdown()
         drain_timer.stop()
         preview_presenter.shutdown()
         preview_timer.stop()
+        search_timer.stop()
         op_timer.stop()
         op_queue.shutdown(wait=False)
 
     window.about_to_close.connect(_on_close)
     window._refs = (manager, left_tabs, right_tabs, ai_presenter, drain_timer, plugins,  # type: ignore[attr-defined]
-                    preview_presenter, preview_timer, coord, panel_mgr, op_queue, op_timer)
+                    preview_presenter, preview_timer, coord, panel_mgr,
+                    op_queue, op_timer, search_timer)
 
     return window

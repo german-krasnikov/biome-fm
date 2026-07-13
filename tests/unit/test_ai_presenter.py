@@ -76,6 +76,12 @@ class _MockView:
     def set_provider_list(self, providers, active, models, active_model):
         self.provider_lists.append((providers, active, models, active_model))
 
+    def append_tool_event(self, description):
+        pass
+
+    def discard_stream(self):
+        pass
+
 
 def _item(name="file.txt", size=42):
     return FileItem(name=name, path=Path(f"/tmp/{name}"), is_dir=False, size=size, modified=0.0)

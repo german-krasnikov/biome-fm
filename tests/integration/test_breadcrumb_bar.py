@@ -58,7 +58,7 @@ def test_enter_commits_edit(bar, qtbot):
     with qtbot.waitSignal(bar.path_entered, timeout=1000) as sig:
         qtbot.keyClick(bar._combo.lineEdit(), Qt.Key.Key_Return)
     assert sig.args[0] == "/tmp/test"
-    assert bar._stack.currentWidget() is bar._crumb
+    assert bar._stack.currentIndex() == 0
 
 
 def test_show_error_activates_combo(bar):
@@ -74,7 +74,7 @@ def test_nav_history(bar):
 
 def test_set_path_shows_crumb(bar):
     bar.set_path(Path("/foo/bar"))
-    assert bar._stack.currentWidget() is bar._crumb
+    assert bar._stack.currentIndex() == 0
 
 
 def test_active_segment_is_last(bar):
@@ -115,3 +115,54 @@ def test_vertical_scroll_ignored(bar):
     bar.back_requested.connect(lambda: signals.append(1))
     _send_wheel(bar._crumb, dx=30, dy=200)
     assert signals == []
+
+
+def test_bar_height_is_fixed(bar, qtbot):
+    bar.set_path(Path("/a/b/c/d/e/f/g/h/i/j"))
+    bar.show()
+    assert bar.height() <= 40
+
+
+def test_has_scroll_area(bar):
+    from PySide6.QtWidgets import QScrollArea
+    assert hasattr(bar, "_scroll")
+    assert isinstance(bar._scroll, QScrollArea)
+
+
+def test_arrows_hidden_for_short_path(bar, qtbot):
+    bar.setFixedWidth(800)
+    bar.set_path(Path("/foo"))
+    bar.show()
+    qtbot.wait(50)
+    assert not bar._left_arrow.isVisible()
+    assert not bar._right_arrow.isVisible()
+
+
+def test_scrolled_to_end_on_long_path(bar, qtbot):
+    bar.setFixedWidth(80)
+    bar.set_path(Path("/a/b/c/d/e/f/g/h/i/j/k/l/m"))
+    bar.show()
+    qtbot.wait(200)
+    sb = bar._scroll.horizontalScrollBar()
+    if sb.maximum() > 0:
+        assert abs(sb.value() - sb.maximum()) <= 30
+
+
+def test_breadcrumb_visible_after_repeated_navigation(qtbot, tmp_path):
+    """Breadcrumb must remain visible after navigating in/out of directories."""
+    bar = BreadcrumbBar()
+    qtbot.addWidget(bar)
+    bar.show()
+    qtbot.waitExposed(bar)
+
+    child = tmp_path / "subdir"
+    child.mkdir()
+
+    for _ in range(5):
+        bar.set_path(child)
+        qtbot.wait(50)
+        bar.set_path(tmp_path)
+        qtbot.wait(50)
+
+    assert bar._crumb.width() > 0
+    assert bar._stack.currentIndex() == 0

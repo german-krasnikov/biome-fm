@@ -23,6 +23,8 @@ class SettingsViewProtocol(Protocol):
     def get_ollama(self) -> tuple[str, str]: ...
     def set_themes_list(self, names: list[str]) -> None: ...
     def set_plugins_list(self, names: list[str]) -> None: ...
+    def set_glass(self, val: bool) -> None: ...
+    def get_glass(self) -> bool: ...
 
 
 class SettingsPresenter:
@@ -47,6 +49,7 @@ class SettingsPresenter:
         self._view.set_ai_provider(self._config.ai_default_provider)
         self._view.set_ai_keys(self._config.ai_claude_key, self._config.ai_openai_key)
         self._view.set_ollama(self._config.ai_ollama_url, self._config.ai_ollama_model)
+        self._view.set_glass(self._config.glass)
 
     def apply(self) -> Config:
         """Read view state → update config → return it."""
@@ -61,4 +64,5 @@ class SettingsPresenter:
         url, model = self._view.get_ollama()
         self._config.ai_ollama_url = url
         self._config.ai_ollama_model = model
+        self._config.glass = self._view.get_glass()
         return self._config

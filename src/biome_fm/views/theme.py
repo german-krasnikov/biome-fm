@@ -14,8 +14,11 @@ from biome_fm.plugins.types import ThemeTokens
 # Inline dark fallback — safety net if TOML files missing from install
 _DARK_FALLBACK: ThemeTokens = {
     "base":     "#1c1c1e",
+    "base_bg":  "#1c1c1e",
     "surface":  "#2c2c2e",
+    "surface_opaque":  "#2c2c2e",
     "surface2": "#3a3a3c",
+    "surface2_opaque": "#3a3a3c",
     "border":   "#48484a",
     "text":     "#f5f5f7",
     "text_dim": "#98989f",
@@ -23,10 +26,34 @@ _DARK_FALLBACK: ThemeTokens = {
     "accent2":  "#5e5ce6",
     "red":      "#ff453a",
     "green":    "#32d74b",
+    "selection_bg": "#0a84ff",
 }
 
 # Backward-compat alias (existing tests import _TOKENS)
 _TOKENS = _DARK_FALLBACK
+
+_GLASS_KEYS: frozenset[str] = frozenset({"base", "surface", "surface2"})
+_GLASS_ALPHA = 120  # ~47% opacity — enough to see blur through
+_GLASS_SELECTION_ALPHA = 140  # selection slightly more opaque for readability
+
+
+def _hex_to_rgba(hex_color: str, alpha: int) -> str:
+    if not hex_color.startswith("#"):
+        return hex_color
+    h = hex_color.lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    return f"rgba({r}, {g}, {b}, {alpha})"
+
+
+def _apply_glass_alpha(tokens: dict) -> dict:
+    result = dict(tokens)
+    result["base_bg"] = "transparent"
+    for key in _GLASS_KEYS - {"base"}:
+        if key in result:
+            result[key] = _hex_to_rgba(result[key], _GLASS_ALPHA)
+    accent = tokens.get("accent", _DARK_FALLBACK["accent"])
+    result["selection_bg"] = _hex_to_rgba(accent, _GLASS_SELECTION_ALPHA)
+    return result
 
 
 def _load_qss_template() -> str:
@@ -76,6 +103,7 @@ def load_theme(
         if plugin_tokens:
             tokens: dict[str, str] = dict(_DARK_FALLBACK)
             tokens.update(plugin_tokens)
+            tokens.setdefault("base_bg", tokens["base"])
             return tokens  # type: ignore[return-value]
     # TOML-based loading with inheritance
     content = _find_theme(name)
@@ -87,20 +115,33 @@ def load_theme(
     if parent and parent not in _seen:
         tokens = dict(load_theme(parent, _seen | {name}))
     tokens.update(data.get("tokens", {}))
+    tokens.setdefault("base_bg", tokens.get("base", _DARK_FALLBACK["base"]))
+    tokens.setdefault("selection_bg", tokens.get("accent", _DARK_FALLBACK["accent"]))
     return tokens  # type: ignore[return-value]
 
 
-def _apply_palette(app: QApplication, tokens: ThemeTokens) -> None:
+def _apply_palette(app: QApplication, tokens: ThemeTokens, glass: bool = False) -> None:
     p = QPalette()
-    p.setColor(QPalette.ColorRole.Window,         QColor(tokens["base"]))
+    window_color = QColor(0, 0, 0, 0) if glass else QColor(tokens["base"])
+    p.setColor(QPalette.ColorRole.Window,         window_color)
     p.setColor(QPalette.ColorRole.WindowText,      QColor(tokens["text"]))
-    p.setColor(QPalette.ColorRole.Base,            QColor(tokens["surface"]))
-    p.setColor(QPalette.ColorRole.AlternateBase,   QColor(tokens["surface2"]))
+    base_color = QColor(tokens["surface"])
+    alt_color = QColor(tokens["surface2"])
+    if glass:
+        base_color.setAlpha(_GLASS_ALPHA)
+        alt_color.setAlpha(_GLASS_ALPHA)
+    p.setColor(QPalette.ColorRole.Base,            base_color)
+    p.setColor(QPalette.ColorRole.AlternateBase,   alt_color)
     p.setColor(QPalette.ColorRole.Text,            QColor(tokens["text"]))
     p.setColor(QPalette.ColorRole.PlaceholderText, QColor(tokens["text_dim"]))
-    p.setColor(QPalette.ColorRole.Button,          QColor(tokens["surface2"]))
+    btn_color = QColor(tokens["surface2"])
+    highlight_color = QColor(tokens["accent"])
+    if glass:
+        btn_color.setAlpha(_GLASS_ALPHA)
+        highlight_color.setAlpha(_GLASS_SELECTION_ALPHA)
+    p.setColor(QPalette.ColorRole.Button,          btn_color)
     p.setColor(QPalette.ColorRole.ButtonText,      QColor(tokens["text"]))
-    p.setColor(QPalette.ColorRole.Highlight,       QColor(tokens["accent"]))
+    p.setColor(QPalette.ColorRole.Highlight,       highlight_color)
     p.setColor(QPalette.ColorRole.HighlightedText, QColor(tokens["base"]))
     p.setColor(QPalette.ColorRole.ToolTipBase,     QColor(tokens["surface"]))
     p.setColor(QPalette.ColorRole.ToolTipText,     QColor(tokens["text"]))
@@ -111,9 +152,15 @@ def _apply_palette(app: QApplication, tokens: ThemeTokens) -> None:
     app.setPalette(p)
 
 
-def apply_theme(app: QApplication, name: str = "dark", plugin_manager: object = None) -> None:
+def apply_theme(
+    app: QApplication,
+    name: str = "dark",
+    plugin_manager: object = None,
+    glass: bool = False,
+) -> None:
     tokens = load_theme(name, plugin_manager=plugin_manager)
-    _apply_palette(app, tokens)
-    app.setStyleSheet(Template(_QSS_TMPL).substitute(tokens))
+    _apply_palette(app, tokens, glass=glass)
+    qss_tokens = _apply_glass_alpha(tokens) if glass else tokens
+    app.setStyleSheet(Template(_QSS_TMPL).substitute(qss_tokens))
     from biome_fm.event_bus import ThemeChanged, bus  # lazy — avoids circular import
     bus.publish(ThemeChanged(name=name, tokens=tokens))

@@ -2,7 +2,7 @@
 
 import json
 
-from biome_fm.mcp.clients import ClientInfo, SERVER_NAME
+from biome_fm.mcp.clients import SERVER_NAME, ClientInfo
 from biome_fm.mcp.merger import (
     merge_mcp_config,
     merge_toml_mcp,

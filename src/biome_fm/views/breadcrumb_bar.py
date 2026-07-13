@@ -7,9 +7,12 @@ from biome_fm.qt import (
     QApplication,
     QComboBox,
     QEvent,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QMenu,
+    QScrollArea,
+    QSizePolicy,
     QStackedWidget,
     Qt,
     QTimer,
@@ -17,9 +20,8 @@ from biome_fm.qt import (
     QWidget,
     Signal,
 )
-from biome_fm.utils.platform import IS_MAC, open_terminal, reveal_in_finder
 from biome_fm.utils.opener import open_file
-
+from biome_fm.utils.platform import IS_MAC, open_terminal, reveal_in_finder
 
 # ---------------------------------------------------------------------------
 # Pure helper — no Qt
@@ -66,9 +68,13 @@ class _SegmentButton(QToolButton):
         self.setText(label)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setStyleSheet("QToolButton { padding: 0 2px; margin: 0; }")
         self.setProperty("crumb", True)
         self.setProperty("crumb_active", active)
-        self.clicked.connect(lambda: self.navigated.emit(self._path))
+        self.clicked.connect(self._emit_navigated)
+
+    def _emit_navigated(self) -> None:
+        self.navigated.emit(self._path)
 
     def contextMenuEvent(self, event) -> None:
         menu = QMenu(self)
@@ -102,23 +108,23 @@ class _CrumbRow(QWidget):
         self._layout.setSpacing(0)
 
     def set_path(self, path: Path) -> None:
-        # Clear layout
         while self._layout.count():
             item = self._layout.takeAt(0)
             w = item.widget()
             if w:
-                w.deleteLater()
+                w.setParent(None)
 
         segments = path_segments(path)
         for i, (label, full_path) in enumerate(segments):
-            btn = _SegmentButton(label, full_path, active=(full_path == path))
+            btn = _SegmentButton(label, full_path, active=(full_path == path), parent=self)
             btn.navigated.connect(self.segment_clicked)
             self._layout.addWidget(btn)
             if i < len(segments) - 1:
-                sep = QLabel("›")
+                sep = QLabel("›", parent=self)  # noqa: RUF001
                 sep.setObjectName("crumb_sep")
+                sep.setStyleSheet("padding: 0; margin: 0;")
                 self._layout.addWidget(sep)
-        self._layout.addStretch()
+        QTimer.singleShot(0, self.adjustSize)
 
     def wheelEvent(self, event) -> None:
         dx = event.angleDelta().x()
@@ -149,6 +155,22 @@ class _CrumbRow(QWidget):
         super().mousePressEvent(event)
 
 
+class _CrumbScrollArea(QScrollArea):
+    """Fixed-height horizontally-scrollable container for _CrumbRow."""
+    BAR_H = 28
+
+    def __init__(self, crumb_row, parent=None):
+        super().__init__(parent)
+        self.setWidget(crumb_row)
+        self.setWidgetResizable(False)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setFixedHeight(self.BAR_H)
+        self.viewport().setAutoFillBackground(False)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+
 class BreadcrumbBar(QWidget):
     path_entered = Signal(str)
     back_requested = Signal()
@@ -157,14 +179,45 @@ class BreadcrumbBar(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._crumb = _CrumbRow()
+        self._scroll = _CrumbScrollArea(self._crumb)
+
+        self._left_arrow = QToolButton()
+        self._left_arrow.setText("‹")  # noqa: RUF001
+        self._left_arrow.setFixedWidth(18)
+        self._left_arrow.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._left_arrow.hide()
+
+        self._right_arrow = QToolButton()
+        self._right_arrow.setText("›")  # noqa: RUF001
+        self._right_arrow.setFixedWidth(18)
+        self._right_arrow.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._right_arrow.hide()
+
         self._combo = _PathComboBox()
         self._stack = QStackedWidget()
-        self._stack.addWidget(self._crumb)
-        self._stack.addWidget(self._combo)
+
+        crumb_wrapper = QWidget()
+        hl = QHBoxLayout(crumb_wrapper)
+        hl.setContentsMargins(0, 0, 0, 0)
+        hl.setSpacing(2)
+        hl.addWidget(self._left_arrow)
+        hl.addWidget(self._scroll)
+        hl.addWidget(self._right_arrow)
+
+        self._stack.addWidget(crumb_wrapper)  # index 0
+        self._stack.addWidget(self._combo)     # index 1
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._stack)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setMaximumHeight(36)
+
+        sb = self._scroll.horizontalScrollBar()
+        sb.valueChanged.connect(self._update_arrows)
+        sb.rangeChanged.connect(self._update_arrows)
+        self._left_arrow.clicked.connect(lambda: sb.setValue(sb.value() - 80))
+        self._right_arrow.clicked.connect(lambda: sb.setValue(sb.value() + 80))
 
         self._crumb.segment_clicked.connect(lambda p: self.path_entered.emit(str(p)))
         self._crumb.edit_requested.connect(self.activate_edit)
@@ -178,10 +231,21 @@ class BreadcrumbBar(QWidget):
             self._dismiss_edit()
         return super().eventFilter(obj, event)
 
+    def _update_arrows(self, *_) -> None:
+        sb = self._scroll.horizontalScrollBar()
+        self._left_arrow.setVisible(sb.value() > 0)
+        self._right_arrow.setVisible(sb.value() < sb.maximum())
+
+    def _scroll_to_end(self) -> None:
+        sb = self._scroll.horizontalScrollBar()
+        sb.setValue(sb.maximum())
+        self._update_arrows()
+
     def set_path(self, path: Path) -> None:
         self._crumb.set_path(path)
         self._combo.lineEdit().setText(str(path))
-        self._stack.setCurrentWidget(self._crumb)
+        self._stack.setCurrentIndex(0)
+        QTimer.singleShot(0, lambda: QTimer.singleShot(0, self._scroll_to_end))
 
     def set_nav_history(self, paths: list[Path]) -> None:
         self._combo.blockSignals(True)
@@ -193,19 +257,19 @@ class BreadcrumbBar(QWidget):
 
     def show_error(self, message: str) -> None:
         self._combo.lineEdit().setText(f"Error: {message}")
-        self._stack.setCurrentWidget(self._combo)
+        self._stack.setCurrentIndex(1)
 
     def activate_edit(self) -> None:
-        self._stack.setCurrentWidget(self._combo)
+        self._stack.setCurrentIndex(1)
         self._combo.lineEdit().selectAll()
         self._combo.setFocus()
 
     def _commit_edit(self, text: str) -> None:
-        self._stack.setCurrentWidget(self._crumb)
+        self._stack.setCurrentIndex(0)
         self.path_entered.emit(text)
 
     def _dismiss_edit(self) -> None:
-        self._stack.setCurrentWidget(self._crumb)
+        self._stack.setCurrentIndex(0)
 
     # Compat shim so callers that still use lineEdit() keep working
     def lineEdit(self):

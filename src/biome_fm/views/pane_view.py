@@ -15,6 +15,7 @@ from biome_fm.models.directory_model import (
 )
 from biome_fm.models.file_item import FileItem
 from biome_fm.qt import (
+    QApplication,
     QDrag,
     QEvent,
     QHBoxLayout,
@@ -28,6 +29,7 @@ from biome_fm.qt import (
     QStyledItemDelegate,
     Qt,
     QTableView,
+    QUrl,
     QVBoxLayout,
     QWidget,
     Signal,
@@ -37,6 +39,7 @@ from biome_fm.views.filter_bar import FilterBar
 from biome_fm.views.jump_bar import JumpBar
 
 _MIME = "application/x-biome-fm-paths"
+_MOVE_MODS = Qt.KeyboardModifier.ShiftModifier | Qt.KeyboardModifier.AltModifier
 
 
 class _DropHintDelegate(QStyledItemDelegate):
@@ -73,12 +76,25 @@ class _PaneTableView(QTableView):
         self.setDropIndicatorShown(True)
         self.setItemDelegate(_DropHintDelegate(self))
 
+    def scrollContentsBy(self, dx: int, dy: int) -> None:
+        if self.property("_glass"):
+            self.viewport().update()
+        else:
+            super().scrollContentsBy(dx, dy)
+
     # QTreeView compat: QTableView lacks this; Fixed row sections achieve same effect
     def setUniformRowHeights(self, uniform: bool) -> None:
         self._uniform_row_heights = uniform
 
     def uniformRowHeights(self) -> bool:
         return self._uniform_row_heights
+
+    def scrollContentsBy(self, dx: int, dy: int) -> None:
+        super().scrollContentsBy(dx, dy)  # must run: updates header offset + selection dirty region
+        if self.property("_glass"):
+            # ponytail: full repaint kills bitblt ghost pixels on translucent viewports;
+            # ceiling: wastes one bitblt per scroll tick, fine for optional glass mode
+            self.viewport().update()
 
     def event(self, event: object) -> bool:
         # Intercept Tab at event() level — before Qt's focus-traversal machinery
@@ -112,7 +128,9 @@ class _PaneTableView(QTableView):
             if key == Qt.Key.Key_Up and mods & Qt.KeyboardModifier.ShiftModifier:
                 parent.mark_toggle_up_requested.emit()
                 return
-            if key == Qt.Key.Key_Slash:
+            if key == Qt.Key.Key_Slash or (
+                key == Qt.Key.Key_F and mods & Qt.KeyboardModifier.ControlModifier
+            ):
                 parent.filter_bar.activate()
                 return
             if key == Qt.Key.Key_Backspace:
@@ -143,6 +161,11 @@ class _PaneTableView(QTableView):
                     paths.append(str(item.path))
         mime = QMimeData()
         mime.setData(_MIME, "\n".join(paths).encode())
+        if paths:
+            alt = QApplication.keyboardModifiers() & Qt.KeyboardModifier.AltModifier
+            if not alt:
+                mime.setUrls([QUrl.fromLocalFile(p) for p in paths])
+            mime.setText("\n".join(paths))
         return mime
 
     def startDrag(self, supported_actions: Qt.DropAction) -> None:
@@ -175,7 +198,7 @@ class _PaneTableView(QTableView):
         else:
             self._drop_hint_row = -1
         self.viewport().update()
-        if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:  # type: ignore[attr-defined]
+        if event.modifiers() & _MOVE_MODS:  # type: ignore[attr-defined]
             event.setDropAction(Qt.DropAction.MoveAction)  # type: ignore[attr-defined]
         else:
             event.setDropAction(Qt.DropAction.CopyAction)  # type: ignore[attr-defined]
@@ -192,7 +215,7 @@ class _PaneTableView(QTableView):
             return
         raw = event.mimeData().data(_MIME).data().decode()
         paths = [Path(p) for p in raw.splitlines() if p]
-        move = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)  # type: ignore[attr-defined]
+        move = bool(event.modifiers() & _MOVE_MODS)  # type: ignore[attr-defined]
         target_folder = None
         if self._drop_hint_row != -1:
             pane = self.parent()
@@ -229,6 +252,8 @@ class _PaneTableView(QTableView):
         menu.addAction("View\tF3", lambda: p.context_action_requested.emit("quick_look"))
         finder_label = "Open in Finder" if sys.platform == "darwin" else "Open in File Manager"
         menu.addAction(finder_label, lambda: p.context_action_requested.emit("open_finder"))
+        menu.addSeparator()
+        menu.addAction("Add to Bookmarks", lambda: p.context_action_requested.emit("add_bookmark"))
         # Plugin extra actions
         if p.plugin_menu_extra is not None:
             extras = p.plugin_menu_extra()

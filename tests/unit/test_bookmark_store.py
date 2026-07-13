@@ -10,7 +10,9 @@ from biome_fm.models.bookmark_store import BookmarkStore
 
 @pytest.fixture
 def store(tmp_path):
-    return BookmarkStore(tmp_path / "bookmarks.toml")
+    p = tmp_path / "bookmarks.toml"
+    p.write_text("[bookmarks]\npaths = []\n")
+    return BookmarkStore(p)
 
 
 class TestBookmarkStore:
@@ -30,9 +32,10 @@ class TestBookmarkStore:
         s2 = BookmarkStore(p)
         assert Path("/persist/me") in s2.all()
 
-    def test_load_missing_file(self, tmp_path):
+    def test_load_missing_file_has_defaults(self, tmp_path):
         s = BookmarkStore(tmp_path / "missing.toml")
-        assert s.all() == []
+        defaults = [p for p in s._default_paths() if p.is_dir()]
+        assert s.all() == defaults
 
     def test_dedup(self, store):
         store.add(Path("/dup"))
@@ -47,28 +50,113 @@ class TestBookmarkStore:
 
     def test_move_up(self, tmp_path):
         s = BookmarkStore(tmp_path / "bm.toml")
-        s.add(Path("/a")); s.add(Path("/b")); s.add(Path("/c"))
+        for p in ("/a", "/b", "/c"):
+            s.add(Path(p))
         s.move_up(Path("/b"))
         items = s.all()
         assert items.index(Path("/b")) < items.index(Path("/a"))
 
     def test_move_up_at_top_noop(self, tmp_path):
         s = BookmarkStore(tmp_path / "bm.toml")
-        s.add(Path("/a")); s.add(Path("/b"))
+        s.add(Path("/a"))
+        s.add(Path("/b"))
         first = s.all()[0]
         s.move_up(first)
         assert s.all()[0] == first
 
     def test_move_down(self, tmp_path):
         s = BookmarkStore(tmp_path / "bm.toml")
-        s.add(Path("/a")); s.add(Path("/b")); s.add(Path("/c"))
+        for p in ("/a", "/b", "/c"):
+            s.add(Path(p))
         s.move_down(Path("/b"))
         items = s.all()
         assert items.index(Path("/b")) > items.index(Path("/c"))
 
     def test_replace(self, tmp_path):
         s = BookmarkStore(tmp_path / "bm.toml")
-        s.add(Path("/a")); s.add(Path("/b"))
+        s.add(Path("/a"))
+        s.add(Path("/b"))
         s.replace(Path("/a"), Path("/x"))
         assert Path("/x") in s
         assert Path("/a") not in s
+
+
+# ── Display name tests ─────────────────────────────────────────────────────
+
+def test_add_with_name(tmp_path):
+    s = BookmarkStore(tmp_path / "bm.toml")
+    s.add(Path("/a"), name="Work")
+    assert s.get_name(Path("/a")) == "Work"
+
+
+def test_display_label_with_name(tmp_path):
+    s = BookmarkStore(tmp_path / "bm.toml")
+    s.add(Path("/a"), name="My Dir")
+    assert s.display_label(Path("/a")) == "My Dir"
+
+
+def test_display_label_without_name(tmp_path):
+    s = BookmarkStore(tmp_path / "bm.toml")
+    s.add(Path("/a"))
+    assert s.display_label(Path("/a")) == "a"
+
+
+def test_display_label_defaults_to_folder_name(tmp_path):
+    s = BookmarkStore(tmp_path / "bm.toml")
+    p = Path("/home/user/Documents")
+    s.add(p)
+    assert s.display_label(p) == "Documents"
+
+
+def test_display_label_root_path_fallback(tmp_path):
+    s = BookmarkStore(tmp_path / "bm.toml")
+    p = Path("/")
+    s.add(p)
+    assert s.display_label(p) == "/"
+
+
+def test_display_label_custom_name_wins(tmp_path):
+    s = BookmarkStore(tmp_path / "bm.toml")
+    s.add(Path("/code"))
+    s.set_name(Path("/code"), "Work")
+    assert s.display_label(Path("/code")) == "Work"
+
+
+def test_set_name_persists(tmp_path):
+    p = tmp_path / "bm.toml"
+    s1 = BookmarkStore(p)
+    s1.add(Path("/x"))
+    s1.set_name(Path("/x"), "Renamed")
+    s2 = BookmarkStore(p)
+    assert s2.get_name(Path("/x")) == "Renamed"
+
+
+def test_migration_old_format(tmp_path):
+    p = tmp_path / "bm.toml"
+    p.write_text('[bookmarks]\npaths = ["/a", "/b"]\n')
+    s = BookmarkStore(p)
+    assert s.all() == [Path("/a"), Path("/b")]
+    assert s.get_name(Path("/a")) == ""
+
+
+def test_replace_carries_name(tmp_path):
+    s = BookmarkStore(tmp_path / "bm.toml")
+    s.add(Path("/a"), name="My Label")
+    s.replace(Path("/a"), Path("/b"))
+    assert s.get_name(Path("/b")) == "My Label"
+    assert s.get_name(Path("/a")) == ""
+
+
+def test_name_with_quotes_roundtrip(tmp_path):
+    p = tmp_path / "bm.toml"
+    s1 = BookmarkStore(p)
+    s1.add(Path("/a"), name='My "Work" folder')
+    s2 = BookmarkStore(p)
+    assert s2.get_name(Path("/a")) == 'My "Work" folder'
+
+
+def test_corrupt_toml_does_not_crash(tmp_path):
+    p = tmp_path / "bm.toml"
+    p.write_text("invalid toml {{{{")
+    s = BookmarkStore(p)
+    assert s.all() == []

@@ -24,10 +24,12 @@ class AIChatViewProtocol(Protocol):
     def set_busy(self, busy: bool) -> None: ...
     def append_token(self, token: str) -> None: ...
     def finalize_stream(self) -> None: ...
+    def discard_stream(self) -> None: ...
     def add_attachment_chip(self, name: str) -> None: ...
     def clear_attachment_chips(self) -> None: ...
     def set_provider_list(self, providers: list[str], active: str,
                           models: list[str], active_model: str) -> None: ...
+    def append_tool_event(self, description: str) -> None: ...
 
 
 @dataclass
@@ -45,9 +47,10 @@ class Attachment:
 
 @dataclass
 class _AIEvent:
-    kind: Literal["token", "done", "error", "attachment_ready"]
+    kind: Literal["token", "done", "error", "attachment_ready", "tool_call", "cancelled"]
     content: str = ""
     attachment: Attachment | None = None
+    epoch: int = 0
 
 
 class AIPresenter:
@@ -63,7 +66,7 @@ class AIPresenter:
         self._lock = threading.Lock()
         self._pool = ThreadPoolExecutor(max_workers=2)
         self._events: queue.SimpleQueue[_AIEvent] = queue.SimpleQueue()
-        self._cancel = threading.Event()
+        self._epoch: int = 0
         self._cwd: Path | None = None
         self._selected: list[FileItem] = []
 
@@ -117,13 +120,17 @@ class AIPresenter:
             api_messages = [*self._history[:-1], {"role": "user", "content": content_blocks}]
 
         self._view.append_message("user", user_display)
+        self._epoch += 1
+        if hasattr(self._provider, "terminate"):
+            self._provider.terminate()
+        self._view.discard_stream()
         self._view.set_busy(True)
-        self._cancel.clear()
         self._stream_buffer.clear()
 
         system = self._build_system()
+        current_epoch = self._epoch
         try:
-            self._pool.submit(self._run_stream, api_messages, system)
+            self._pool.submit(self._run_stream, api_messages, system, current_epoch)
         except RuntimeError:
             with self._lock:
                 self._history.pop()
@@ -137,12 +144,19 @@ class AIPresenter:
                   f" Name: {item.name}, size: {item.size} bytes")
 
     def cancel(self) -> None:
-        self._cancel.set()
+        self._epoch += 1
+        self._stream_buffer.clear()
+        if hasattr(self._provider, "terminate"):
+            self._provider.terminate()
+        self._view.discard_stream()
+        self._view.set_busy(False)
 
     def drain(self) -> None:
         try:
             while True:
                 ev = self._events.get_nowait()
+                if ev.epoch != 0 and ev.epoch != self._epoch:
+                    continue  # stale event from a superseded request
                 if ev.kind == "token":
                     self._stream_buffer.append(ev.content)
                     self._view.append_token(ev.content)
@@ -158,6 +172,10 @@ class AIPresenter:
                     self._stream_buffer.clear()
                     self._view.append_message("error", ev.content)
                     self._view.set_busy(False)
+                elif ev.kind == "cancelled":
+                    pass  # UI already cleaned up in cancel()
+                elif ev.kind == "tool_call":
+                    self._view.append_tool_event(ev.content)
                 elif ev.kind == "attachment_ready" and ev.attachment:
                     self._pending_attachments.append(ev.attachment)
                     self._view.add_attachment_chip(ev.attachment.display_name)
@@ -165,7 +183,9 @@ class AIPresenter:
             pass
 
     def shutdown(self) -> None:
-        self._cancel.set()
+        self._epoch += 1
+        if hasattr(self._provider, "terminate"):
+            self._provider.terminate()
         self._pool.shutdown(wait=True, cancel_futures=True)
 
     def _build_system(self) -> str:
@@ -177,19 +197,32 @@ class AIPresenter:
             parts.append(f"Selected files: {names}.")
         return " ".join(parts)
 
-    def _run_stream(self, messages: list[dict], system: str) -> None:
+    def _run_stream(self, messages: list[dict], system: str, epoch: int = 0) -> None:
         try:
-            if hasattr(self._provider, "chat_stream"):
+            if hasattr(self._provider, "chat_stream_events"):
+                for kind, content in self._provider.chat_stream_events(messages, system):
+                    if self._epoch != epoch:
+                        self._events.put(_AIEvent("cancelled", epoch=epoch))
+                        return
+                    if kind == "text":
+                        self._events.put(_AIEvent("token", content, epoch=epoch))
+                    else:
+                        self._events.put(_AIEvent("tool_call", content, epoch=epoch))
+            elif hasattr(self._provider, "chat_stream"):
                 for token in self._provider.chat_stream(messages, system):
-                    if self._cancel.is_set():
-                        break
-                    self._events.put(_AIEvent("token", token))
+                    if self._epoch != epoch:
+                        self._events.put(_AIEvent("cancelled", epoch=epoch))
+                        return
+                    self._events.put(_AIEvent("token", token, epoch=epoch))
             else:
                 response = self._provider.chat(messages, system)
-                self._events.put(_AIEvent("token", response))
-            self._events.put(_AIEvent("done"))
+                if self._epoch != epoch:
+                    self._events.put(_AIEvent("cancelled", epoch=epoch))
+                    return
+                self._events.put(_AIEvent("token", response, epoch=epoch))
+            self._events.put(_AIEvent("done", epoch=epoch))
         except Exception as e:
-            self._events.put(_AIEvent("error", str(e)))
+            self._events.put(_AIEvent("error", str(e), epoch=epoch))
 
     def _load_attachment(self, path: Path) -> None:
         try:

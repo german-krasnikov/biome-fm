@@ -2,19 +2,36 @@
 from __future__ import annotations
 
 import logging
+import logging.handlers
 import subprocess
+import threading
 from collections.abc import Iterator
+from pathlib import Path
 
 from biome_fm.ai.cli.backend_def import BackendDef
 
 _log = logging.getLogger(__name__)
 
+_log_dir = Path.home() / ".biome-fm"
+try:
+    _log_dir.mkdir(parents=True, exist_ok=True)
+    _fh = logging.handlers.RotatingFileHandler(
+        str(_log_dir / "ai.log"), maxBytes=1_000_000, backupCount=1,
+    )
+    _fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    _log.addHandler(_fh)
+    _log.setLevel(logging.DEBUG)
+except OSError:
+    pass
+
+_STDERR_LOG = _log_dir / "ai_stderr.log"
+
 
 class CliProvider:
     """Runs a CLI tool as a subprocess, streams stdout back as tokens.
 
-    Runs on a ThreadPoolExecutor thread (called from AIPresenter._run_stream).
-    generator.close() triggers finally → proc.terminate().
+    stderr goes directly to a log file (no pipe) to avoid deadlock when
+    --verbose produces heavy output.
     """
 
     def __init__(self, backend: BackendDef) -> None:
@@ -23,6 +40,8 @@ class CliProvider:
         self.models: list[str] = list(backend.models)
         self.active_model: str = backend.models[0]
         self._available = backend.resolve_binary() is not None
+        self._proc: subprocess.Popen | None = None  # type: ignore[type-arg]
+        self._proc_lock = threading.Lock()
 
     @property
     def available(self) -> bool:
@@ -31,38 +50,117 @@ class CliProvider:
     def set_model(self, model: str) -> None:
         self.active_model = model
 
+    def terminate(self) -> None:
+        with self._proc_lock:
+            if self._proc is not None:
+                self._proc.terminate()
+
     def chat(self, messages: list[dict[str, object]], system: str = "") -> str:
         return "".join(self.chat_stream(messages, system))
 
-    def chat_stream(self, messages: list[dict[str, object]], system: str = "") -> Iterator[str]:
+    def chat_stream_events(
+        self, messages: list[dict[str, object]], system: str = ""
+    ) -> Iterator[tuple[str, str]]:
+        """Yield (kind, content) tuples — 'text' or 'tool'."""
+        if self._backend.parse_events is None:
+            for token in self.chat_stream(messages, system):
+                yield ("text", token)
+            return
         prompt = self._build_prompt(messages, system)
         argv = self._backend.build_argv(prompt, self.active_model)
+        stderr_fh = None
+        try:  # noqa: SIM105
+            stderr_fh = open(_STDERR_LOG, "ab")  # noqa: SIM115
+        except OSError:
+            pass
         try:
             proc = subprocess.Popen(
                 argv,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stderr=stderr_fh or subprocess.DEVNULL,
                 stdin=subprocess.DEVNULL,
             )
         except (FileNotFoundError, OSError) as exc:
-            yield f"[Error: CLI binary not found: {exc}]"
+            if stderr_fh:
+                stderr_fh.close()
+            yield ("text", f"[Error: CLI binary not found: {exc}]")
             return
+        with self._proc_lock:
+            self._proc = proc
+        yielded_any = False
         try:
             for raw in proc.stdout:  # type: ignore[union-attr]
-                token = self._backend.parse_line(raw.decode("utf-8", errors="replace"))
-                if token:
-                    yield token
+                for kind, content in self._backend.parse_events(
+                    raw.decode("utf-8", errors="replace")
+                ):
+                    yield (kind, content)
+                    if kind == "text":
+                        yielded_any = True
         finally:
+            with self._proc_lock:
+                self._proc = None
             proc.terminate()
             try:
                 proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 proc.kill()
                 proc.wait()
-            if proc.stderr:
-                err = proc.stderr.read().decode("utf-8", errors="replace").strip()
-                if err:
-                    _log.debug("CLI stderr: %s", err)
+            if stderr_fh:
+                stderr_fh.close()
+        if not yielded_any and proc.returncode != 0:
+            err = _read_last_stderr()
+            msg = err or f"exit code {proc.returncode}"
+            yield ("text", f"[Error from {self._backend.name}]: {msg}")
+
+    def chat_stream(self, messages: list[dict[str, object]], system: str = "") -> Iterator[str]:
+        prompt = self._build_prompt(messages, system)
+        argv = self._backend.build_argv(prompt, self.active_model)
+        _log.info("CLI start: %s model=%s", self._backend.name, self.active_model)
+        stderr_fh = None
+        try:  # noqa: SIM105
+            stderr_fh = open(_STDERR_LOG, "ab")  # noqa: SIM115
+        except OSError:
+            pass
+        try:
+            proc = subprocess.Popen(
+                argv,
+                stdout=subprocess.PIPE,
+                stderr=stderr_fh or subprocess.DEVNULL,
+                stdin=subprocess.DEVNULL,
+            )
+        except (FileNotFoundError, OSError) as exc:
+            _log.error("CLI binary not found: %s", exc)
+            if stderr_fh:
+                stderr_fh.close()
+            yield f"[Error: CLI binary not found: {exc}]"
+            return
+        with self._proc_lock:
+            self._proc = proc
+        yielded_any = False
+        try:
+            for raw in proc.stdout:  # type: ignore[union-attr]
+                token = self._backend.parse_line(raw.decode("utf-8", errors="replace"))
+                if token:
+                    yield token
+                    yielded_any = True
+        finally:
+            with self._proc_lock:
+                self._proc = None
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+            if stderr_fh:
+                stderr_fh.close()
+        _log.info(
+            "CLI done: %s exit=%s yielded=%s",
+            self._backend.name, proc.returncode, yielded_any,
+        )
+        if not yielded_any and proc.returncode != 0:
+            err = _read_last_stderr()
+            yield f"[Error from {self._backend.name}]: {err or f'exit code {proc.returncode}'}"
 
     def _build_prompt(self, messages: list[dict[str, object]], system: str) -> str:
         """Flatten message history to single string for CLI."""
@@ -79,3 +177,12 @@ class CliProvider:
                 )
             parts.append(f"{role}: {content}")
         return "\n".join(parts)
+
+
+def _read_last_stderr(max_bytes: int = 2000) -> str:
+    """Read last N bytes from stderr log for error reporting."""
+    try:
+        data = _STDERR_LOG.read_bytes()
+        return data[-max_bytes:].decode("utf-8", errors="replace").strip()
+    except OSError:
+        return ""

@@ -1,9 +1,7 @@
 """Tests for CLI stream parsing — pure functions, no subprocess."""
 import json
-import pytest
 
 from biome_fm.ai.cli.stream_parse import parse_claude_code_line, parse_codex_line, parse_plain_line
-
 
 # ── parse_claude_code_line ────────────────────────────────────────────────────
 

@@ -135,9 +135,12 @@ class ManagerPresenter:
         if not paths:
             return
         dst = target_folder or self._panes[target_pane_id].current_path  # type: ignore[index]
+        _dst = dst.resolve()
         sources = [
-            p.resolve() for p in paths
-            if p.resolve().exists() and p.parent.resolve() != dst.resolve()
+            rp for p in paths
+            if (rp := p.resolve()).exists()
+            and rp.parent != _dst
+            and not _dst.is_relative_to(rp)
         ]
         if not sources:
             return

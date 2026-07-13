@@ -39,6 +39,8 @@ class SearchPresenter:
         query: str,
         mode: SearchMode = SearchMode.NAME_WILDCARD,
         max_results: int = 1000,
+        on_match: object = None,
+        on_progress: object = None,
     ) -> list[SearchResult]:
         """Synchronous recursive search. Call from a worker thread."""
         if not query or max_results <= 0:
@@ -46,7 +48,7 @@ class SearchPresenter:
         self._cancel.clear()
         results: list[SearchResult] = []
         with contextlib.suppress(RecursionError):
-            self._search_dir(self._root, query, mode, results, max_results)
+            self._search_dir(self._root, query, mode, results, max_results, on_match, on_progress)
         return results
 
     def cancel(self) -> None:
@@ -65,9 +67,14 @@ class SearchPresenter:
         mode: SearchMode,
         results: list[SearchResult],
         max_results: int,
+        on_match: object = None,
+        on_progress: object = None,
     ) -> None:
         if self._cancel.is_set() or len(results) >= max_results:
             return
+
+        if on_progress is not None:
+            on_progress(path)  # type: ignore[operator]
 
         try:
             items = self._vfs.listdir(path)
@@ -83,11 +90,17 @@ class SearchPresenter:
                     result = self._match(item, query, mode)
                     if result is not None:
                         results.append(result)
-                self._search_dir(item.path, query, mode, results, max_results)
+                        if on_match is not None:
+                            on_match(result)  # type: ignore[operator]
+                self._search_dir(
+                    item.path, query, mode, results, max_results, on_match, on_progress,
+                )
             else:
                 result = self._match(item, query, mode)
                 if result is not None:
                     results.append(result)
+                    if on_match is not None:
+                        on_match(result)  # type: ignore[operator]
 
     def _match(self, item: FileItem, query: str, mode: SearchMode) -> SearchResult | None:
         if mode == SearchMode.NAME_WILDCARD:
