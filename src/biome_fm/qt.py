@@ -70,6 +70,8 @@ from PySide6.QtWidgets import (
     QToolBar,
     QToolButton,
     QTreeView,
+    QTreeWidget,
+    QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -136,6 +138,8 @@ __all__ = [
     "QToolBar",
     "QToolButton",
     "QTreeView",
+    "QTreeWidget",
+    "QTreeWidgetItem",
     "QUrl",
     "QVBoxLayout",
     "QWidget",

@@ -48,37 +48,6 @@ class TestBookmarkStore:
             store.add(p)
         assert store.all() == paths
 
-    def test_move_up(self, tmp_path):
-        s = BookmarkStore(tmp_path / "bm.toml")
-        for p in ("/a", "/b", "/c"):
-            s.add(Path(p))
-        s.move_up(Path("/b"))
-        items = s.all()
-        assert items.index(Path("/b")) < items.index(Path("/a"))
-
-    def test_move_up_at_top_noop(self, tmp_path):
-        s = BookmarkStore(tmp_path / "bm.toml")
-        s.add(Path("/a"))
-        s.add(Path("/b"))
-        first = s.all()[0]
-        s.move_up(first)
-        assert s.all()[0] == first
-
-    def test_move_down(self, tmp_path):
-        s = BookmarkStore(tmp_path / "bm.toml")
-        for p in ("/a", "/b", "/c"):
-            s.add(Path(p))
-        s.move_down(Path("/b"))
-        items = s.all()
-        assert items.index(Path("/b")) > items.index(Path("/c"))
-
-    def test_replace(self, tmp_path):
-        s = BookmarkStore(tmp_path / "bm.toml")
-        s.add(Path("/a"))
-        s.add(Path("/b"))
-        s.replace(Path("/a"), Path("/x"))
-        assert Path("/x") in s
-        assert Path("/a") not in s
 
 
 # ── Display name tests ─────────────────────────────────────────────────────
@@ -136,14 +105,6 @@ def test_migration_old_format(tmp_path):
     p.write_text('[bookmarks]\npaths = ["/a", "/b"]\n')
     s = BookmarkStore(p)
     assert s.all() == [Path("/a"), Path("/b")]
-    assert s.get_name(Path("/a")) == ""
-
-
-def test_replace_carries_name(tmp_path):
-    s = BookmarkStore(tmp_path / "bm.toml")
-    s.add(Path("/a"), name="My Label")
-    s.replace(Path("/a"), Path("/b"))
-    assert s.get_name(Path("/b")) == "My Label"
     assert s.get_name(Path("/a")) == ""
 
 

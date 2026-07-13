@@ -41,8 +41,14 @@ src/biome_fm/
 │   │                       #   DirSortFilterProxy: '..' pinned first, dirs before files,
 │   │                       #   set_filter(text) for Quick Filter,
 │   │                       #   set_show_hidden(bool) hides dotfiles when False
-│   ├── bookmark_store.py   # TOML-backed list[Path]; add/remove/all/__contains__;
-│   │                       #   reads/writes [bookmarks] paths = [...] via tomllib
+│   ├── bookmark_node.py    # BookmarkNode dataclass (kind: Literal["dir","submenu","separator"],
+│   │                       #   path: Path | None, name: str, children: list[BookmarkNode]);
+│   │                       #   display_label(node) free fn
+│   ├── bookmark_store.py   # Tree-based TOML store; _nodes: list[BookmarkNode];
+│   │                       #   primary API: tree() / set_tree(nodes);
+│   │                       #   compat API: add/remove/__contains__/all/get_name/set_name/display_label;
+│   │                       #   TOML: [[bookmarks.items]] with kind/path/name/depth (flat+depth for nesting);
+│   │                       #   migration: old paths/names arrays → tree nodes on first load
 │   ├── icon_provider.py    # icon_for_extension(ext) — @lru_cache(256), QFileIconProvider;
 │   │                       #   icon_for_dir() — SP_DirIcon; fallback to SP_FileIcon
 │   └── markdown_renderer.py # render(md, dark, code_alpha=140) → HTML for QTextBrowser.setHtml();

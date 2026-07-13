@@ -60,6 +60,7 @@ from biome_fm.views.preview_panel import PreviewPanel
 from biome_fm.views.progress_dialog import ProgressDialog
 from biome_fm.views.search_dialog import SearchDialog
 from biome_fm.views.search_panel import SearchResultsPanel
+from biome_fm.views.confirm_dialog import ConfirmDialog
 from biome_fm.views.settings_dialog import SettingsDialog
 
 
@@ -167,9 +168,13 @@ def create_app() -> MainWindow:
         _wire_preview(v1)
 
     # ── Manager ───────────────────────────────────────────────────
+    _confirm_parent: list[object] = [None]  # late-bound after window creation
     manager = ManagerPresenter(
         left=left_tabs, right=right_tabs, vfs=vfs,  # type: ignore[arg-type]
         history=history, bus=bus, config=cfg, op_queue=op_queue,
+        confirm=lambda spec: ConfirmDialog.confirm(
+            spec.op, spec.sources, spec.dest, parent=_confirm_parent[0]
+        ),
     )
     _progress_dialogs: dict[int, ProgressDialog] = {}
 
@@ -248,6 +253,7 @@ def create_app() -> MainWindow:
 
     # ── Window ────────────────────────────────────────────────────
     window = MainWindow(left_side, right_side, ai_panel, preview_panel)
+    _confirm_parent[0] = window
     _glass_active = cfg.glass  # actual enable happens in __main__ after show()
     window._glass_cfg = cfg.glass
     if cfg.glass:
@@ -517,10 +523,22 @@ def create_app() -> MainWindow:
     # ── Bookmarks ──────────────────────────────────────────────────
     _bm_dialog: BookmarkDialog | None = None
 
+    def _nav_bm(path: Path, tabs: TabsPresenter) -> None:
+        target = path if path.is_dir() else path.parent
+        tabs.navigate_to(target)
+        if not path.is_dir():
+            v = tabs.view_at(tabs.active_idx)
+            if hasattr(v, "select_item"):
+                v.select_item(path.name)
+
+    def _on_bm_dialog(path: Path) -> None:
+        _nav_bm(path, _active())
+
     def _open_bm_dialog() -> None:
         nonlocal _bm_dialog
         if _bm_dialog is None or not _bm_dialog.isVisible():
             _bm_dialog = BookmarkDialog(store, bus, window)
+            _bm_dialog.bookmark_chosen.connect(_on_bm_dialog)
             _bm_dialog.show()
         else:
             _bm_dialog._refresh()
@@ -533,12 +551,7 @@ def create_app() -> MainWindow:
         sig = getattr(view, "bookmark_chosen", None)
         if sig is not None:
             def _on_bm(path: Path, _tabs=tabs) -> None:
-                target = path if path.is_dir() else path.parent
-                _tabs.navigate_to(target)
-                if not path.is_dir():
-                    v = _tabs.view_at(_tabs.active_idx)
-                    if hasattr(v, "select_item"):
-                        v.select_item(path.name)
+                _nav_bm(path, _tabs)
             sig.connect(_on_bm)
         sig2 = getattr(view, "edit_bookmarks_requested", None)
         if sig2 is not None:

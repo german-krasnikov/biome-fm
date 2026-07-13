@@ -240,6 +240,8 @@ class PanePresenter:
         self._view.set_path(path)
         self._view.set_items(items)
         self._view.set_marked(set(self._marks))
+        first = items[0].name if items else ".."
+        self._view.select_item(first)
         self._update_free_space()
         self._update_status()
         return True

@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import threading
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Callable, Literal
 
 from biome_fm.commands.base import Command, CommandHistory
 from biome_fm.commands.copy_cmd import CopyCmd, ProgressCopyCmd
@@ -31,6 +32,13 @@ PaneId = Literal["left", "right"]
 _OTHER: dict[PaneId, PaneId] = {"left": "right", "right": "left"}
 
 
+@dataclass
+class ConfirmSpec:
+    op: str  # "copy" | "move" | "delete"
+    sources: list[Path]
+    dest: Path | None = None
+
+
 class ManagerPresenter:
     """Orchestrates both panes, file commands, and undo/redo. No Qt."""
 
@@ -43,6 +51,7 @@ class ManagerPresenter:
         bus: EventBus | None = None,
         config: Config | None = None,
         op_queue: OpQueue | None = None,
+        confirm: Callable[[ConfirmSpec], bool] | None = None,
     ) -> None:
         self._panes: dict[PaneId, PanePresenter] = {"left": left, "right": right}
         self._active: PaneId = "left"
@@ -51,6 +60,7 @@ class ManagerPresenter:
         self._bus = bus
         self._config = config
         self._op_queue = op_queue
+        self._confirm = confirm or (lambda _: True)
         self._mirror = False
         self._mirroring = False
         self._pending_cmds: dict[int, Command] = {}
@@ -116,7 +126,10 @@ class ManagerPresenter:
     def delete_selected(self, items: list[FileItem]) -> None:
         if not items:
             return
-        self._run(DeleteCmd([i.path for i in items], self._vfs), "Delete")
+        paths = [i.path for i in items]
+        if not self._confirm(ConfirmSpec("delete", paths)):
+            return
+        self._run(DeleteCmd(paths, self._vfs), "Delete")
 
     def mkdir(self, name: str) -> None:
         path = self._source().current_path / name
@@ -158,6 +171,9 @@ class ManagerPresenter:
         self._refresh_both()
 
     def _start_op(self, sources: list[Path], dst: Path, move: bool) -> None:
+        op = "move" if move else "copy"
+        if not self._confirm(ConfirmSpec(op, sources, dst)):
+            return
         desc = "Move" if move else "Copy"
         if self._op_queue is None:
             cmd_cls = MoveCmd if move else CopyCmd

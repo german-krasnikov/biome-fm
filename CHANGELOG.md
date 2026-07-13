@@ -3,6 +3,29 @@
 All notable changes to Biome FM are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.17.0] — 2026-07-14
+
+### Added
+- **TC-style bookmark tree** — `BookmarkNode` dataclass (`kind: Literal["dir","submenu","separator"]`,
+  `path`, `name`, `children`); `BookmarkStore` redesigned from flat list to recursive tree
+  (`_nodes: list[BookmarkNode]`); primary API: `tree()` / `set_tree(nodes)`; compat API unchanged
+  (`add`, `remove`, `__contains__`, `all`, `get_name`, `set_name`, `display_label`); TOML format:
+  `[[bookmarks.items]]` with `kind/path/name/depth` (flat+depth encodes nesting); migration from old
+  flat `paths`/`names` arrays on first load; `BookmarkDialog` rebuilt as `_BookmarkTree(QTreeWidget)`
+  with InternalMove DnD, Add Dir / Add Submenu / Add Separator / Delete / Rename / Up / Down buttons,
+  `_sync_tree()` reads widget back to `BookmarkNode` list; `bookmark_menu.py` builds cascading
+  `QMenu` recursively via `_build_menu(menu, nodes, signal)`; new tests:
+  `test_bookmark_node.py` (9), `test_bookmark_store_tree.py` (20), `test_bookmark_dialog_tree.py` (10),
+  `test_bookmark_menu_tree.py` (8)
+- **Confirmation dialogs** — `ConfirmSpec` dataclass + injectable `confirm` callable in
+  `ManagerPresenter`; guards on copy/move/drop and delete (red #danger button + "cannot be undone"
+  warning); `ConfirmDialog` modal QDialog with path list (truncated at 5 items) and destination
+  display; undo/redo bypass guard; 23 new tests (17 unit + 6 integration)
+- Navigate to any folder always selects first item (`PanePresenter`)
+
+### Fixed
+- `ConfirmDialog` labels use `Qt.TextFormat.PlainText` to prevent HTML injection in paths
+
 ## [v0.16.1] — 2026-07-13
 
 ### Added

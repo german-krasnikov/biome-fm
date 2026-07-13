@@ -1,107 +1,239 @@
-"""TOML-backed bookmark list."""
+"""TOML-backed bookmark tree. Supports dirs, submenus, and separators."""
 from __future__ import annotations
 
 import tomllib
 from pathlib import Path
 
+from biome_fm.models.bookmark_node import BookmarkNode
+from biome_fm.models.bookmark_node import display_label as _node_label
+
+
+# ── helpers ───────────────────────────────────────────────────────────────────
+
+def _build_tree(flat: list[dict]) -> list[BookmarkNode]:
+    """Flat [{kind, path?, name?, depth?}] → tree."""
+    root: list[BookmarkNode] = []
+    stack: list[tuple[int, list[BookmarkNode]]] = [(-1, root)]
+    for item in flat:
+        d = item.get("depth", 0)
+        while stack[-1][0] >= d:
+            stack.pop()
+        node = BookmarkNode(
+            kind=item["kind"],
+            path=Path(item["path"]) if item.get("path") else None,
+            name=item.get("name", ""),
+        )
+        stack[-1][1].append(node)
+        if node.kind == "submenu":
+            stack.append((d, node.children))
+    return root
+
+
+def _flatten_nodes(nodes: list[BookmarkNode], depth: int = 0) -> list[dict]:
+    result: list[dict] = []
+    for n in nodes:
+        d: dict = {"kind": n.kind}
+        if n.path:
+            d["path"] = str(n.path)
+        if n.name:
+            d["name"] = n.name
+        if depth:
+            d["depth"] = depth
+        result.append(d)
+        if n.kind == "submenu":
+            result.extend(_flatten_nodes(n.children, depth + 1))
+    return result
+
+
+def _find_dir(nodes: list[BookmarkNode], path: Path) -> BookmarkNode | None:
+    for n in nodes:
+        if n.kind == "dir" and n.path == path:
+            return n
+        if n.kind == "submenu":
+            found = _find_dir(n.children, path)
+            if found:
+                return found
+    return None
+
+
+def _collect_dirs(nodes: list[BookmarkNode]) -> list[Path]:
+    result: list[Path] = []
+    for n in nodes:
+        if n.kind == "dir" and n.path:
+            result.append(n.path)
+        if n.kind == "submenu":
+            result.extend(_collect_dirs(n.children))
+    return result
+
+
+def _remove_from_tree(nodes: list[BookmarkNode], path: Path) -> bool:
+    for i, n in enumerate(nodes):
+        if n.kind == "dir" and n.path == path:
+            nodes.pop(i)
+            return True
+        if n.kind == "submenu" and _remove_from_tree(n.children, path):
+            return True
+    return False
+
+
+def _migrate_old(bm: dict) -> list[BookmarkNode]:
+    """Convert old flat paths/names + optional [[bookmarks.groups]] to tree."""
+    paths_raw: list[str] = bm.get("paths", [])
+    names_raw: list[str] = bm.get("names", [])
+
+    nodes: list[BookmarkNode] = []
+    # Pass 1: build flat list, detect dash-prefix children
+    flat: list[tuple[Path, str]] = []
+    for i, ps in enumerate(paths_raw):
+        name = names_raw[i] if i < len(names_raw) else ""
+        flat.append((Path(ps), name))
+
+    # Group consecutive dash-prefix items under the preceding plain item
+    i = 0
+    while i < len(flat):
+        p, name = flat[i]
+        if name.startswith("- "):
+            # orphan child with no parent — add as plain dir
+            nodes.append(BookmarkNode("dir", p, name[2:]))
+            i += 1
+            continue
+        # look ahead for dash-prefix children
+        children: list[BookmarkNode] = []
+        j = i + 1
+        while j < len(flat) and flat[j][1].startswith("- "):
+            cp, cn = flat[j]
+            children.append(BookmarkNode("dir", cp, cn[2:]))
+            j += 1
+        if children:
+            # turn the parent into a submenu, keep a dir node for it too
+            sub = BookmarkNode("submenu", name=name or p.name or str(p))
+            sub.children.append(BookmarkNode("dir", p, name))
+            sub.children.extend(children)
+            nodes.append(sub)
+        else:
+            nodes.append(BookmarkNode("dir", p, name))
+        i = j if children else i + 1
+
+    # Pass 2: old [[bookmarks.groups]]
+    for grp in bm.get("groups", []):
+        try:
+            gname = grp.get("name", "Group")
+            gpaths = [Path(s) for s in grp.get("paths", [])]
+            gnraw: list[str] = grp.get("names", [])
+            sub = BookmarkNode("submenu", name=gname)
+            existing = _collect_dirs(nodes)
+            for k, gp in enumerate(gpaths):
+                if gp in existing:
+                    continue
+                gn = gnraw[k] if k < len(gnraw) and gnraw[k] else ""
+                sub.children.append(BookmarkNode("dir", gp, gn))
+            if sub.children:
+                nodes.append(sub)
+        except (KeyError, TypeError):
+            continue
+
+    return nodes
+
+
+# ── BookmarkStore ─────────────────────────────────────────────────────────────
 
 class BookmarkStore:
     def __init__(self, path: Path) -> None:
         self._path = path
-        self._items: list[Path] = []
-        self._names: dict[str, str] = {}
+        self._nodes: list[BookmarkNode] = []
         self._load()
 
+    # ── tree API ──────────────────────────────────────────────────────────────
+
+    def tree(self) -> list[BookmarkNode]:
+        return list(self._nodes)
+
+    def set_tree(self, nodes: list[BookmarkNode]) -> None:
+        self._nodes = list(nodes)
+        self._save()
+
+    # ── flat compat API ───────────────────────────────────────────────────────
+
     def add(self, path: Path, name: str = "") -> None:
-        if path not in self._items:
-            self._items.append(path)
-            if name:
-                self._names[str(path)] = name
-            self._save()
+        if path in self:
+            return
+        self._nodes.append(BookmarkNode("dir", path, name))
+        self._save()
 
     def remove(self, path: Path) -> None:
-        if path in self._items:
-            self._items.remove(path)
-            self._names.pop(str(path), None)
-            self._save()
+        _remove_from_tree(self._nodes, path)
+        self._save()
 
-    def move_up(self, path: Path) -> None:
-        if path not in self._items:
-            return
-        i = self._items.index(path)
-        if i > 0:
-            self._items[i - 1], self._items[i] = self._items[i], self._items[i - 1]
-            self._save()
-
-    def move_down(self, path: Path) -> None:
-        if path not in self._items:
-            return
-        i = self._items.index(path)
-        if i < len(self._items) - 1:
-            self._items[i], self._items[i + 1] = self._items[i + 1], self._items[i]
-            self._save()
-
-    def replace(self, old: Path, new: Path) -> None:
-        if old in self._items:
-            old_name = self._names.pop(str(old), "")
-            self._items[self._items.index(old)] = new
-            if old_name:
-                self._names[str(new)] = old_name
-            self._save()
+    def __contains__(self, path: Path) -> bool:
+        return _find_dir(self._nodes, path) is not None
 
     def all(self) -> list[Path]:
-        return list(self._items)
+        return _collect_dirs(self._nodes)
 
     def get_name(self, path: Path) -> str:
-        return self._names.get(str(path), "")
+        n = _find_dir(self._nodes, path)
+        return n.name if n else ""
 
     def set_name(self, path: Path, name: str) -> None:
-        if path not in self._items:
+        n = _find_dir(self._nodes, path)
+        if n is None:
             return
-        if name:
-            self._names[str(path)] = name
-        else:
-            self._names.pop(str(path), None)
+        n.name = name
         self._save()
 
     def display_label(self, path: Path) -> str:
-        name = self.get_name(path)
-        return name if name else (path.name or str(path))
+        n = _find_dir(self._nodes, path)
+        if n is None:
+            return path.name or str(path)
+        return _node_label(n)
 
-    def __contains__(self, path: Path) -> bool:
-        return path in self._items
+    # ── persistence ───────────────────────────────────────────────────────────
 
     @staticmethod
     def _esc(s: str) -> str:
-        return s.replace("\\", "\\\\").replace('"', '\\"')
+        return s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
 
     def _save(self) -> None:
-        items = ", ".join(f'"{self._esc(str(p))}"' for p in self._items)
-        names = [self._names.get(str(p), "") for p in self._items]
-        names_str = ", ".join(f'"{self._esc(n)}"' for n in names)
-        lines = ["[bookmarks]\n", f"paths = [{items}]\n", f"names = [{names_str}]\n"]
-        self._path.write_text("".join(lines), encoding="utf-8")
+        flat = _flatten_nodes(self._nodes)
+        e = self._esc
+        lines: list[str] = []
+        for item in flat:
+            lines.append("\n[[bookmarks.items]]")
+            lines.append(f'kind = "{item["kind"]}"')
+            if "path" in item:
+                lines.append(f'path = "{e(item["path"])}"')
+            if "name" in item:
+                lines.append(f'name = "{e(item["name"])}"')
+            if "depth" in item:
+                lines.append(f'depth = {item["depth"]}')
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     def _load(self) -> None:
         if not self._path.exists():
-            self._items = [p for p in self._default_paths() if p.is_dir()]
-            self._names = {}
-            if self._items:
+            self._nodes = [
+                BookmarkNode("dir", p)
+                for p in self._default_paths()
+                if p.is_dir()
+            ]
+            if self._nodes:
                 self._path.parent.mkdir(parents=True, exist_ok=True)
                 self._save()
             return
         try:
             data = tomllib.loads(self._path.read_text(encoding="utf-8"))
         except tomllib.TOMLDecodeError:
+            self._nodes = []
             return
         bm = data.get("bookmarks", {})
-        paths_raw = bm.get("paths", [])
-        names_raw = bm.get("names", [])
-        self._items = [Path(s) for s in paths_raw]
-        self._names = {}
-        for i, p in enumerate(self._items):
-            if i < len(names_raw) and names_raw[i]:
-                self._names[str(p)] = names_raw[i]
+        if not isinstance(bm, dict):
+            self._nodes = []
+            return
+        if "items" in bm:
+            self._nodes = _build_tree(bm["items"])
+        else:
+            self._nodes = _migrate_old(bm)
+            self._save()
 
     @staticmethod
     def _default_paths() -> list[Path]:

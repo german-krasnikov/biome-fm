@@ -528,11 +528,11 @@ class TestGoUpSelection:
         p.go_up()
         assert view.selected == "docs"
 
-    def test_go_up_from_root_no_select(self, env):
+    def test_go_up_from_root_keeps_first(self, env):
         p, view, _vfs, _ = env
         p.navigate_to(ROOT)
         p.go_up()
-        assert view.selected is None
+        assert view.selected == "home"
 
     def test_go_up_via_dotdot_selects_previous(self, env):
         p, view, _vfs, _ = env

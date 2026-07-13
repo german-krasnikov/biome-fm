@@ -1,7 +1,21 @@
-"""Bookmark dropdown menu widget."""
+"""Bookmark dropdown menu — recursive tree rendering."""
 from __future__ import annotations
 
+from biome_fm.models.bookmark_node import BookmarkNode
 from biome_fm.qt import QHBoxLayout, QMenu, Qt, QToolButton, QWidget, Signal
+
+
+def _build_menu(menu: QMenu, nodes: list[BookmarkNode], signal) -> None:
+    for node in nodes:
+        if node.kind == "separator":
+            menu.addSeparator()
+        elif node.kind == "submenu":
+            sub = menu.addMenu(node.name)
+            _build_menu(sub, node.children, signal)
+        else:  # dir
+            label = node.name or (node.path.name if node.path else "")
+            act = menu.addAction(label)
+            act.triggered.connect(lambda c=False, p=node.path: signal.emit(p))
 
 
 class BookmarkMenu(QWidget):
@@ -30,9 +44,6 @@ class BookmarkMenu(QWidget):
     def _rebuild(self) -> None:
         self._menu.clear()
         if self._store:
-            for p in self._store.all():
-                act = self._menu.addAction(self._store.display_label(p))
-                act.setToolTip(str(p))
-                act.triggered.connect(lambda checked, path=p: self.bookmark_chosen.emit(path))
+            _build_menu(self._menu, self._store.tree(), self.bookmark_chosen)
         self._menu.addSeparator()
         self._menu.addAction("Edit Bookmarks...", self.edit_requested.emit)
