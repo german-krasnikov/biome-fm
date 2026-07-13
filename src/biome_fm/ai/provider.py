@@ -74,6 +74,12 @@ def make_providers(cfg) -> dict[str, AIProviderProtocol]:
         result["ollama"] = OllamaProvider(base_url=cfg.ai_ollama_url, model=cfg.ai_ollama_model)
     except ImportError:
         pass
+    # CLI providers (claude, codex, opencode — binary on PATH)
+    try:
+        from biome_fm.ai.cli.backend_def import make_cli_providers
+        result.update(make_cli_providers())
+    except ImportError:
+        pass
     if not result:
         result["none"] = NoOpProvider()
     return result

@@ -215,3 +215,22 @@ PaneSideView[active="false"] QTableView {
 PaneSideView[active="false"] QTabBar::tab:selected {
     border-bottom-color: $border;
 }
+
+/* Breadcrumb bar */
+QToolButton[crumb="true"] {
+    background: transparent;
+    border: none;
+    padding: 1px 4px;
+    color: $text_dim;
+}
+QToolButton[crumb_active="true"] {
+    color: $text;
+    font-weight: bold;
+}
+QToolButton[crumb="true"]:hover {
+    text-decoration: underline;
+}
+QLabel#crumb_sep {
+    color: $text_dim;
+    padding: 0 2px;
+}

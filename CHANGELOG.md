@@ -3,6 +3,30 @@
 All notable changes to Biome FM are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.11.0] — 2026-07-13
+
+### Added
+- **MCP Server** — `biome-fm-mcp` stdio entry point exposes 10 file-operation tools via
+  FastMCP (`mcp/server.py`); path validation restricts tools to allowed roots; 4 read tools
+  (`list_directory`, `stat_item`, `read_file`, `search_files`) + 6 write tools (`copy_files`,
+  `move_files`, `delete_files`, `mkdir`, `rename_file`, `undo_last`)
+- **AI CLI client registration** — `biome-fm configure/doctor/uninstall` CLI subcommands
+  register/verify/remove the MCP server in 8 AI tool configs (claude-code, claude-desktop,
+  cursor, windsurf, vscode, opencode, codex, kimi); `merger.py` writes JSON/TOML atomically;
+  `resolver.py` finds server command via uvx → venv → `python -m`; dispatched from
+  `__main__.py` before any Qt import so CLI works headlessly
+- **CLI AI providers** (`ai/cli/`) — `CliProvider` wraps claude-code, codex, opencode via
+  `subprocess.Popen`, implementing `AIProviderProtocol`; `stream_parse.py` normalises stdout
+  per CLI; `make_cli_providers()` includes only backends whose executables are on PATH;
+  `make_providers()` now discovers CLI providers alongside SDK providers
+- **Breadcrumb Path Bar** — `BreadcrumbBar` (`views/breadcrumb_bar.py`) replaces the old
+  `_PathComboBox` in `PaneView`; segments rendered as `_SegmentButton` (QToolButton) in
+  `_CrumbRow`; click segment = navigate; RMB context menu: Copy Path / Copy Name /
+  Show in Finder / Open Terminal Here (`utils/platform.py:open_terminal`); horizontal
+  swipe/wheel on bar triggers back/forward (threshold 120, 300ms cooldown); `Alt+[` / `Alt+]`
+  keyboard shortcuts for back/forward added in `app.py`; inline edit mode on double-click
+- 792 tests (up from 694)
+
 ## [v0.10.0] — 2026-07-12
 
 ### Added

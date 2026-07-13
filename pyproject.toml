@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "biome-fm"
-version = "0.8.0"
+version = "0.11.0"
 description = "AI-powered cross-platform dual-pane file manager"
 requires-python = ">=3.12"
 license = "MIT"
@@ -39,9 +39,13 @@ perf = [
     "watchfiles>=0.22",
     "blake3>=0.4",
 ]
+mcp = [
+    "mcp>=1.9",
+]
 
 [project.scripts]
 biome-fm = "biome_fm.__main__:main"
+biome-fm-mcp = "biome_fm.mcp._entry:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

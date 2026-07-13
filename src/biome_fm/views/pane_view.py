@@ -15,7 +15,6 @@ from biome_fm.models.directory_model import (
 )
 from biome_fm.models.file_item import FileItem
 from biome_fm.qt import (
-    QComboBox,
     QDrag,
     QEvent,
     QHBoxLayout,
@@ -38,24 +37,6 @@ from biome_fm.views.filter_bar import FilterBar
 from biome_fm.views.jump_bar import JumpBar
 
 _MIME = "application/x-biome-fm-paths"
-
-
-class _PathComboBox(QComboBox):
-    path_entered = Signal(str)
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setEditable(True)
-        self.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
-        self.setMaxVisibleItems(30)
-        self.lineEdit().setPlaceholderText("Path...")
-        self.lineEdit().returnPressed.connect(self._emit)
-        self.activated.connect(lambda _i: self._emit())
-
-    def _emit(self):
-        text = self.lineEdit().text().strip()
-        if text:
-            self.path_entered.emit(text)
 
 
 class _DropHintDelegate(QStyledItemDelegate):
@@ -295,8 +276,8 @@ class PaneView(QWidget):
         nav_layout.setSpacing(2)
         _SP = QStyle.StandardPixmap
         for sp, signal, name, tip in [
-            (_SP.SP_ArrowBack, self.back_requested, "nav_back", "Back (Alt+Left)"),
-            (_SP.SP_ArrowForward, self.forward_requested, "nav_forward", "Forward (Alt+Right)"),
+            (_SP.SP_ArrowBack, self.back_requested, "nav_back", "Back (Alt+Left / Alt+[)"),
+            (_SP.SP_ArrowForward, self.forward_requested, "nav_forward", "Forward (Alt+Right / Alt+])"),
             (_SP.SP_ArrowUp, self.up_requested, "nav_up", "Up (Alt+Up)"),
             (_SP.SP_DirHomeIcon, self.home_requested, "nav_home", "Home (Alt+Home)"),
         ]:
@@ -309,8 +290,11 @@ class PaneView(QWidget):
             btn.clicked.connect(signal)
             nav_layout.addWidget(btn)
 
-        self._path_bar = _PathComboBox(self)
+        from biome_fm.views.breadcrumb_bar import BreadcrumbBar
+        self._path_bar = BreadcrumbBar(self)
         self._path_bar.path_entered.connect(self._on_path_entered_text)
+        self._path_bar.back_requested.connect(self.back_requested)
+        self._path_bar.forward_requested.connect(self.forward_requested)
         nav_layout.addWidget(self._path_bar, 1)
 
         self._bookmark_menu = BookmarkMenu(self)
@@ -366,18 +350,13 @@ class PaneView(QWidget):
         self._model.set_items(items)
 
     def set_path(self, path: Path) -> None:
-        self._path_bar.lineEdit().setText(str(path))
+        self._path_bar.set_path(path)
 
     def show_error(self, message: str) -> None:
-        self._path_bar.lineEdit().setText(f"Error: {message}")
+        self._path_bar.show_error(message)
 
     def set_nav_history(self, paths: list[Path]) -> None:
-        self._path_bar.blockSignals(True)
-        current = self._path_bar.lineEdit().text()
-        self._path_bar.clear()
-        self._path_bar.addItems([str(p) for p in paths])
-        self._path_bar.lineEdit().setText(current)
-        self._path_bar.blockSignals(False)
+        self._path_bar.set_nav_history(paths)
 
     def set_status(self, text: str) -> None:
         self._status_label.setText(text)

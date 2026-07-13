@@ -444,6 +444,8 @@ def create_app() -> MainWindow:
     QShortcut(QKeySequence("Alt+Right"), window).activated.connect(lambda: _active().go_forward())
     QShortcut(QKeySequence("Alt+Up"),    window).activated.connect(lambda: _active().go_up())
     QShortcut(QKeySequence("Alt+Home"),  window).activated.connect(lambda: _active().go_home())
+    QShortcut(QKeySequence("Alt+["),     window).activated.connect(lambda: _active().go_back())
+    QShortcut(QKeySequence("Alt+]"),     window).activated.connect(lambda: _active().go_forward())
 
     # ── Misc shortcuts ────────────────────────────────────────────
     def _toggle_preview_f3() -> None:

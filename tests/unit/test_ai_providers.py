@@ -134,8 +134,9 @@ def test_make_providers_no_keys_returns_noop(monkeypatch):
     from biome_fm.config import Config
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    # Patch out ollama import so it fails
-    with patch.dict("sys.modules", {"httpx": None}):
+    # Patch out ollama import and CLI providers so nothing is available
+    with patch.dict("sys.modules", {"httpx": None}), \
+         patch("biome_fm.ai.cli.backend_def.make_cli_providers", return_value={}):
         cfg = Config()
         result = make_providers(cfg)
     assert "none" in result or any(p.name == "none" for p in result.values())
