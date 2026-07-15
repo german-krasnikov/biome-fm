@@ -3,6 +3,32 @@
 All notable changes to Biome FM are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.17.1] — 2026-07-15
+
+### Added
+- **Toolbar removed** — `QToolBar` (Refresh/+Tab/Preview/AI buttons) deleted; actions moved to
+  menubar (File, View); macOS-only zero-height drag toolbar kept via `setUnifiedTitleAndToolBarOnMac`
+- **"+" tab button in nav bar** — `_btn_new_tab` QPushButton at right of each pane's nav bar;
+  `new_tab_requested` signal on `PaneView`; wired per-pane so each side creates tabs independently
+- **Nav bar layout** — `[◄] [►] [▲] [★] | BreadcrumbBar(stretch) | [+]`; Home button removed
+- **PaneSideView tab bar** — `_sync_tab_bar()`: hidden on single tab, shown with close buttons on 2+
+- **Refresh cursor preservation** — `PanePresenter.refresh()` captures cursor before reload and
+  restores it via `_navigate_no_history(path, initial_cursor=name)`; cursor stays after F5 or auto-refresh
+- **`_op_items()` helper** — marked items → cursor fallback (TC behavior); used by F5/F6/F8 and action bar
+- **New shortcuts** — `Ctrl+R` (refresh), `Ctrl+W` (close tab, File → Close Tab)
+- **`close_tab_requested`** signal on `MainWindow` wired to File → Close Tab (`Ctrl+W`)
+- **`refresh_timer`** — 5-second `QTimer` in `app.py` calls `manager._refresh_both()`, skipped
+  while `_progress_dialogs` active
+- **QSS cleanup** — ~23 lines of dead `QToolBar` CSS removed from `_base.qss.tmpl`
+
+### Tests
+- `tests/integration/test_plus_tab_button.py` — 4 tests (`_btn_new_tab` exists, emits signal,
+  visible on single tab, `MainWindow` has no `QToolBar`)
+- `tests/unit/test_op_items_fallback.py` — 4 tests (`_op_items` marked priority, cursor fallback,
+  `..` excluded, None cursor)
+- `tests/unit/test_pane_refresh_cursor.py` — 1 test (refresh preserves cursor via `initial_cursor`)
+- `tests/integration/test_nav_icons.py` — removed `test_nav_home_signal` (Home button gone from nav bar)
+
 ## [v0.17.0] — 2026-07-14
 
 ### Added

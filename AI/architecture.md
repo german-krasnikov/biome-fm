@@ -9,9 +9,12 @@ src/biome_fm/
 ├── app.py              # create_app() factory — full DI wiring (VFSRouter, Config,
 │                       #   Session, Plugins, AI, CommandPalette, PaneSideViews);
 │                       #   nav/DnD/context-menu signal wiring; focus tracking → active pane bus;
-│                       #   toolbar signals (refresh/new_tab); _copy_path/_quick_look/_reveal_in_finder
-│                       #   closures; Ctrl+Z/Ctrl+Shift+Z/F3/Ctrl+Shift+C/Ctrl+Shift+L shortcuts;
-│                       #   _wire_pane() / _wire_ctx() / _new_tab() helpers
+│                       #   _op_items(): marked items → cursor item fallback (TC behavior);
+│                       #   refresh_timer: 5-second QTimer calls manager._refresh_both(),
+│                       #   skipped while _progress_dialogs active;
+│                       #   _copy_path/_quick_look/_reveal_in_finder closures;
+│                       #   Ctrl+Z/Ctrl+Shift+Z/F3/Ctrl+I/Ctrl+R/Ctrl+W/Ctrl+Shift+C/Ctrl+Shift+L shortcuts;
+│                       #   _wire_pane() / _wire_ctx() / _new_tab(side=None) helpers
 ├── qt.py               # Centralised PySide6 imports (Anki pattern); includes QMimeData, QDrag
 ├── config.py           # @dataclass Config + TOML loader (save_config / load_config)
 ├── session.py          # SessionState / PaneSideState / TabState / PanelSession → JSON persistence;
@@ -63,6 +66,10 @@ src/biome_fm/
 │   │                         #   PaneViewProtocol: set_items/set_path/show_error/set_status/
 │   │                         #   set_marked/current_cursor_item/advance_cursor/retreat_cursor/
 │   │                         #   set_filter_visible/select_item;
+│   │                         #   _navigate_no_history(path, *, initial_cursor=None): optional
+│   │                         #   cursor name placed after reload if item still exists;
+│   │                         #   refresh() captures current_cursor_item() before reload so
+│   │                         #   cursor stays on same file after auto-refresh or F5;
 │   │                         #   back/forward stacks; archive in-pane via _is_archive()
 │   │                         #   (_ARCHIVE_SUFFIXES: .zip/.tar/.tar.gz/.tar.bz2/.tgz; .7z excluded);
 │   │                         #   go_up() calls select_item(prev_name) so cursor lands on the
@@ -90,19 +97,23 @@ src/biome_fm/
 │                               #   tabs: General, Appearance, AI, Plugins
 │
 ├── views/
-│   ├── main_window.py    # QMainWindow: splitter, AI panel toggle (checkable QAction in toolbar),
-│   │                     #   closeEvent, splitter_sizes persistence, _build_menubar, _build_toolbar;
+│   ├── main_window.py    # QMainWindow: splitter, closeEvent, splitter_sizes persistence,
+│   │                     #   _build_menubar; QToolBar removed — Refresh/Preview/AI actions
+│   │                     #   moved to menubar (File, View); macOS zero-height drag toolbar
+│   │                     #   kept via setUnifiedTitleAndToolBarOnMac(True);
 │   │                     #   command line visible by default; _on_cmd executes shell command
 │   │                     #   with cwd=active pane path, emits command_submitted signal;
 │   │                     #   _HistoryLineEdit (30-item dedup history, Up/Down nav) +
 │   │                     #   case-insensitive QCompleter (dropdown history);
 │   │                     #   signals: back/forward/up/home + undo/redo/refresh/new_tab _requested,
+│   │                     #   close_tab_requested (File → Close Tab, Ctrl+W),
 │   │                     #   command_submitted, about_to_close; tab_shortcut (Tab key QShortcut);
 │   │                     #   splitter handle(1): 5px wide, accent on hover; RMB or MiddleButton →
 │   │                     #   _show_ratio_menu(global_pos) → 25/75, 50/50, 75/25 via _set_pane_ratio();
 │   │                     #   eventFilter catches QEvent.Type.ContextMenu + MiddleButton on handle
 │   ├── pane_side_view.py # _PathTabBar (Ctrl+click / middle-click copies full path from tooltip);
-│   │                     #   tabs movable; _sync_closable() — close buttons only when >1 tab;
+│   │                     #   tabs movable; _sync_tab_bar() — tab bar hidden when single tab,
+│   │                     #   shown with close buttons when 2+ tabs; new_tab_requested = Signal();
 │   │                     #   set_tab_title() sets abbreviated display + full tooltip;
 │   │                     #   set_tab_tooltip(); set_active() toggles QSS dynamic property
 │   ├── pane_view.py      # QWidget: nav buttons (←→↑⌂ with tooltips) + path bar + table + bars;
@@ -121,9 +132,13 @@ src/biome_fm/
 │   │                     #   around folder row when _drop_hint_row matches; _drop_hint_row
 │   │                     #   set in dragMoveEvent (folder under cursor) / cleared on dragLeave;
 │   │                     #   drop on folder → emits target_folder path; drop on blank → None;
-│   │                     #   10 signals: item_activated, path_change_requested,
+│   │                     #   nav bar layout: [◄] [►] [▲] [★ BookmarkMenu] | BreadcrumbBar(stretch) | [+];
+│   │                     #   new_tab_requested signal; _btn_new_tab QPushButton at right of nav bar;
+│   │                     #   Home button removed from nav bar; home_requested signal retained;
+│   │                     #   11 signals: item_activated, path_change_requested,
 │   │                     #   mark_toggle_requested, mark_toggle_up_requested, view_requested,
-│   │                     #   back/forward/up/home_requested, context_action_requested;
+│   │                     #   back/forward/up/home_requested, new_tab_requested,
+│   │                     #   context_action_requested;
 │   │                     #   files_dropped = Signal(list, bool, object)
 │   │                     #     → (paths: list[Path], move: bool, target_folder: Path | None)
 │   ├── filter_bar.py     # FilterBar: QLineEdit-based quick filter; hidden by default;
@@ -335,7 +350,7 @@ Builtin plugins live in `plugins/builtin/` and are registered in `create_app()`.
 Each side (left/right) has a PaneSideView (QTabBar + QStackedWidget) driven by a TabsPresenter
 owning N PanePresenters. Tabs persist to session.json via SessionState.
 `_PathTabBar` (QTabBar subclass): middle-click or Ctrl+click copies full path from tooltip.
-`_sync_closable()` shows close buttons only when tab count > 1.
+`_sync_tab_bar()` hides the tab bar entirely when single tab; shows it with close buttons when 2+ tabs.
 
 ### AI Integration (Multi-Model)
 `AIProviderProtocol` with `chat()` and `chat_stream()` methods. Three providers:
@@ -371,10 +386,10 @@ operations that target the opposite pane.
 `ActivePaneChanged` event is published to the EventBus on every switch.
 
 ### Nav Bar
-`PaneView` renders a row of icon nav buttons (←back, →forward, ↑up, ⌂home) above the
-table. Each button is connected to a dedicated Signal; `PanePresenter` handles them
-via the same `PaneViewProtocol` interface, keeping the view passive.
-Buttons use `QStyle.StandardPixmap` icons and have keyboard shortcut tooltips.
+`PaneView` renders a nav bar above the table: `[◄ back] [► forward] [▲ up] [★ bookmark menu] | BreadcrumbBar(stretch) | [+ new tab]`.
+Home button removed from nav bar (home_requested signal retained for keyboard shortcut).
+`_btn_new_tab` (QPushButton) at the right emits `new_tab_requested`; wired per-pane in `app.py`
+so each side creates tabs in its own panel. Buttons use `QStyle.StandardPixmap` icons with tooltips.
 
 ### Quick Filter
 `/` key in `_PaneTableView` calls `parent.filter_bar.activate()`.

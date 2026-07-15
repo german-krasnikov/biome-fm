@@ -44,7 +44,9 @@ class PaneSideView(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._tab_bar = _PathTabBar()
         self._tab_bar.setTabsClosable(False)
+        self._tab_bar.setVisible(False)
         self._tab_bar.setMovable(True)
+
         self._stack = QStackedWidget()
 
         layout = QVBoxLayout(self)
@@ -62,12 +64,14 @@ class PaneSideView(QWidget):
 
     # ── TabsViewProtocol ─────────────────────────────────────────
 
-    def _sync_closable(self) -> None:
-        self._tab_bar.setTabsClosable(self._tab_bar.count() > 1)
+    def _sync_tab_bar(self) -> None:
+        multi = self._tab_bar.count() > 1
+        self._tab_bar.setTabsClosable(multi)
+        self._tab_bar.setVisible(multi)
 
     def add_tab(self, title: str) -> int:
         idx = self._tab_bar.addTab(title)
-        self._sync_closable()
+        self._sync_tab_bar()
         return idx
 
     def remove_tab(self, idx: int) -> None:
@@ -75,7 +79,7 @@ class PaneSideView(QWidget):
         if w is not None:
             self._stack.removeWidget(w)
         self._tab_bar.removeTab(idx)
-        self._sync_closable()
+        self._sync_tab_bar()
 
     def set_active_tab(self, idx: int) -> None:
         self._tab_bar.blockSignals(True)

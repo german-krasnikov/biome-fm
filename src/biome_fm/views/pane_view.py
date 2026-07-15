@@ -76,12 +76,6 @@ class _PaneTableView(QTableView):
         self.setDropIndicatorShown(True)
         self.setItemDelegate(_DropHintDelegate(self))
 
-    def scrollContentsBy(self, dx: int, dy: int) -> None:
-        if self.property("_glass"):
-            self.viewport().update()
-        else:
-            super().scrollContentsBy(dx, dy)
-
     # QTreeView compat: QTableView lacks this; Fixed row sections achieve same effect
     def setUniformRowHeights(self, uniform: bool) -> None:
         self._uniform_row_heights = uniform
@@ -281,6 +275,7 @@ class PaneView(QWidget):
     bookmark_chosen = Signal(object)          # Path
     edit_bookmarks_requested = Signal()
     cursor_changed = Signal(object)           # FileItem | None
+    new_tab_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -304,7 +299,6 @@ class PaneView(QWidget):
             (_SP.SP_ArrowBack, self.back_requested, "nav_back", "Back (Alt+Left / Alt+[)"),
             (_SP.SP_ArrowForward, self.forward_requested, "nav_forward", "Forward (Alt+Right / Alt+])"),
             (_SP.SP_ArrowUp, self.up_requested, "nav_up", "Up (Alt+Up)"),
-            (_SP.SP_DirHomeIcon, self.home_requested, "nav_home", "Home (Alt+Home)"),
         ]:
             btn = QPushButton()
             btn.setObjectName(name)
@@ -315,6 +309,11 @@ class PaneView(QWidget):
             btn.clicked.connect(signal)
             nav_layout.addWidget(btn)
 
+        self._bookmark_menu = BookmarkMenu(self)
+        self._bookmark_menu.bookmark_chosen.connect(self.bookmark_chosen)
+        self._bookmark_menu.edit_requested.connect(self.edit_bookmarks_requested)
+        nav_layout.addWidget(self._bookmark_menu)
+
         from biome_fm.views.breadcrumb_bar import BreadcrumbBar
         self._path_bar = BreadcrumbBar(self)
         self._path_bar.path_entered.connect(self._on_path_entered_text)
@@ -322,10 +321,12 @@ class PaneView(QWidget):
         self._path_bar.forward_requested.connect(self.forward_requested)
         nav_layout.addWidget(self._path_bar, 1)
 
-        self._bookmark_menu = BookmarkMenu(self)
-        self._bookmark_menu.bookmark_chosen.connect(self.bookmark_chosen)
-        self._bookmark_menu.edit_requested.connect(self.edit_bookmarks_requested)
-        nav_layout.addWidget(self._bookmark_menu)
+        self._btn_new_tab = QPushButton("+")
+        self._btn_new_tab.setFixedWidth(28)
+        self._btn_new_tab.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._btn_new_tab.setToolTip("New tab (Ctrl+T)")
+        self._btn_new_tab.clicked.connect(self.new_tab_requested)
+        nav_layout.addWidget(self._btn_new_tab)
 
         layout.addWidget(nav)
 

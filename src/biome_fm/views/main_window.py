@@ -65,6 +65,7 @@ class MainWindow(QMainWindow):
     redo_requested = Signal()
     refresh_requested = Signal()
     new_tab_requested = Signal()
+    close_tab_requested = Signal()
     command_submitted = Signal(str)
     preview_toggle_requested = Signal()
     ai_toggle_requested = Signal()
@@ -136,7 +137,19 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
         self.setStatusBar(QStatusBar())
         self._build_menubar()
-        self._build_toolbar()
+        self._build_drag_toolbar()
+
+    def _build_drag_toolbar(self) -> None:
+        import sys
+        if sys.platform != "darwin":
+            return
+        tb = QToolBar(self)
+        tb.setMovable(False)
+        tb.setFloatable(False)
+        tb.setFixedHeight(0)
+        tb.setContextMenuPolicy(Qt.ContextMenuPolicy.PreventContextMenu)
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, tb)
+        self.setUnifiedTitleAndToolBarOnMac(True)
 
     def _on_cmd(self) -> None:
         cmd = self._cmd_line.text().strip()
@@ -147,34 +160,16 @@ class MainWindow(QMainWindow):
         self.command_submitted.emit(cmd)
         self._cmd_line.clear()
 
-    def _build_toolbar(self) -> None:
-        tb = QToolBar("Navigation", self)
-        tb.setMovable(False)
-
-        act_refresh = QAction("↺ Refresh", self)
-        act_refresh.setToolTip("Refresh active pane (Ctrl+R)")
-        act_refresh.triggered.connect(self.refresh_requested)
-        tb.addAction(act_refresh)
-
-        tb.addSeparator()
-
-        act_tab = QAction("+ Tab", self)
-        act_tab.setToolTip("New tab (Ctrl+T)")
-        act_tab.triggered.connect(self.new_tab_requested)
-        tb.addAction(act_tab)
-
-        tb.addSeparator()
-        tb.addAction(self._act_preview)
-        tb.addAction(self._act_ai)
-
-        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, tb)
-
     def _build_menubar(self) -> None:
         mb = self.menuBar()
 
         fm = mb.addMenu("&File")
-        fm.addAction(QAction("New &Tab\tCtrl+T", self))
-        fm.addAction(QAction("Close &Tab\tCtrl+W", self))
+        a = QAction("New &Tab\tCtrl+T", self)
+        a.triggered.connect(lambda _: self.new_tab_requested.emit())
+        fm.addAction(a)
+        a = QAction("Close &Tab\tCtrl+W", self)
+        a.triggered.connect(lambda _: self.close_tab_requested.emit())
+        fm.addAction(a)
         fm.addSeparator()
         a = QAction("&Settings\tCtrl+,", self)
         a.setMenuRole(QAction.MenuRole.NoRole)
@@ -205,6 +200,10 @@ class MainWindow(QMainWindow):
             a = QAction(label, self)
             a.triggered.connect(sig.emit)
             em.addAction(a)
+        em.addSeparator()
+        a = QAction("&Find Files\tCtrl+Shift+F", self)
+        a.triggered.connect(lambda _: self.search_requested.emit())
+        em.addAction(a)
 
         nm = mb.addMenu("&Navigate")
         for label, sig in [
@@ -218,12 +217,12 @@ class MainWindow(QMainWindow):
             nm.addAction(a)
 
         vm = mb.addMenu("&View")
-        a = QAction("Toggle &Preview\tF3", self)
-        a.triggered.connect(lambda _: self.preview_toggle_requested.emit())
+        a = QAction("&Refresh\tCtrl+R", self)
+        a.triggered.connect(lambda _: self.refresh_requested.emit())
         vm.addAction(a)
-        a = QAction("Toggle &AI\tCtrl+I", self)
-        a.triggered.connect(lambda _: self.ai_toggle_requested.emit())
-        vm.addAction(a)
+        vm.addSeparator()
+        vm.addAction(self._act_preview)
+        vm.addAction(self._act_ai)
         act_cmd = QAction("&Command Line", self, checkable=True)
         act_cmd.setChecked(True)
         act_cmd.toggled.connect(self._cmd_line.setVisible)

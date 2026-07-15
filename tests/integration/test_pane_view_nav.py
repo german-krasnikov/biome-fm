@@ -44,11 +44,6 @@ def test_nav_up_signal(qtbot, view):
         _nav_btn(view, "nav_up").click()
 
 
-def test_nav_home_signal(qtbot, view):
-    with qtbot.waitSignal(view.home_requested, timeout=500):
-        _nav_btn(view, "nav_home").click()
-
-
 # ── Sorting ─────────────────────────────────────────────────────────────────
 
 def test_sorting_enabled(view):

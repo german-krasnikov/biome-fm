@@ -128,7 +128,8 @@ class PanePresenter:
 
     def refresh(self) -> None:
         if self._cwd is not None:
-            self._navigate_no_history(self._cwd)
+            cur = self._view.current_cursor_item()
+            self._navigate_no_history(self._cwd, initial_cursor=cur.name if cur else None)
 
     def go_back(self) -> None:
         if not self._back:
@@ -222,7 +223,7 @@ class PanePresenter:
             s /= 1024
         return f"{s:.1f} PB"
 
-    def _navigate_no_history(self, path: Path) -> bool:
+    def _navigate_no_history(self, path: Path, *, initial_cursor: str | None = None) -> bool:
         try:
             raw = self._vfs.listdir(path)
         except OSError as e:
@@ -240,8 +241,8 @@ class PanePresenter:
         self._view.set_path(path)
         self._view.set_items(items)
         self._view.set_marked(set(self._marks))
-        first = items[0].name if items else ".."
-        self._view.select_item(first)
+        target = initial_cursor if initial_cursor and any(i.name == initial_cursor for i in items) else (items[0].name if items else "..")
+        self._view.select_item(target)
         self._update_free_space()
         self._update_status()
         return True

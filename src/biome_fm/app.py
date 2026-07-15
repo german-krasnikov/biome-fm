@@ -185,9 +185,15 @@ def create_app() -> MainWindow:
             pid = pane_id
             sig.connect(lambda p, m, f, _pid=pid: manager.drop_files(p, _pid, m, f))
 
+    def _wire_new_tab(view: object, tabs) -> None:
+        sig = getattr(view, "new_tab_requested", None)
+        if sig is not None:
+            sig.connect(lambda _tabs=tabs: _new_tab(_tabs))
+
     for _pid, _tabs in [("left", left_tabs), ("right", right_tabs)]:
         for _i in range(_tabs.tab_count):
             _wire_dnd(_tabs.view_at(_i), _pid)
+            _wire_new_tab(_tabs.view_at(_i), _tabs)
 
     providers = make_providers(cfg)
     _model_fields = {
@@ -355,6 +361,13 @@ def create_app() -> MainWindow:
     op_timer.timeout.connect(_drain_op_events)
     op_timer.start()
 
+    refresh_timer = QTimer(window)
+    refresh_timer.setInterval(5000)
+    refresh_timer.timeout.connect(
+        lambda: manager._refresh_both() if not _progress_dialogs else None
+    )
+    refresh_timer.start()
+
     # ── Active side helper ────────────────────────────────────────
     def _active() -> TabsPresenter:
         return left_tabs if manager.active_pane_id == "left" else right_tabs
@@ -440,17 +453,18 @@ def create_app() -> MainWindow:
     search_panel.navigate_to_file.connect(_on_navigate_to_file)
 
     # ── New tab ───────────────────────────────────────────────────
-    def _new_tab() -> None:
-        side = _active()
-        pid = "left" if side is left_tabs else "right"
-        p = side.new_tab(side.current_path)
-        v = side.view_at(side.tab_count - 1)
+    def _new_tab(tabs=None) -> None:
+        tabs = tabs or _active()
+        pid = "left" if tabs is left_tabs else "right"
+        p = tabs.new_tab(tabs.current_path)
+        v = tabs.view_at(tabs.tab_count - 1)
         _wire_pane(v, p)
         _wire_preview(v)
         _wire_ctx(v)
         _wire_plugin_ctx(v, pid)
-        _wire_bm(v, side)
+        _wire_bm(v, tabs)
         _wire_dnd(v, pid)
+        _wire_new_tab(v, tabs)
 
     # ── Dialog helpers ────────────────────────────────────────────
     def _ask_mkdir() -> None:
@@ -476,6 +490,13 @@ def create_app() -> MainWindow:
         if target is not None:
             reveal_in_finder(target.path)
 
+    def _op_items():
+        items = _active().marked_items
+        if items:
+            return items
+        cursor = _active().current_item()
+        return [cursor] if cursor and cursor.name != ".." else []
+
     def _wire_plugin_ctx(view: object, pane_id: str) -> None:
         if hasattr(view, "plugin_menu_extra"):
             _pid = pane_id
@@ -486,7 +507,7 @@ def create_app() -> MainWindow:
 
     def _wire_ctx(view: object) -> None:
         def _dispatch(action: str) -> None:
-            items = _active().marked_items
+            items = _op_items()
             if action == "copy":
                 manager.copy_selected(items)
             elif action == "move":
@@ -571,6 +592,10 @@ def create_app() -> MainWindow:
 
     QShortcut(QKeySequence("Ctrl+D"), window).activated.connect(_bookmark_toggle)
     QShortcut(QKeySequence("Ctrl+H"), window).activated.connect(manager.toggle_hidden)
+    QShortcut(QKeySequence("Ctrl+Shift+."), window).activated.connect(manager.toggle_hidden)
+    QShortcut(QKeySequence("Ctrl+I"), window).activated.connect(
+        lambda: coord.toggle("ai", manager.active_pane_id)
+    )
     QShortcut(QKeySequence("Ctrl+Shift+F"), window).activated.connect(_on_search_requested)
 
     # ── Shortcuts ─────────────────────────────────────────────────
@@ -587,9 +612,9 @@ def create_app() -> MainWindow:
 
     # ── Action bar ────────────────────────────────────────────────
     bar = window.action_bar
-    bar.copy_requested.connect(lambda: manager.copy_selected(_active().marked_items))
-    bar.move_requested.connect(lambda: manager.move_selected(_active().marked_items))
-    bar.delete_requested.connect(lambda: manager.delete_selected(_active().marked_items))
+    bar.copy_requested.connect(lambda: manager.copy_selected(_op_items()))
+    bar.move_requested.connect(lambda: manager.move_selected(_op_items()))
+    bar.delete_requested.connect(lambda: manager.delete_selected(_op_items()))
     bar.mkdir_requested.connect(_ask_mkdir)
     bar.rename_requested.connect(_ask_rename)
     bar.exit_requested.connect(window.close)
@@ -603,7 +628,7 @@ def create_app() -> MainWindow:
 
     window.tab_shortcut.activated.connect(_switch_pane)
 
-    # ── Nav signals from MainWindow toolbar ───────────────────────
+    # ── Nav signals from MainWindow ─────────────────────────────
     for attr, slot in [
         ("back_requested", lambda: _active().go_back()),
         ("forward_requested", lambda: _active().go_forward()),
@@ -642,9 +667,11 @@ def create_app() -> MainWindow:
     window.undo_requested.connect(manager.undo)
     window.redo_requested.connect(manager.redo)
 
-    # ── Toolbar signals ───────────────────────────────────────────
+    # ── Menu signals ─────────────────────────────────────────────
     window.refresh_requested.connect(lambda: _active().refresh())
     window.new_tab_requested.connect(_new_tab)
+    window.close_tab_requested.connect(lambda: _active().close_tab(_active().active_idx))
+    QShortcut(QKeySequence("Ctrl+R"), window).activated.connect(lambda: _active().refresh())
 
     # ── Active pane border ────────────────────────────────────────
     def _on_active_changed(event: ActivePaneChanged) -> None:
@@ -755,6 +782,7 @@ def create_app() -> MainWindow:
         CommandEntry("Preview",        "F3",           _toggle_preview_f3),
         CommandEntry("Sync Browsing",  "Ctrl+Shift+L", manager.toggle_mirror),
         CommandEntry("Toggle Hidden",  "Ctrl+H",       manager.toggle_hidden),
+        CommandEntry("Toggle Hidden",  "Ctrl+Shift+.", manager.toggle_hidden),
         CommandEntry("Back",           "Alt+Left",     lambda: _active().go_back()),
         CommandEntry("Forward",        "Alt+Right",    lambda: _active().go_forward()),
         CommandEntry("Up",             "Alt+Up",       lambda: _active().go_up()),
@@ -798,11 +826,12 @@ def create_app() -> MainWindow:
         preview_timer.stop()
         search_timer.stop()
         op_timer.stop()
+        refresh_timer.stop()
         op_queue.shutdown(wait=False)
 
     window.about_to_close.connect(_on_close)
     window._refs = (manager, left_tabs, right_tabs, ai_presenter, drain_timer, plugins,  # type: ignore[attr-defined]
                     preview_presenter, preview_timer, coord, panel_mgr,
-                    op_queue, op_timer, search_timer)
+                    op_queue, op_timer, search_timer, refresh_timer)
 
     return window

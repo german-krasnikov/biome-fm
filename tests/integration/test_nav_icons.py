@@ -14,8 +14,8 @@ def pane(qtbot):
 
 
 def _nav_buttons(pane: PaneView) -> list[QPushButton]:
-    """Return the 4 nav buttons (first 4 QPushButtons in nav bar)."""
-    return pane.findChildren(QPushButton)[:4]
+    """Return the 3 icon-based nav buttons (back/forward/up)."""
+    return pane.findChildren(QPushButton)[:3]
 
 
 def test_nav_buttons_have_icons(pane):
