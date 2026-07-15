@@ -298,7 +298,7 @@ wheels = [
 
 [[package]]
 name = "biome-fm"
-version = "0.17.0"
+version = "0.17.2"
 source = { editable = "." }
 dependencies = [
     { name = "pluggy" },

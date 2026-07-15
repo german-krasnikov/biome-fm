@@ -3,6 +3,32 @@
 All notable changes to Biome FM are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.17.2] — 2026-07-15
+
+### Fixed
+- **Breadcrumb swipe → scroll** — horizontal swipe on breadcrumb bar scrolls the path instead of
+  triggering back/forward navigation; `back_requested`/`forward_requested` signals removed from
+  `BreadcrumbBar`
+- **Unified selection** — removed cell-level focus rectangle, `Cmd+Click` toggles mark without
+  advancing cursor (`toggle_mark_at`), full-row selection only; QSS `outline: 0` on QTableView
+- **TC-style cursor vs marks** — marked items show background color, cursor shows accent border
+  around entire row (no fill); Qt selection state suppressed via delegate `initStyleOption`
+- **Refresh preserves state** — 5-second auto-refresh and manual F5 preserve scroll position and
+  marks in both panes (DRY via `preserve_scroll` kwarg on `set_items()`)
+- **DnD multi-file with marks** — drag-and-drop uses app marks (like F5) instead of Qt
+  `selectedIndexes`; `DirectoryModel.marks` property; `make_path_mime()` DRY helper
+- **".." pinned first** — `DirSortFilterProxy.lessThan` checks `sortOrder()` so ".." stays at top
+  regardless of ascending/descending sort; dirs-before-files also respects sort order
+
+### Added
+- **Breadcrumb drag** — dragging a breadcrumb segment creates `QDrag` via `make_path_mime()`;
+  Finder receives folder URL, text editors receive path string
+- `tests/unit/test_pane_mark_at.py` — 4 tests (toggle_mark_at)
+- `tests/integration/test_focus_delegate.py` — 1 test (focus+selection stripping)
+- `tests/unit/test_pane_refresh_cursor.py` — +1 test (refresh preserves marks)
+- `tests/integration/test_breadcrumb_bar.py` — +2 tests (drag mime, drag_start init)
+- `tests/integration/test_external_dnd.py` — +4 tests (marks-aware DnD)
+
 ## [v0.17.1] — 2026-07-15
 
 ### Added

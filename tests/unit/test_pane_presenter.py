@@ -56,7 +56,7 @@ class FakePaneView:
     nav_history: list[Path] = field(default_factory=list)
     selected: str | None = None
 
-    def set_items(self, items: list[FileItem]) -> None:
+    def set_items(self, items: list[FileItem], **kwargs) -> None:
         self.items = list(items)
 
     def set_path(self, path: Path) -> None:

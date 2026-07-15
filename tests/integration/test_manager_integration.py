@@ -22,7 +22,7 @@ class FakePaneView:
     status: str = ""
     error: str = ""
 
-    def set_items(self, items: list[FileItem]) -> None:
+    def set_items(self, items: list[FileItem], **kwargs) -> None:
         self.items = items
 
     def set_path(self, path: Path) -> None:

@@ -68,6 +68,10 @@ class DirectoryModel(QAbstractTableModel):
             bot = self.index(len(self._items) - 1, self.columnCount() - 1)
             self.dataChanged.emit(top, bot, [Qt.ItemDataRole.BackgroundRole])
 
+    @property
+    def marks(self) -> frozenset[Path]:
+        return frozenset(self._marks)
+
     def rowCount(self, parent: _Idx = QModelIndex()) -> int:  # noqa: B008
         return 0 if parent.isValid() else len(self._items)
 
@@ -159,10 +163,12 @@ class DirSortFilterProxy(QSortFilterProxyModel):
         r_item: FileItem | None = model.data(right.sibling(right.row(), COL_NAME), _role)
         if l_item is None or r_item is None:
             return super().lessThan(left, right)
+        # ".." pinned first regardless of sort order
+        asc = self.sortOrder() == Qt.SortOrder.AscendingOrder
         if l_item.name == "..":
-            return True
+            return asc
         if r_item.name == "..":
-            return False
+            return not asc
         if l_item.is_dir != r_item.is_dir:
-            return l_item.is_dir
+            return l_item.is_dir if asc else r_item.is_dir
         return super().lessThan(left, right)

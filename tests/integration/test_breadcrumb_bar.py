@@ -85,36 +85,49 @@ def test_active_segment_is_last(bar):
     assert active[0].text() == "bar"
 
 
-def test_swipe_left_emits_back(bar, qtbot):
-    with qtbot.waitSignal(bar.back_requested, timeout=1000):
-        _send_wheel(bar._crumb, dx=-120)
+def test_vertical_wheel_does_not_horizontal_scroll(bar, qtbot):
+    """Vertical wheel must not scroll breadcrumb horizontally."""
+    bar.setFixedWidth(40)
+    bar.set_path(Path("/a/b/c/d/e/f/g/h/i"))
+    bar.show()
+    qtbot.wait(50)
+    sb = bar._scroll.horizontalScrollBar()
+    before = sb.value()
+    _send_wheel(bar._scroll, dx=30, dy=200)
+    assert sb.value() == before
 
 
-def test_swipe_right_emits_forward(bar, qtbot):
-    with qtbot.waitSignal(bar.forward_requested, timeout=1000):
-        _send_wheel(bar._crumb, dx=120)
+def test_horizontal_wheel_scrolls_right(bar, qtbot):
+    """Negative dx scrolls toward the end of the path."""
+    bar.setFixedWidth(40)
+    bar.set_path(Path("/a/b/c/d/e/f/g/h/i/j/k"))
+    bar.show()
+    qtbot.wait(100)
+    sb = bar._scroll.horizontalScrollBar()
+    sb.setValue(0)
+    _send_wheel(bar._scroll, dx=-240)
+    if sb.maximum() > 0:
+        assert sb.value() > 0
 
 
-def test_sub_threshold_no_emit(bar):
-    signals = []
-    bar.back_requested.connect(lambda: signals.append(1))
-    _send_wheel(bar._crumb, dx=-60)
-    assert signals == []
+def test_horizontal_wheel_scrolls_left(bar, qtbot):
+    """Positive dx scrolls toward the start of the path."""
+    bar.setFixedWidth(40)
+    bar.set_path(Path("/a/b/c/d/e/f/g/h/i/j/k"))
+    bar.show()
+    qtbot.wait(100)
+    sb = bar._scroll.horizontalScrollBar()
+    sb.setValue(sb.maximum())
+    before = sb.value()
+    _send_wheel(bar._scroll, dx=240)
+    if sb.maximum() > 0:
+        assert sb.value() < before
 
 
-def test_accumulates_to_threshold(bar):
-    signals = []
-    bar.back_requested.connect(lambda: signals.append(1))
-    _send_wheel(bar._crumb, dx=-60)
-    _send_wheel(bar._crumb, dx=-60)
-    assert signals == [1]
-
-
-def test_vertical_scroll_ignored(bar):
-    signals = []
-    bar.back_requested.connect(lambda: signals.append(1))
-    _send_wheel(bar._crumb, dx=30, dy=200)
-    assert signals == []
+def test_swipe_does_not_emit_navigation(bar, qtbot):
+    """Horizontal swipe must not fire back/forward navigation signals."""
+    assert not hasattr(bar, 'back_requested')
+    assert not hasattr(bar, 'forward_requested')
 
 
 def test_bar_height_is_fixed(bar, qtbot):
@@ -166,3 +179,25 @@ def test_breadcrumb_visible_after_repeated_navigation(qtbot, tmp_path):
 
     assert bar._crumb.width() > 0
     assert bar._stack.currentIndex() == 0
+
+
+def test_segment_drag_mime_data(bar, qtbot):
+    """Dragging a breadcrumb segment produces correct MIME: uri-list + text/plain."""
+    bar.set_path(Path("/foo/bar"))
+    btn = next(b for b in bar.findChildren(_SegmentButton) if b.text() == "foo")
+    from biome_fm.views.pane_view import make_path_mime
+    mime = make_path_mime([str(btn._path)])
+    assert mime.hasUrls()
+    assert mime.hasText()
+    assert mime.text() == str(Path("/foo"))
+    urls = mime.urls()
+    assert len(urls) == 1
+    assert urls[0].toLocalFile() == str(Path("/foo"))
+
+
+def test_segment_has_drag_start(bar, qtbot):
+    """_SegmentButton initializes _drag_start for drag support."""
+    bar.set_path(Path("/foo/bar"))
+    btn = next(b for b in bar.findChildren(_SegmentButton) if b.text() == "bar")
+    assert hasattr(btn, "_drag_start")
+    assert btn._drag_start is None

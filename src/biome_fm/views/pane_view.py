@@ -42,6 +42,17 @@ _MIME = "application/x-biome-fm-paths"
 _MOVE_MODS = Qt.KeyboardModifier.ShiftModifier | Qt.KeyboardModifier.AltModifier
 
 
+def make_path_mime(paths: list[str], *, urls: bool = True) -> QMimeData:
+    """Build QMimeData with biome-fm-paths + uri-list + text/plain."""
+    mime = QMimeData()
+    mime.setData(_MIME, "\n".join(paths).encode())
+    if paths:
+        if urls:
+            mime.setUrls([QUrl.fromLocalFile(p) for p in paths])
+        mime.setText("\n".join(paths))
+    return mime
+
+
 class _DropHintDelegate(QStyledItemDelegate):
     """Draws highlight border around folder row during DnD hover."""
 
@@ -49,8 +60,14 @@ class _DropHintDelegate(QStyledItemDelegate):
         super().__init__(table)
         self._table = table
 
+    def initStyleOption(self, option: object, index: object) -> None:
+        super().initStyleOption(option, index)  # type: ignore[arg-type]
+        option.state &= ~QStyle.StateFlag.State_HasFocus  # type: ignore[attr-defined]
+        option.state &= ~QStyle.StateFlag.State_Selected  # type: ignore[attr-defined]
+
     def paint(self, painter, option, index) -> None:
         super().paint(painter, option, index)
+        # DnD drop hint
         if index.row() == self._table._drop_hint_row:
             painter.save()
             pen = painter.pen()
@@ -58,6 +75,23 @@ class _DropHintDelegate(QStyledItemDelegate):
             pen.setWidth(2)
             painter.setPen(pen)
             painter.drawRect(option.rect.adjusted(1, 1, -1, -1))
+            painter.restore()
+        # Cursor row border (TC-style: border around entire row, no fill)
+        current = self._table.currentIndex()
+        if current.isValid() and current.row() == index.row():
+            painter.save()
+            pen = painter.pen()
+            pen.setColor(option.palette.highlight().color())
+            pen.setWidth(1)
+            painter.setPen(pen)
+            rect = option.rect
+            painter.drawLine(rect.left(), rect.top(), rect.right(), rect.top())
+            painter.drawLine(rect.left(), rect.bottom(), rect.right(), rect.bottom())
+            if index.column() == 0:
+                painter.drawLine(rect.left(), rect.top(), rect.left(), rect.bottom())
+            model = index.model()
+            if model and index.column() == model.columnCount() - 1:
+                painter.drawLine(rect.right(), rect.top(), rect.right(), rect.bottom())
             painter.restore()
 
 
@@ -143,24 +177,43 @@ class _PaneTableView(QTableView):
             return
         super().keyPressEvent(event)  # type: ignore[arg-type]
 
+    def mousePressEvent(self, event: object) -> None:
+        if (hasattr(event, "modifiers") and
+                event.modifiers() & Qt.KeyboardModifier.ControlModifier and
+                hasattr(event, "button") and
+                event.button() == Qt.MouseButton.LeftButton):
+            idx = self.indexAt(event.pos())  # type: ignore[attr-defined]
+            if idx.isValid():
+                self.setCurrentIndex(idx)
+                pane = self.parent()
+                if isinstance(pane, PaneView):
+                    src = pane._proxy.mapToSource(pane._proxy.index(idx.row(), 0))
+                    item = pane._model.item_at(src.row())
+                    if item and item.name != "..":
+                        pane.mark_at_requested.emit(item)
+                return
+        super().mousePressEvent(event)  # type: ignore[arg-type]
+
     def mimeData(self, indexes: object) -> QMimeData:
         pane = self.parent()
-        rows = {idx.row() for idx in indexes}  # type: ignore[attr-defined]
-        paths = []
-        for proxy_row in rows:
-            if isinstance(pane, PaneView):
-                src = pane._proxy.mapToSource(pane._proxy.index(proxy_row, 0))
-                item = pane._model.item_at(src.row())
-                if item and item.name != "..":
-                    paths.append(str(item.path))
-        mime = QMimeData()
-        mime.setData(_MIME, "\n".join(paths).encode())
-        if paths:
-            alt = QApplication.keyboardModifiers() & Qt.KeyboardModifier.AltModifier
-            if not alt:
-                mime.setUrls([QUrl.fromLocalFile(p) for p in paths])
-            mime.setText("\n".join(paths))
-        return mime
+        paths: list[str] = []
+        if isinstance(pane, PaneView):
+            marked = pane._model.marks
+            if marked:
+                paths = [
+                    str(item.path)
+                    for row in range(pane._model.rowCount())
+                    if (item := pane._model.item_at(row)) and item.path in marked and item.name != ".."
+                ]
+            else:
+                rows = {idx.row() for idx in indexes}  # type: ignore[attr-defined]
+                for proxy_row in rows:
+                    src = pane._proxy.mapToSource(pane._proxy.index(proxy_row, 0))
+                    item = pane._model.item_at(src.row())
+                    if item and item.name != "..":
+                        paths.append(str(item.path))
+        alt = bool(paths and QApplication.keyboardModifiers() & Qt.KeyboardModifier.AltModifier)
+        return make_path_mime(paths, urls=not alt)
 
     def startDrag(self, supported_actions: Qt.DropAction) -> None:
         indexes = self.selectedIndexes()
@@ -266,6 +319,7 @@ class PaneView(QWidget):
     mark_toggle_requested = Signal()
     view_requested = Signal()               # Space — Quick Look preview
     mark_toggle_up_requested = Signal()     # Shift+Up — mark + retreat cursor
+    mark_at_requested = Signal(object)     # FileItem — Cmd/Ctrl+Click mark toggle
     back_requested = Signal()
     forward_requested = Signal()
     up_requested = Signal()
@@ -317,8 +371,6 @@ class PaneView(QWidget):
         from biome_fm.views.breadcrumb_bar import BreadcrumbBar
         self._path_bar = BreadcrumbBar(self)
         self._path_bar.path_entered.connect(self._on_path_entered_text)
-        self._path_bar.back_requested.connect(self.back_requested)
-        self._path_bar.forward_requested.connect(self.forward_requested)
         nav_layout.addWidget(self._path_bar, 1)
 
         self._btn_new_tab = QPushButton("+")
@@ -372,8 +424,14 @@ class PaneView(QWidget):
     def set_bookmark_store(self, store) -> None:
         self._bookmark_menu.set_store(store)
 
-    def set_items(self, items: list[FileItem]) -> None:
-        self._model.set_items(items)
+    def set_items(self, items: list[FileItem], **kwargs: object) -> None:
+        if kwargs.get("preserve_scroll"):
+            vbar = self._table.verticalScrollBar()
+            scroll_pos = vbar.value()
+            self._model.set_items(items)
+            vbar.setValue(scroll_pos)
+        else:
+            self._model.set_items(items)
 
     def set_path(self, path: Path) -> None:
         self._path_bar.set_path(path)

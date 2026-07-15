@@ -6,6 +6,7 @@ from pathlib import Path
 from biome_fm.qt import (
     QApplication,
     QComboBox,
+    QDrag,
     QEvent,
     QFrame,
     QHBoxLayout,
@@ -65,6 +66,7 @@ class _SegmentButton(QToolButton):
     def __init__(self, label: str, full_path: Path, active: bool = False, parent=None):
         super().__init__(parent)
         self._path = full_path
+        self._drag_start = None
         self.setText(label)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -75,6 +77,23 @@ class _SegmentButton(QToolButton):
 
     def _emit_navigated(self) -> None:
         self.navigated.emit(self._path)
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_start = event.pos()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        if (self._drag_start is not None
+                and (event.pos() - self._drag_start).manhattanLength()
+                >= QApplication.startDragDistance()):
+            from biome_fm.views.pane_view import make_path_mime
+            drag = QDrag(self)
+            drag.setMimeData(make_path_mime([str(self._path)]))
+            self._drag_start = None
+            drag.exec(Qt.DropAction.CopyAction)
+            return
+        super().mouseMoveEvent(event)
 
     def contextMenuEvent(self, event) -> None:
         menu = QMenu(self)
@@ -94,15 +113,9 @@ class _SegmentButton(QToolButton):
 class _CrumbRow(QWidget):
     segment_clicked = Signal(object)  # Path
     edit_requested = Signal()
-    back_requested = Signal()
-    forward_requested = Signal()
-
-    _SWIPE_THRESHOLD = 120
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._wheel_acc = 0
-        self._swipe_cooldown = False
         self._layout = QHBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
         self._layout.setSpacing(0)
@@ -126,29 +139,6 @@ class _CrumbRow(QWidget):
                 self._layout.addWidget(sep)
         QTimer.singleShot(0, self.adjustSize)
 
-    def wheelEvent(self, event) -> None:
-        dx = event.angleDelta().x()
-        dy = event.angleDelta().y()
-        if abs(dx) > abs(dy) and not self._swipe_cooldown:
-            self._wheel_acc += dx
-            if self._wheel_acc <= -self._SWIPE_THRESHOLD:
-                self._wheel_acc = 0
-                self._swipe_cooldown = True
-                QTimer.singleShot(300, self._reset_cooldown)
-                self.back_requested.emit()
-            elif self._wheel_acc >= self._SWIPE_THRESHOLD:
-                self._wheel_acc = 0
-                self._swipe_cooldown = True
-                QTimer.singleShot(300, self._reset_cooldown)
-                self.forward_requested.emit()
-            event.accept()
-        else:
-            super().wheelEvent(event)
-
-    def _reset_cooldown(self) -> None:
-        self._swipe_cooldown = False
-        self._wheel_acc = 0
-
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             self.edit_requested.emit()
@@ -170,11 +160,19 @@ class _CrumbScrollArea(QScrollArea):
         self.viewport().setAutoFillBackground(False)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
+    def wheelEvent(self, event) -> None:
+        dx = event.angleDelta().x()
+        dy = event.angleDelta().y()
+        if abs(dx) > abs(dy) and dx != 0:
+            sb = self.horizontalScrollBar()
+            sb.setValue(sb.value() - dx)
+            event.accept()
+        else:
+            super().wheelEvent(event)
+
 
 class BreadcrumbBar(QWidget):
     path_entered = Signal(str)
-    back_requested = Signal()
-    forward_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -221,8 +219,6 @@ class BreadcrumbBar(QWidget):
 
         self._crumb.segment_clicked.connect(lambda p: self.path_entered.emit(str(p)))
         self._crumb.edit_requested.connect(self.activate_edit)
-        self._crumb.back_requested.connect(self.back_requested)
-        self._crumb.forward_requested.connect(self.forward_requested)
         self._combo.path_entered.connect(self._commit_edit)
         self._combo.lineEdit().installEventFilter(self)
 

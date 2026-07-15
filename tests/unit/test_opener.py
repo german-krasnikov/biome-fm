@@ -40,7 +40,7 @@ class FakePaneView:
     cursor: FileItem | None = None
     cursor_advances: int = 0
 
-    def set_items(self, items): self.items = list(items)
+    def set_items(self, items, **kwargs): self.items = list(items)
     def set_path(self, path): self.path = path
     def show_error(self, msg): self.errors.append(msg)
     def set_status(self, text): self.status = text

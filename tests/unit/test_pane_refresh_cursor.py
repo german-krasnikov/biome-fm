@@ -1,5 +1,40 @@
-"""Test that PanePresenter.refresh() preserves cursor position."""
+"""Test that PanePresenter.refresh() preserves cursor position and marks."""
 from pathlib import Path
+from unittest.mock import MagicMock
+
+
+def test_refresh_preserves_marks():
+    """Marks must survive refresh() — _marks set is not cleared when path == cwd."""
+    from biome_fm.models.file_item import FileItem
+    from biome_fm.presenters.pane_presenter import PanePresenter
+
+    item_a = FileItem(name="a.txt", path=Path("/tmp/a.txt"), is_dir=False, size=10, modified=0.0)
+    item_b = FileItem(name="b.txt", path=Path("/tmp/b.txt"), is_dir=False, size=20, modified=0.0)
+
+    view = MagicMock()
+    view.current_cursor_item.return_value = item_a
+
+    vfs = MagicMock()
+    vfs.listdir.return_value = [item_a, item_b]
+
+    p = PanePresenter(view=view, vfs=vfs, opener=lambda _: None)
+    p.navigate_to(Path("/tmp"))
+
+    # Mark item_b
+    p._marks = {item_b.path}
+    p._push_marks()
+    view.reset_mock()
+
+    # Refresh
+    p.refresh()
+
+    # Marks must be preserved in presenter state
+    assert item_b.path in p._marks
+
+    # And pushed to view
+    view.set_marked.assert_called()
+    last_marks = view.set_marked.call_args[0][0]
+    assert item_b.path in last_marks
 
 
 def test_refresh_preserves_cursor(tmp_path):
@@ -12,7 +47,7 @@ def test_refresh_preserves_cursor(tmp_path):
     selected = []
 
     class FakeView:
-        def set_items(self, items): pass
+        def set_items(self, items, **kwargs): pass
         def set_path(self, p): pass
         def show_error(self, m): pass
         def set_status(self, t): pass

@@ -27,7 +27,7 @@ class FakePaneView:
     error: str = ""
     set_items_calls: int = 0
 
-    def set_items(self, items: list[FileItem]) -> None:
+    def set_items(self, items: list[FileItem], **kwargs) -> None:
         self.items = items
         self.set_items_calls += 1
 

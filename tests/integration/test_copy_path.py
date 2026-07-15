@@ -20,7 +20,7 @@ class _FakeView:
     path: Path | None = None
     _cursor: FileItem | None = None
 
-    def set_items(self, items: list[FileItem]) -> None: self.items = items
+    def set_items(self, items: list[FileItem], **kwargs) -> None: self.items = items
     def set_path(self, p: Path) -> None: self.path = p
     def set_status(self, t: str) -> None: ...
     def show_error(self, m: str) -> None: ...

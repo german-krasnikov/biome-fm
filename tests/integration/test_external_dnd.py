@@ -82,3 +82,57 @@ class TestExternalDnDMime:
         assert not mime.hasUrls()
         assert mime.hasText()
         assert "/tmp/a.txt" in mime.text()
+
+
+class TestMarkedDnDMime:
+    def test_marks_override_selection(self, pane):
+        """When marks exist, DnD carries all marked paths, not just cursor."""
+        pane.set_marked({Path("/tmp/a.txt"), Path("/tmp/b.py")})
+        table = pane._table
+        # Cursor on subdir (not marked)
+        for row in range(table.model().rowCount()):
+            idx = table.model().index(row, 0)
+            src = pane._proxy.mapToSource(idx)
+            item = pane._model.item_at(src.row())
+            if item and item.name == "subdir":
+                table.setCurrentIndex(idx)
+                break
+        mime = table.mimeData(table.selectedIndexes())
+        raw = mime.data("application/x-biome-fm-paths").data().decode()
+        paths = set(raw.splitlines())
+        assert "/tmp/a.txt" in paths
+        assert "/tmp/b.py" in paths
+        assert "/tmp/subdir" not in paths
+
+    def test_empty_marks_falls_back_to_indexes(self, pane):
+        """No marks -> original behavior: only selected rows in mime."""
+        pane.set_marked(set())
+        table = pane._table
+        table.selectAll()
+        mime = table.mimeData(table.selectedIndexes())
+        raw = mime.data("application/x-biome-fm-paths").data().decode()
+        paths = set(raw.splitlines())
+        assert "/tmp/a.txt" in paths
+        assert "/tmp/b.py" in paths
+        assert "/tmp/subdir" in paths
+
+    def test_marks_exclude_dotdot(self, pane):
+        """'..' must never appear in DnD mime data even if somehow marked."""
+        pane.set_items([
+            FileItem(name="..", path=Path("/"), is_dir=True, size=0, modified=0.0),
+            _item("real.txt"),
+        ])
+        pane.set_marked({Path("/"), Path("/tmp/real.txt")})
+        table = pane._table
+        mime = table.mimeData(table.selectedIndexes())
+        raw = mime.data("application/x-biome-fm-paths").data().decode()
+        paths = set(raw.splitlines())
+        assert "/" not in paths
+        assert "/tmp/real.txt" in paths
+
+    def test_marked_count_in_urls(self, pane):
+        """Exactly N marks -> exactly N URLs."""
+        pane.set_marked({Path("/tmp/a.txt"), Path("/tmp/b.py")})
+        table = pane._table
+        mime = table.mimeData(table.selectedIndexes())
+        assert len(mime.urls()) == 2

@@ -80,6 +80,7 @@ def _wire_pane(view: PaneViewProtocol, presenter: PanePresenter) -> None:
         ("up_requested", presenter.go_up),
         ("home_requested", presenter.go_home),
         ("mark_toggle_up_requested", presenter.toggle_mark_up),
+        ("mark_at_requested", presenter.toggle_mark_at),
     ]:
         sig = getattr(view, attr, None)
         if sig is not None:

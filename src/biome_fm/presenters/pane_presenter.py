@@ -24,7 +24,7 @@ def _is_archive(path: Path) -> bool:
 
 
 class PaneViewProtocol(Protocol):
-    def set_items(self, items: list[FileItem]) -> None: ...
+    def set_items(self, items: list[FileItem], **kwargs: object) -> None: ...
     def set_path(self, path: Path) -> None: ...
     def show_error(self, message: str) -> None: ...
     def set_status(self, text: str) -> None: ...
@@ -174,6 +174,13 @@ class PanePresenter:
         self._push_marks()
         self._view.retreat_cursor()
 
+    def toggle_mark_at(self, item: FileItem) -> None:
+        """Toggle mark on specific item without advancing cursor (Cmd+Click)."""
+        if item.name == "..":
+            return
+        self._marks ^= {item.path}
+        self._push_marks()
+
     def select_all(self) -> None:
         self._marks = {i.path for i in self._items}
         self._push_marks()
@@ -239,7 +246,7 @@ class PanePresenter:
         self._cwd = path
         self._push_history(path)
         self._view.set_path(path)
-        self._view.set_items(items)
+        self._view.set_items(items, preserve_scroll=(path == self._cwd))
         self._view.set_marked(set(self._marks))
         target = initial_cursor if initial_cursor and any(i.name == initial_cursor for i in items) else (items[0].name if items else "..")
         self._view.select_item(target)

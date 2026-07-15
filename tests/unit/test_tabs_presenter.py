@@ -43,7 +43,7 @@ class _FakePaneView:
     status_text: str = ""
     marked_paths: set = field(default_factory=set)
 
-    def set_items(self, items: list) -> None:
+    def set_items(self, items: list, **kwargs) -> None:
         self.items = items
 
     def set_path(self, path: Path) -> None:
