@@ -69,6 +69,11 @@ def _config_dir() -> Path:
     return Path(loc) / "biome-fm" if loc else Path.home() / ".config" / "biome-fm"
 
 
+def _pad_sizes(sizes: list[int], count: int) -> list[int]:
+    """Pad/truncate saved splitter sizes to exactly `count` entries (extras are 0)."""
+    return (sizes + [0] * count)[:count]
+
+
 def _wire_pane(view: PaneViewProtocol, presenter: PanePresenter) -> None:
     """Connect PaneView signals to PanePresenter slots (non-preview only)."""
     view.item_activated.connect(presenter.on_item_activated)  # type: ignore[attr-defined]
@@ -298,7 +303,7 @@ def create_app() -> MainWindow:
     window.detach_ai_requested.connect(lambda: coord.detach("ai"))
 
     def _init_layout() -> None:
-        window.splitter.setSizes([600, 600, 0, 0, 0])
+        window.splitter.setSizes(_pad_sizes(cfg.splitter_sizes, window.splitter.count()))
         if session:
             coord.restore_state({
                 "preview": {
@@ -816,7 +821,7 @@ def create_app() -> MainWindow:
             ),
             cfg_dir / "session.json",
         )
-        cfg.splitter_sizes = window.splitter_sizes
+        cfg.splitter_sizes = coord.pane_sizes()
         _close_field = _model_fields.get(ai_presenter._active_key)
         if _close_field:
             setattr(cfg, _close_field, ai_presenter._provider.active_model)

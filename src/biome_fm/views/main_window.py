@@ -112,6 +112,10 @@ class MainWindow(QMainWindow):
         if self._ai_panel is not None:
             self._splitter.addWidget(self._ai_panel)
             self._ai_panel.hide()
+        for i in range(self._splitter.count()):
+            self._splitter.setStretchFactor(i, 1 if i < 2 else 0)
+            if i < 2:
+                self._splitter.setCollapsible(i, False)
         handle = self._splitter.handle(1)
         if handle is not None:
             handle.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)

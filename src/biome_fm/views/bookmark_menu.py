@@ -31,7 +31,7 @@ class BookmarkMenu(QWidget):
         self._btn.setToolTip("Bookmarks (Ctrl+D to add)")
         self._btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        self._menu = QMenu(self._btn)
+        self._menu = QMenu(self.window() or self._btn)
         self._menu.aboutToShow.connect(self._rebuild)
         self._btn.setMenu(self._menu)
         lay = QHBoxLayout(self)

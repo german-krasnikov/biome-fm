@@ -203,7 +203,7 @@ class SearchResultsPanel(QWidget):
         result = self._model.result_at(idx.row())
         if result is None:
             return
-        menu = QMenu(self)
+        menu = QMenu(self.window())
         menu.addAction("Go to File", lambda: self.navigate_to_file.emit(
             result.item.path.parent, result.item.name))
         menu.addAction("Copy Path", lambda: QApplication.clipboard().setText(str(result.item.path)))

@@ -2,13 +2,13 @@
 from unittest.mock import MagicMock, patch
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QStyle, QWidget
+from PySide6.QtWidgets import QWidget
 
 from biome_fm.views.glass_style import (
+    GlassStyle,
     _FILTER_PROP,
     _GLASS_PROP,
     _GlassClearFilter,
-    GlassStyle,
     _SKIP_CONTROLS,
     _SKIP_PRIMITIVES,
     mark_glass,
@@ -91,6 +91,29 @@ def test_non_scroll_area_filter_removed_on_unmark(qtbot):
     mark_glass(lbl)
     unmark_glass(lbl)
     assert lbl.property(_FILTER_PROP) is False
+
+
+def test_recursive_skips_splitter_handle(qtbot):
+    from PySide6.QtWidgets import QSplitter
+    sp = QSplitter()
+    qtbot.addWidget(sp)
+    left = QWidget(sp)
+    right = QWidget(sp)
+    sp.addWidget(left)
+    sp.addWidget(right)
+    mark_glass(sp, recursive=True)
+    handle = sp.handle(1)
+    assert handle is not None
+    assert not handle.property(_GLASS_PROP)
+
+
+def test_recursive_skips_qmenu(qtbot):
+    from PySide6.QtWidgets import QMenu
+    parent = QWidget()
+    qtbot.addWidget(parent)
+    menu = QMenu(parent)
+    mark_glass(parent, recursive=True)
+    assert not menu.property(_GLASS_PROP)
 
 
 def test_prepare_glass_exception_returns_false():

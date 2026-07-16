@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "biome-fm"
-version = "0.17.2"
+version = "0.17.3"
 description = "AI-powered cross-platform dual-pane file manager"
 requires-python = ">=3.12"
 license = "MIT"

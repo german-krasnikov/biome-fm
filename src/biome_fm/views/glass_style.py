@@ -5,7 +5,9 @@ from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import (
     QAbstractScrollArea,
+    QMenu,
     QProxyStyle,
+    QSplitterHandle,
     QStyle,
     QWidget,
 )
@@ -59,6 +61,8 @@ def mark_glass(widget: QWidget, *, recursive: bool = False) -> None:
             widget.setProperty(_FILTER_PROP, True)
     if recursive:
         for child in widget.findChildren(QWidget):
+            if isinstance(child, (QMenu, QSplitterHandle)):
+                continue
             mark_glass(child)
 
 
@@ -84,6 +88,8 @@ def unmark_glass(widget: QWidget, *, recursive: bool = False) -> None:
         widget.setProperty(_FILTER_PROP, False)
     if recursive:
         for child in widget.findChildren(QWidget):
+            if isinstance(child, (QMenu, QSplitterHandle)):
+                continue
             unmark_glass(child)
 
 

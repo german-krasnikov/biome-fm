@@ -13,6 +13,7 @@ from biome_fm.qt import (
     QLabel,
     QMenu,
     QScrollArea,
+    QSize,
     QSizePolicy,
     QStackedWidget,
     Qt,
@@ -96,7 +97,7 @@ class _SegmentButton(QToolButton):
         super().mouseMoveEvent(event)
 
     def contextMenuEvent(self, event) -> None:
-        menu = QMenu(self)
+        menu = QMenu(self.window())
         menu.addAction("Copy Path", lambda: QApplication.clipboard().setText(str(self._path)))
         menu.addAction(
             "Copy Name",
@@ -159,6 +160,9 @@ class _CrumbScrollArea(QScrollArea):
         self.setFixedHeight(self.BAR_H)
         self.viewport().setAutoFillBackground(False)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(50, self.BAR_H)
 
     def wheelEvent(self, event) -> None:
         dx = event.angleDelta().x()

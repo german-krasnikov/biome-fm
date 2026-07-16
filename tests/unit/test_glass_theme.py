@@ -1,5 +1,4 @@
 """Unit tests for glass theme helpers. No Qt."""
-from unittest.mock import MagicMock
 
 
 def test_hex_to_rgba():

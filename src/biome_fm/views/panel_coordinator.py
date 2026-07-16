@@ -176,6 +176,16 @@ class PanelCoordinator(QObject):
             base -= 1
         return min(base, self._splitter.count())
 
+    def pane_sizes(self) -> list[int]:
+        """Return logical pane sizes — reads _saved_sizes when overlay is active."""
+        raw = self._splitter.sizes()
+        if self._saved_sizes:
+            return [
+                self._saved_sizes.get(self._left, raw[0]),
+                self._saved_sizes.get(self._right, raw[1]),
+            ]
+        return raw[:2]
+
     def save_state(self) -> dict[str, dict]:
         result = {}
         for name in self._panels:

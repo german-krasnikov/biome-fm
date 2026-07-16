@@ -3,6 +3,28 @@
 All notable changes to Biome FM are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.17.3] — 2026-07-16
+
+### Fixed
+- **Splitter 50/50 startup** — `MainWindow.showEvent` calls `setSizes` with equal halves so both
+  panes start at 50/50 regardless of saved geometry
+- **Glass QMenu opacity** — removed `_MenuOpaqueFilter` and `install_menu_guard`; QMenu opacity is
+  now handled by proper parent (`QMenu(self.window())`) so menus inherit the correct palette
+  naturally without a separate filter; `_GlassClearFilter` and `mark_glass` recursive traversal
+  both skip `QMenu` instances
+
+### Added
+- **`pane_sizes()`** on `PanelCoordinator` — returns current pixel sizes of the two panes as
+  `tuple[int, int]`; used by splitter tests
+- **`QSize`** exported from `qt.py` compat shim
+
+### Tests
+- `tests/unit/test_splitter_sizes.py` — 5 tests (`_pad_sizes` helper)
+- `tests/integration/test_splitter_layout.py` — 6 tests (50/50 startup, ratio presets, breadcrumb
+  minimum size)
+- `tests/unit/test_glass_style.py` — +2 tests (`recursive_skips_qmenu`,
+  `recursive_skips_splitter_handle`)
+
 ## [v0.17.2] — 2026-07-15
 
 ### Fixed

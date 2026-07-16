@@ -284,7 +284,7 @@ class _PaneTableView(QTableView):
         p = self.parent()
         if not isinstance(p, PaneView):
             return
-        menu = QMenu(self)
+        menu = QMenu(self.window())
         for action_name, label in [
             ("copy", "Copy\tF5"),
             ("move", "Move\tF6"),

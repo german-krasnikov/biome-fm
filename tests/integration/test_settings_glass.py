@@ -2,10 +2,9 @@
 import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-import pytest
 from biome_fm.config import Config
-from biome_fm.views.settings_dialog import SettingsDialog
 from biome_fm.presenters.settings_presenter import SettingsPresenter
+from biome_fm.views.settings_dialog import SettingsDialog
 
 
 def test_settings_has_glass_checkbox(qapp, qtbot):
