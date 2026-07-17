@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import fnmatch
 import shutil
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
@@ -14,6 +15,7 @@ from biome_fm.models.vfs import VFSProtocol
 
 _ARCHIVE_SUFFIXES = {".zip", ".tar"}
 _ARCHIVE_DOUBLE = {(".tar", ".gz"), (".tar", ".bz2"), (".tar", ".xz")}
+_VIRTUAL_PATH = Path("//virtual")
 
 
 def _is_archive(path: Path) -> bool:
@@ -64,6 +66,10 @@ class PanePresenter:
         self._items: list[FileItem] = []
         self._marks: set[Path] = set()
         self._nav_history: list[Path] = []
+        self._virtual_activate: Callable[[FileItem], None] | None = None
+        self._size_cancel: list[bool] = [False]
+        self._dir_size_result: int | None = None
+        self._dir_view_state: dict[Path, object] = {}
 
     @property
     def current_path(self) -> Path:
@@ -91,6 +97,9 @@ class PanePresenter:
     def nav_history(self) -> list[Path]:
         return list(self._nav_history)
 
+    def _is_virtual(self) -> bool:
+        return self._cwd == _VIRTUAL_PATH
+
     def _push_history(self, path: Path) -> None:
         if path in self._nav_history:
             self._nav_history.remove(path)
@@ -107,6 +116,19 @@ class PanePresenter:
             if old is not None:
                 self._back.append(old)
             self._forward.clear()
+
+    def navigate_virtual(self, items: list[FileItem], label: str = "Search Results", *, on_activate: Callable[[FileItem], None] | None = None) -> None:
+        if self._cwd is not None:
+            self._back.append(self._cwd)
+        self._forward.clear()
+        self._marks.clear()
+        self._items = list(items)
+        self._cwd = _VIRTUAL_PATH
+        self._virtual_activate = on_activate
+        self._view.set_path(Path(f"//{label}"))
+        self._view.set_items(self._items)
+        self._view.set_marked(set())
+        self._view.set_status(f"{len(items)} items")
 
     def go_up(self) -> None:
         if self._cwd is None:
@@ -137,6 +159,7 @@ class PanePresenter:
         if self._cwd is not None:
             self._forward.append(self._cwd)
         self._navigate_no_history(self._back.pop())
+        self._virtual_activate = None
 
     def go_forward(self) -> None:
         if not self._forward:
@@ -146,6 +169,9 @@ class PanePresenter:
         self._navigate_no_history(self._forward.pop())
 
     def on_item_activated(self, item: FileItem) -> None:
+        if self._is_virtual() and self._virtual_activate is not None:
+            self._virtual_activate(item)
+            return
         if item.name == "..":
             self.go_up()
         elif item.is_dir or _is_archive(item.path):
@@ -194,19 +220,40 @@ class PanePresenter:
         self._push_marks()
 
     def select_by_pattern(self, pattern: str) -> None:
-        self._marks |= {i.path for i in self._items if fnmatch.fnmatch(i.name, pattern)}
+        self._marks |= {i.path for i in self._items if i.name != ".." and fnmatch.fnmatch(i.name, pattern)}
         self._push_marks()
 
     def deselect_by_pattern(self, pattern: str) -> None:
         self._marks -= {i.path for i in self._items if fnmatch.fnmatch(i.name, pattern)}
         self._push_marks()
 
+    def _start_dir_size_calc(self) -> None:
+        """Start background dir size calculation for marked dirs."""
+        dirs = [i.path for i in self._items if i.path in self._marks and i.is_dir]
+        if not dirs:
+            self._dir_size_result = None
+            return
+        self._size_cancel[0] = True  # cancel previous
+        cancel: list[bool] = [False]
+        self._size_cancel = cancel
+
+        def _run() -> None:
+            from biome_fm.utils.dir_size import calc_tree_size
+            result = calc_tree_size(dirs, cancel)
+            if not cancel[0] and result >= 0:
+                self._dir_size_result = result
+
+        threading.Thread(target=_run, daemon=True).start()
+
     def _push_marks(self) -> None:
         self._view.set_marked(set(self._marks))
+        self._start_dir_size_calc()
         self._update_status()
 
     def _update_free_space(self) -> None:
         self._free_space = ""
+        if self._is_virtual():
+            return
         if self._cwd:
             with contextlib.suppress(OSError):
                 self._free_space = f"Free: {self._fmt_size(shutil.disk_usage(self._cwd).free)}"
@@ -217,6 +264,8 @@ class PanePresenter:
         if self._marks:
             size = sum(i.size for i in self._items if i.path in self._marks and not i.is_dir)
             parts.append(f"{len(self._marks)} marked ({self._fmt_size(size)})")
+        if self._dir_size_result is not None:
+            parts.append(f"Dirs: {self._fmt_size(self._dir_size_result)}")
         if self._free_space:
             parts.append(self._free_space)
         self._view.set_status(" | ".join(parts))
@@ -230,6 +279,32 @@ class PanePresenter:
             s /= 1024
         return f"{s:.1f} PB"
 
+    def toggle_flat_view(self) -> None:
+        """Show all files under cwd recursively, or go back if already virtual."""
+        if self._is_virtual():
+            self.go_back()
+            return
+        if self._cwd is None:
+            return
+        import os
+        root = self._cwd
+        items: list[FileItem] = []
+        for dirpath, dirs, files in os.walk(root):
+            dirs[:] = [d for d in sorted(dirs) if not d.startswith(".")]
+            dp = Path(dirpath)
+            for f in sorted(files):
+                if f.startswith("."):
+                    continue
+                p = dp / f
+                try:
+                    st = p.stat()
+                    rel = str(p.relative_to(root))
+                    items.append(FileItem(name=rel, path=p, is_dir=False,
+                                         size=st.st_size, modified=st.st_mtime))
+                except OSError:
+                    pass
+        self.navigate_virtual(items, label=f"Flat: {root.name}")
+
     def _navigate_no_history(self, path: Path, *, initial_cursor: str | None = None) -> bool:
         try:
             raw = self._vfs.listdir(path)
@@ -238,16 +313,25 @@ class PanePresenter:
             return False
         if path != self._cwd:
             self._marks.clear()
+            self._dir_size_result = None
         self._items = _sort(raw)
         items = list(self._items)
         if path.parent != path:
             dotdot = FileItem(name="..", path=path.parent, is_dir=True, size=0, modified=0.0)
             items = [dotdot, *items]
         same_dir = (path == self._cwd)
+        if not same_dir and self._cwd is not None:
+            get_state = getattr(self._view, "get_view_state", None)
+            if get_state:
+                self._dir_view_state[self._cwd] = get_state()
         self._cwd = path
         self._push_history(path)
         self._view.set_path(path)
         self._view.set_items(items, preserve_scroll=same_dir)
+        saved = self._dir_view_state.get(path)
+        set_state = getattr(self._view, "set_view_state", None)
+        if saved is not None and set_state:
+            set_state(saved)
         self._view.set_marked(set(self._marks))
         target = initial_cursor if initial_cursor and any(i.name == initial_cursor for i in items) else (items[0].name if items else "..")
         self._view.select_item(target)

@@ -86,6 +86,9 @@ class TabsPresenter:
     def view_at(self, idx: int) -> PaneViewProtocol:
         return self._views[idx]
 
+    def presenter_at(self, idx: int) -> PanePresenter:
+        return self._tabs[idx]
+
     # ── PanePresenter delegation for ManagerPresenter ─────────────────────────
 
     @property
@@ -157,6 +160,12 @@ class TabsPresenter:
 
     def go_root(self) -> None:
         self.active.go_root()
+
+    def toggle_flat_view(self) -> None:
+        self.active.toggle_flat_view()
+
+    def navigate_virtual(self, items, label="Search Results", *, on_activate=None):
+        self.active.navigate_virtual(items, label, on_activate=on_activate)
 
     def on_item_activated(self, item: FileItem) -> None:
         self.active.on_item_activated(item)

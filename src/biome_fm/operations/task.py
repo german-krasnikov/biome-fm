@@ -43,7 +43,15 @@ class OpCancelled:
     task_id: int
 
 
-OpEvent = OpStarted | OpProgress | OpDone | OpError | OpCancelled
+@dataclass(frozen=True)
+class OpConflict:
+    task_id: int
+    src: object  # Path
+    dst: object  # Path
+    resolver: object  # ConflictResolver — kept as object to avoid circular import
+
+
+OpEvent = OpStarted | OpProgress | OpDone | OpError | OpCancelled | OpConflict
 
 
 @dataclass

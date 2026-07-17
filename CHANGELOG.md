@@ -3,7 +3,7 @@
 All notable changes to Biome FM are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [v0.18.0] — 2026-07-17
+## [v0.19.0] — 2026-07-17
 
 ### Fixed
 - **`preserve_scroll` always True** — `PanePresenter._navigate_no_history` now passes `preserve_scroll`
@@ -50,6 +50,78 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Plugin file-operation hooks** — `ManagerPresenter` now calls `before_file_operation` (veto) and
   `on_file_operation` (notification) hooks for copy / move / delete via the plugin manager
 
+### Features (48 killer features — `feat/48-killer-features`)
+
+**File Operations**
+- **Conflict resolution dialog** — per-file or bulk Overwrite / Skip / Auto-Rename choices during copy/move; `ConflictResolver` thread-safe rendezvous; `views/conflict_dialog.py`
+- **Transfer queue panel** — live progress panel for all active copy/move operations; `views/transfer_queue_panel.py`
+- **Archive create/extract** — right-click → Archive Selected; Extract Here; `ArchiveCmd` + `ExtractCmd` in `commands/archive_cmd.py`
+- **Checksum dialog** — MD5 / SHA1 / SHA256 for selected files; `views/checksum_dialog.py`, `commands/checksum_cmd.py`
+
+**UI & Navigation**
+- **Embedded terminal panel** — `Ctrl+`` ` toggles a `QProcess`-backed shell panel; `views/terminal_panel.py`
+- **Sidebar panel** — collapsible panel showing volumes, bookmarks, and recent dirs; `views/sidebar_panel.py`
+- **Flat view** — recursive file listing mode (all descendants in one view)
+- **Inline rename** — `F2` / `F9` triggers in-place name editing in the table
+- **Batch rename dialog** — pattern/counter/regex rename with live preview; `views/batch_rename_dialog.py`
+- **Named workspaces** — save/restore left+right path sets; `models/workspace_store.py`, `views/workspace_dialog.py`
+- **Per-directory view state** — sort column and filter persist per visited directory; `models/view_state.py`
+- **Path autocomplete** — breadcrumb edit mode shows filesystem completions
+
+**Search & Filter**
+- **Search templates** — save/load named search patterns; `models/search_template_store.py`
+- **Select by pattern** — glob-based multi-select dialog; `views/pattern_dialog.py`
+- **Fuzzy finder** — `Ctrl+P` popup file search with difflib scoring; `views/fuzzy_finder.py`, `presenters/fuzzy_presenter.py`
+- **Quick filter char highlight** — matched characters underlined in the file list (feat #45)
+- **Virtual / search pane** — search results shown as a virtual pane (no navigation needed)
+
+**AI Integration**
+- **AI rename suggestions** — AI suggests better filenames with per-file accept/skip; `presenters/ai_rename_presenter.py`, `views/ai_rename_dialog.py`
+- **AI context-aware actions** — builtin extension→action map + AI suggestions for selected file; `ai/context_actions.py`, `views/ai_context_dialog.py`
+- **Natural language operations** — type "move all PDFs to docs/" and AI parses it to a file op; `presenters/nl_ops_presenter.py`, `views/nl_ops_dialog.py` (`Ctrl+Shift+N`)
+- **AI shell command detection** — `AIPresenter.drain()` detects shell blocks in AI responses; `AIChatPanel.show_shell_ops()` offers one-click execution
+
+**Preview**
+- **Video thumbnail preview** — `VideoPreviewProvider` calls ffmpeg to grab frame 1s; priority 7
+- **Archive preview** — lists zip/tar contents as HTML; `ArchivePreviewProvider`, priority 6
+- **Hex dump preview** — 4 KB dump for binary files; `HexPreviewProvider`, priority 9
+- **Audio metadata preview** — title/artist/album via mutagen (optional); `MetadataPreviewProvider`, priority 7
+- **Git diff preview** — colored diff for dirty/staged files; `GitDiffPreviewProvider`, priority 3
+- **PDF preview** — text extraction; `PDFPreviewProvider`, priority 4
+- **macOS Quick Look fallback** — `QuickLookProvider` (macOS-only), priority 990
+- **Fullscreen viewer** — `F11` or double-click → `FullscreenViewer`; `views/fullscreen_viewer.py`
+
+**File Metadata**
+- **File tags** — assign colored tags per file; TOML persistence; `models/tag_store.py`, `views/tag_dialog.py`
+- **macOS Finder tags** — show Finder tag color dots in file list; `models/finder_tags.py` (xattr/ctypes, macOS-only)
+- **File highlighting rules** — glob+color rules dim/highlight files by pattern; `models/highlight_rules.py`, `views/highlight_rules_dialog.py`
+- **Custom column visibility** — hide Size/Modified/Ext columns; persisted in `hidden_columns` config; `Ctrl+Shift+Y` opens settings
+
+**Directory Operations**
+- **Synchronize directories** — compare left↔right panes, choose direction, sync; `presenters/sync_presenter.py`, `views/sync_dialog.py` (`Ctrl+Shift+Y`)
+- **Duplicate file finder** — content-hash scan, shows groups, delete selected; `presenters/duplicate_presenter.py`, `views/duplicate_panel.py`
+- **Directory size calculator** — background `calc_tree_size()` with cancel; `utils/dir_size.py`
+- **Temp file panel** — browse/delete platform temp files older than N days; `views/temp_panel.py`
+
+**Git Integration**
+- **Git status column** — git XY status shown inline; `git/status_cache.py` (TTL=10s), `git/worker.py`
+- **Git stage command** — stage/unstage files from the file list; `commands/git_stage.py`
+- **Git diff preview** — see above
+
+**VFS / Backend**
+- **SFTP VFS stub** — `parse_sftp_uri()` + `SFTPVfs` (requires paramiko, stub for future); `models/sftp_vfs.py`
+- **Filesystem watcher** — watchfiles-backed debounced refresh; `utils/watcher.py`
+
+**Settings**
+- **`show_git_status`** — `bool = True`; toggles git status column (General tab)
+- **`auto_preview`** — `bool = True`; auto-opens preview on cursor move (General tab)
+- **`highlight_rules`** — `list[dict]`; glob+color highlight rules (Appearance tab)
+- **`hidden_columns`** — `list[str]`; persisted column visibility
+
+**Utilities**
+- **Shell variable expansion** — `expand_shell_vars()` TC-style `$F $f $d $t $n $e`; `utils/shell_vars.py`
+- **User command store** — TOML-backed user-defined shell commands with shortcuts; `models/command_store.py`
+
 ### Removed
 - **`make_provider()` factory** — replaced by `make_providers()` (plural); dead single-provider
   factory removed from `ai/__init__.py`
@@ -64,20 +136,42 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `tests/unit/test_archive_child_of.py` — `_child_of` helper (new)
 - `tests/unit/test_event_bus_isolation.py` — subscriber exception isolation (new)
 - `tests/unit/test_search_coordinator.py` — `SearchCoordinator` unit tests (new)
-- `tests/unit/ai/test_supports_events.py` — `supports_events` property across all providers (new)
-- `tests/unit/test_plugin_hooks.py` — `before_file_operation` veto + `on_file_operation` notify (new)
-- `tests/unit/test_plugin_types.py` — `_DARK_FALLBACK` location + shape (new)
-- `tests/unit/test_progress_callback.py` — progress callback forwarding (new)
-- `tests/unit/test_chat_log_styles.py` — bubble colours in light/dark palette (new)
-- `tests/unit/mcp/test_entry_default_roots.py` — default home-dir restriction (new)
-- `tests/unit/ai/test_content_helpers.py` — `FileContent` / `ImageContent` helpers (new)
-- `tests/integration/test_dnd_utils.py` — `make_path_mime` from shared module (new)
-- `tests/integration/test_panel_buttons.py` — `add_panel_buttons` factory (new)
+- `tests/unit/ai/test_supports_events.py` — `supports_events` property (new)
+- `tests/unit/test_plugin_hooks.py` — before/after file-op hooks (new)
+- `tests/unit/test_plugin_types.py` — `_DARK_FALLBACK` shape (new)
+- `tests/unit/test_progress_callback.py` — progress forwarding (new)
+- `tests/unit/test_chat_log_styles.py` — bubble colours (new)
+- `tests/unit/mcp/test_entry_default_roots.py` — MCP default home restriction (new)
+- `tests/unit/ai/test_content_helpers.py` — `FileContent` / `ImageContent` (new)
+- `tests/integration/test_dnd_utils.py` — `make_path_mime` (new)
+- `tests/integration/test_panel_buttons.py` — panel chrome buttons (new)
 - `tests/integration/test_main_window_close.py` — window close lifecycle (new)
 - `tests/integration/test_main_window_ui.py` — main window UI invariants (new)
+
+**48-killer-features test additions (~700 new tests; total: ~1015 unit + ~452 integration)**
+- `tests/unit/`: test_conflict_resolver, test_highlight_rules, test_tag_store, test_finder_tags,
+  test_sftp_vfs, test_view_state, test_workspace_store, test_command_store, test_search_template_store,
+  test_sync_presenter, test_sync_nav_visibility, test_temp_presenter, test_nl_ops_presenter,
+  test_ai_rename_presenter, test_duplicate_presenter, test_fuzzy_presenter, test_fuzzy_filter,
+  test_context_actions, test_archive_cmd, test_checksum_cmd, test_dir_size, test_shell_vars,
+  test_watcher, test_transfer_queue, test_ai_shell_detect, test_directory_model_git,
+  test_custom_columns, test_filter_highlight, test_settings_git_preview, test_progress_copy_conflict,
+  test_pane_virtual, test_flat_view, test_select_by_pattern, test_batch_rename, test_inline_rename,
+  test_command_run, test_command_store, test_open_terminal_here, test_search_virtual, test_terminal_panel
+- `tests/unit/preview/`: test_archive_provider, test_hex_provider, test_metadata_provider,
+  test_pdf_provider, test_quicklook_provider, test_video_provider
+- `tests/unit/git/`: test_status_cache, test_git_diff_provider, test_git_stage_cmd
+- `tests/integration/`: test_conflict_dialog, test_transfer_queue_panel, test_batch_rename_dialog,
+  test_sync_dialog, test_sync_nav_ui, test_temp_panel, test_highlight_rules_dialog, test_tag_dialog,
+  test_ai_rename_dialog, test_ai_context_dialog, test_nl_ops_dialog, test_workspace_dialog,
+  test_sidebar_panel, test_duplicate_dialog, test_terminal_panel, test_checksum_dialog, test_fuzzy_finder,
+  test_fuzzy_quick_filter, test_fullscreen_viewer, test_select_pattern_dialog, test_column_visibility,
+  test_filter_highlight, test_archive_context, test_f2_rename, test_open_terminal_shortcut,
+  test_search_dialog_templates, test_watch_mode, test_breadcrumb_siblings
+
 - Existing suites extended: `test_stream_parse`, `test_ai_providers`, `test_bookmark_store`,
   `test_bookmark_store_tree`, `test_glass_theme`, `test_pane_refresh_cursor`, `test_config`,
-  `test_tabs_title_update`, `test_preview_presenter`
+  `test_tabs_title_update`, `test_preview_presenter`, `test_settings_dialog`
 
 ## [v0.17.3] — 2026-07-16
 

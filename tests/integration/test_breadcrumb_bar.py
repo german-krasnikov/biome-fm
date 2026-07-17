@@ -201,3 +201,13 @@ def test_segment_has_drag_start(bar, qtbot):
     btn = next(b for b in bar.findChildren(_SegmentButton) if b.text() == "bar")
     assert hasattr(btn, "_drag_start")
     assert btn._drag_start is None
+
+
+def test_completer_attached(qtbot):
+    from PySide6.QtWidgets import QFileSystemModel
+    bar = BreadcrumbBar()
+    qtbot.addWidget(bar)
+    bar.activate_edit()
+    completer = bar._combo.lineEdit().completer()
+    assert completer is not None
+    assert isinstance(completer.model(), QFileSystemModel)

@@ -36,9 +36,15 @@ class SettingsDialog(QDialog):
         self._hidden_cb = QCheckBox("Show hidden files")
         self._sync_cb = QCheckBox("Sync browsing")
         self._colors_cb = QCheckBox("File type colors")
+        self._git_status_cb = QCheckBox("Show git status")
+        self._auto_preview_cb = QCheckBox("Auto-preview on cursor")
+        self._git_status_cb.setChecked(True)
+        self._auto_preview_cb.setChecked(True)
         gl.addRow(self._hidden_cb)
         gl.addRow(self._sync_cb)
         gl.addRow(self._colors_cb)
+        gl.addRow(self._git_status_cb)
+        gl.addRow(self._auto_preview_cb)
         self._tabs.addTab(general, "General")
 
         # ── Appearance ────────────────────────────────────────────────────────
@@ -46,6 +52,12 @@ class SettingsDialog(QDialog):
         al = QFormLayout(appearance)
         self._theme_combo = QComboBox()
         al.addRow("Theme:", self._theme_combo)
+        self._col_size_cb = QCheckBox("Size column")
+        self._col_modified_cb = QCheckBox("Modified column")
+        self._col_ext_cb = QCheckBox("Ext column")
+        for cb in (self._col_size_cb, self._col_modified_cb, self._col_ext_cb):
+            cb.setChecked(True)
+            al.addRow(cb)
         self._glass_cb = QCheckBox("Glass effect")
         al.addRow(self._glass_cb)
         opacity_row = QHBoxLayout()
@@ -121,6 +133,18 @@ class SettingsDialog(QDialog):
     def get_file_type_colors(self) -> bool:
         return self._colors_cb.isChecked()
 
+    def set_show_git_status(self, val: bool) -> None:
+        self._git_status_cb.setChecked(val)
+
+    def get_show_git_status(self) -> bool:
+        return self._git_status_cb.isChecked()
+
+    def set_auto_preview(self, val: bool) -> None:
+        self._auto_preview_cb.setChecked(val)
+
+    def get_auto_preview(self) -> bool:
+        return self._auto_preview_cb.isChecked()
+
     def set_ai_provider(self, name: str) -> None:
         self._ai_provider.setCurrentText(name)
 
@@ -141,6 +165,21 @@ class SettingsDialog(QDialog):
     def set_plugins_list(self, names: list[str]) -> None:
         self._plugins_list.clear()
         self._plugins_list.addItems(names)
+
+    def set_hidden_columns(self, names: list[str]) -> None:
+        self._col_size_cb.setChecked("Size" not in names)
+        self._col_modified_cb.setChecked("Modified" not in names)
+        self._col_ext_cb.setChecked("Ext" not in names)
+
+    def get_hidden_columns(self) -> list[str]:
+        hidden = []
+        if not self._col_size_cb.isChecked():
+            hidden.append("Size")
+        if not self._col_modified_cb.isChecked():
+            hidden.append("Modified")
+        if not self._col_ext_cb.isChecked():
+            hidden.append("Ext")
+        return hidden
 
     def set_glass(self, val: bool) -> None:
         self._glass_cb.setChecked(val)

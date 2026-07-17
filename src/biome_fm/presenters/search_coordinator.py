@@ -28,6 +28,8 @@ class SearchCoordinator:
         panel: SearchResultsPanel,
         get_active: Callable[[], TabsPresenter],
         window: object = None,
+        on_search_completed: Callable[[list], None] | None = None,
+        store: object = None,
     ) -> None:
         self._vfs = vfs
         self._coord = coord
@@ -35,8 +37,11 @@ class SearchCoordinator:
         self._panel = panel
         self._get_active = get_active
         self._window = window
+        self._on_search_completed = on_search_completed
+        self._store = store
         self._presenter = None
         self._queue: queue.SimpleQueue = queue.SimpleQueue()
+        self._all_results: list = []
 
     def request_search(self) -> None:
         """Show search dialog, cancel any in-progress, start thread. Call on main thread."""
@@ -46,8 +51,9 @@ class SearchCoordinator:
         if self._presenter is not None:
             self._presenter.cancel()
         self._queue = queue.SimpleQueue()
+        self._all_results = []
         active = self._get_active()
-        params = SearchDialog.get_params(active.current_path, self._window)  # type: ignore[arg-type]
+        params = SearchDialog.get_params(active.current_path, self._window, store=self._store)  # type: ignore[arg-type]
         if params is None:
             return
         query, mode, max_results = params
@@ -85,12 +91,15 @@ class SearchCoordinator:
         except queue.Empty:
             pass
         if batch:
+            self._all_results.extend(batch)
             self._panel.add_results(batch)
         if done:
             if cancelled:
                 self._panel.on_cancelled()
             else:
                 self._panel.on_finished(self._panel.result_count)
+                if self._all_results and self._on_search_completed is not None:
+                    self._on_search_completed(list(self._all_results))
 
     def cancel(self) -> None:
         if self._presenter is not None:

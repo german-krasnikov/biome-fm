@@ -3,11 +3,19 @@ from __future__ import annotations
 
 import base64
 import queue
+import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Protocol
+
+_SHELL_BLOCK_RE = re.compile(r"```(?:bash|sh)\n(.*?)```", re.DOTALL)
+
+
+def _extract_shell_blocks(content: str) -> list[str]:
+    """Extract content from ```bash and ```sh fenced code blocks."""
+    return [m.group(1).strip() for m in _SHELL_BLOCK_RE.finditer(content)]
 
 from biome_fm.ai.provider import AIProviderProtocol
 from biome_fm.models.file_item import FileItem
@@ -167,6 +175,9 @@ class AIPresenter:
                         with self._lock:
                             self._history.append({"role": "assistant", "content": full})
                     self._view.finalize_stream()
+                    blocks = _extract_shell_blocks(full)
+                    if blocks and hasattr(self._view, "show_shell_ops"):
+                        self._view.show_shell_ops(blocks)
                     self._view.set_busy(False)
                 elif ev.kind == "error":
                     self._stream_buffer.clear()

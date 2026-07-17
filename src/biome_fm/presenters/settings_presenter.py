@@ -27,6 +27,12 @@ class SettingsViewProtocol(Protocol):
     def get_glass(self) -> bool: ...
     def set_glass_opacity(self, val: int) -> None: ...
     def get_glass_opacity(self) -> int: ...
+    def set_hidden_columns(self, names: list[str]) -> None: ...
+    def get_hidden_columns(self) -> list[str]: ...
+    def set_show_git_status(self, val: bool) -> None: ...
+    def get_show_git_status(self) -> bool: ...
+    def set_auto_preview(self, val: bool) -> None: ...
+    def get_auto_preview(self) -> bool: ...
 
 
 class SettingsPresenter:
@@ -53,6 +59,9 @@ class SettingsPresenter:
         self._view.set_ollama(self._config.ai_ollama_url, self._config.ai_ollama_model)
         self._view.set_glass(self._config.glass)
         self._view.set_glass_opacity(self._config.glass_opacity)
+        self._view.set_hidden_columns(self._config.hidden_columns)
+        self._view.set_show_git_status(self._config.show_git_status)
+        self._view.set_auto_preview(self._config.auto_preview)
 
     def apply(self) -> Config:
         """Read view state → update config → return it."""
@@ -69,4 +78,7 @@ class SettingsPresenter:
         self._config.ai_ollama_model = model
         self._config.glass = self._view.get_glass()
         self._config.glass_opacity = self._view.get_glass_opacity()
+        self._config.hidden_columns = self._view.get_hidden_columns()
+        self._config.show_git_status = self._view.get_show_git_status()
+        self._config.auto_preview = self._view.get_auto_preview()
         return self._config

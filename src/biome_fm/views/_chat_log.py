@@ -58,6 +58,7 @@ class ChatLog(QTextBrowser):
     _DOTS = ("⋯", "⋯.", "⋯..", "⋯...")
 
     path_link_clicked = Signal(str)
+    shell_ops_clicked = Signal()
 
     def __init__(self, parent=None, *, dark: bool = True):
         super().__init__(parent)
@@ -79,6 +80,8 @@ class ChatLog(QTextBrowser):
     def _on_anchor_clicked(self, url: QUrl) -> None:
         if url.scheme() == "biome":
             self.path_link_clicked.emit(url.toString().removeprefix("biome:"))
+        elif url.scheme() == "shell-ops":
+            self.shell_ops_clicked.emit()
         else:
             QDesktopServices.openUrl(url)
 

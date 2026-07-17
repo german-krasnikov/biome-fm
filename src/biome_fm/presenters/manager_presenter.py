@@ -20,12 +20,14 @@ from biome_fm.event_bus import (
     OperationFinished,
     OperationStarted,
     ShowHiddenToggled,
+    SyncBrowsingToggled,
 )
 from biome_fm.models.file_item import FileItem
 from biome_fm.models.vfs import VFSProtocol
 from biome_fm.presenters.pane_presenter import PanePresenter
 
-from biome_fm.operations.task import OpProgress
+from biome_fm.models.conflict_resolver import ConflictResolver
+from biome_fm.operations.task import OpConflict, OpProgress
 
 if TYPE_CHECKING:
     from biome_fm.operations.queue import OpQueue
@@ -107,6 +109,7 @@ class ManagerPresenter:
 
     def toggle_mirror(self) -> None:
         self._mirror = not self._mirror
+        self._publish(SyncBrowsingToggled(self._mirror))
 
     def toggle_hidden(self) -> None:
         current = self._config.show_hidden if self._config else False
@@ -214,6 +217,8 @@ class ManagerPresenter:
         task_id = self._op_queue.next_task_id()
         self._pending_specs[task_id] = _OpSpec(op, dst=dst, sources=sources)
 
+        resolver = ConflictResolver()
+
         def _progress(
             files_done: int, files_total: int,
             bytes_done: int, bytes_total: int,
@@ -223,10 +228,17 @@ class ManagerPresenter:
                 OpProgress(task_id, files_done, files_total, bytes_done, bytes_total, current_file)
             )
 
+        def _on_conflict(src: object, dst_path: object, res: ConflictResolver) -> None:
+            self._op_queue.put_event(OpConflict(task_id, src, dst_path, res))
+
+        resolver.on_conflict = _on_conflict
+
         if move:
-            cmd: Command = ProgressMoveCmd(sources, dst, self._vfs, cancel, _progress)
+            cmd: Command = ProgressMoveCmd(sources, dst, self._vfs, cancel, _progress,
+                                           conflict_resolver=resolver)
         else:
-            cmd = ProgressCopyCmd(sources, dst, self._vfs, cancel, _progress)
+            cmd = ProgressCopyCmd(sources, dst, self._vfs, cancel, _progress,
+                                  conflict_resolver=resolver)
 
         self._pending_cmds[task_id] = cmd
         self._op_queue.submit(cmd, cancel=cancel, task_id=task_id)
@@ -245,6 +257,32 @@ class ManagerPresenter:
     def _publish(self, event: object) -> None:
         if self._bus is not None:
             self._bus.publish(event)
+
+    def multi_rename(self, renames: list[tuple[Path, str]]) -> None:
+        """Execute batch rename. renames = [(old_path, new_name), ...]"""
+        if not renames:
+            return
+        from biome_fm.commands.multi_rename_cmd import MultiRenameCmd
+        pairs = [(p, p.parent / n) for p, n in renames]
+        self._run(MultiRenameCmd(pairs, self._vfs), f"Rename {len(renames)} item(s)")
+
+    def compress(self, items: list[FileItem], archive_path: Path) -> None:
+        from biome_fm.commands.archive_cmd import ArchiveCmd
+        sources = [i.path for i in items]
+        self._run(
+            ArchiveCmd(sources, archive_path),
+            "Compress",
+            _OpSpec("compress", dst=archive_path, sources=sources),
+        )
+
+    def extract(self, item: FileItem) -> None:
+        from biome_fm.commands.archive_cmd import ExtractCmd
+        dst = self._source().current_path
+        self._run(
+            ExtractCmd(item.path, dst),
+            "Extract",
+            _OpSpec("extract", src=item.path, dst=dst),
+        )
 
     def _run(self, cmd: Command, desc: str, spec: _OpSpec | None = None) -> None:
         if self._plugins and spec and spec.src:

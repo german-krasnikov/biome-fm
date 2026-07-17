@@ -6,6 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from biome_fm.commands.base import Command
+from biome_fm.models.conflict_resolver import ConflictAction, ConflictResolver, auto_rename
 from biome_fm.models.vfs import VFSProtocol
 from biome_fm.operations.task import Cancelled
 
@@ -48,12 +49,14 @@ class ProgressCopyCmd(Command):
         cancel: object,  # threading.Event
         report: Callable[..., None],
         chunk: int | None = None,
+        conflict_resolver: ConflictResolver | None = None,
     ) -> None:
         self._sources = sources
         self._dest_dir = dest_dir
         self._cancel = cancel
         self._report = report
         self._chunk = chunk or self.CHUNK
+        self._resolver = conflict_resolver
         self._created: list[Path] = []
 
     def execute(self) -> None:
@@ -63,6 +66,15 @@ class ProgressCopyCmd(Command):
             if self._cancel.is_set():
                 raise Cancelled()
             dst = self._dest_dir / src.name
+            if dst.exists() and self._resolver is not None:
+                action = self._resolver.ask(src, dst)
+                if action in (ConflictAction.SKIP, ConflictAction.SKIP_ALL):
+                    continue
+                if action == ConflictAction.CANCEL:
+                    raise Cancelled()
+                if action == ConflictAction.RENAME:
+                    dst = auto_rename(dst)
+                # OVERWRITE / OVERWRITE_ALL fall through
             if src.is_dir():
                 try:
                     shutil.copytree(src, dst)

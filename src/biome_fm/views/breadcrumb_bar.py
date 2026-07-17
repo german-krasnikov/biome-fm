@@ -1,6 +1,7 @@
 """BreadcrumbBar — path bar with clickable segments + edit mode."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from biome_fm.qt import (
@@ -55,6 +56,15 @@ class _PathComboBox(QComboBox):
         self.lineEdit().setPlaceholderText("Path...")
         self.lineEdit().returnPressed.connect(self._emit)
         self.activated.connect(lambda _i: self._emit())
+        from PySide6.QtCore import QDir
+        from PySide6.QtWidgets import QCompleter, QFileSystemModel
+        fs_model = QFileSystemModel(self)
+        fs_model.setRootPath("")
+        fs_model.setFilter(QDir.Filter.AllDirs | QDir.Filter.NoDotAndDotDot)
+        completer = QCompleter(fs_model, self)
+        completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        completer.setMaxVisibleItems(10)
+        self.lineEdit().setCompleter(completer)
 
     def _emit(self):
         text = self.lineEdit().text().strip()
@@ -108,6 +118,22 @@ class _SegmentButton(QToolButton):
         else:
             menu.addAction("Open in File Manager", lambda: open_file(self._path))
         menu.addAction("Open Terminal Here", lambda: open_terminal(self._path))
+        parent = self._path.parent
+        if parent != self._path:  # skip root
+            try:
+                siblings = sorted(
+                    (e.name for e in os.scandir(parent) if e.is_dir()),
+                    key=str.lower,
+                )
+            except OSError:
+                siblings = []
+            if siblings:
+                menu.addSeparator()
+                sub = menu.addMenu("Siblings")
+                for name in siblings:
+                    sib = parent / name
+                    label = f"▶ {name}" if sib == self._path else name
+                    sub.addAction(label, lambda p=sib: self.navigated.emit(p))
         menu.popup(event.globalPos())
 
 

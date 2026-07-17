@@ -15,13 +15,17 @@ from biome_fm.event_bus import (
     AsyncOpSubmitted,
     BookmarkChanged,
     ShowHiddenToggled,
+    SyncBrowsingToggled,
     ThemeChanged,
     bus,
 )
 from biome_fm.models.bookmark_store import BookmarkStore
+from biome_fm.models.tag_store import TagStore
+from biome_fm.models.workspace_store import WorkspaceStore
 from biome_fm.models.vfs_router import VFSRouter
 from biome_fm.operations.queue import OpQueue
-from biome_fm.operations.task import OpCancelled, OpDone, OpError, OpProgress
+from biome_fm.operations.task import OpCancelled, OpConflict, OpDone, OpError, OpProgress
+from biome_fm.views.conflict_dialog import ConflictDialog
 from biome_fm.panel_manager import PanelManager
 from biome_fm.plugins.builtin.dark_theme import BuiltinDarkTheme
 from biome_fm.plugins.manager import PluginManager
@@ -36,9 +40,10 @@ from biome_fm.preview.providers.code import CodePreviewProvider
 from biome_fm.preview.providers.fallback import FallbackProvider
 from biome_fm.preview.providers.image import ImagePreviewProvider
 from biome_fm.preview.providers.markdown import MarkdownPreviewProvider
+from biome_fm.preview.providers.video import VideoPreviewProvider
 from biome_fm.preview.providers.text import TextPreviewProvider
 from biome_fm.preview.registry import PreviewRegistry
-from biome_fm.qt import QApplication, QInputDialog, QKeySequence, QShortcut, QStandardPaths, QTimer
+from biome_fm.qt import QApplication, QDialog, QInputDialog, QKeySequence, Qt, QShortcut, QStandardPaths, QTimer
 from biome_fm.session import (
     PanelSession,
     PaneSideState,
@@ -48,7 +53,7 @@ from biome_fm.session import (
     save_session,
 )
 from biome_fm.utils.opener import open_file
-from biome_fm.utils.platform import reveal_in_finder
+from biome_fm.utils.platform import open_terminal, reveal_in_finder
 from biome_fm.views.ai_chat_panel import AIChatPanel
 from biome_fm.views.bookmark_dialog import BookmarkDialog
 from biome_fm.views.command_palette import CommandPalette
@@ -58,8 +63,29 @@ from biome_fm.views.panel_coordinator import PanelCoordinator
 from biome_fm.views.preview_panel import PreviewPanel
 from biome_fm.views.progress_dialog import ProgressDialog
 from biome_fm.views.search_panel import SearchResultsPanel
+from biome_fm.views.terminal_panel import TerminalPanel
 from biome_fm.views.confirm_dialog import ConfirmDialog
+from biome_fm.views.fullscreen_viewer import FullscreenViewer
+from biome_fm.views.fuzzy_finder import FuzzyFinder
+from biome_fm.views.pattern_dialog import PatternDialog
 from biome_fm.views.settings_dialog import SettingsDialog
+from biome_fm.views.highlight_rules_dialog import HighlightRulesDialog
+from biome_fm.models.highlight_rules import HighlightRule
+from biome_fm.views.workspace_dialog import WorkspaceDialog
+from biome_fm.views.transfer_queue_panel import TransferQueuePanel
+from biome_fm.views.nl_ops_dialog import NLOpsDialog
+from biome_fm.commands.git_stage import GitStageCmd, GitUnstageCmd
+from biome_fm.git.status_cache import GitStatusCache, RepoStatus
+from biome_fm.git.worker import GitStatusWorker
+from biome_fm.models.command_store import CommandStore
+from biome_fm.models.search_template_store import SearchTemplateStore
+from biome_fm.preview.providers.archive import ArchivePreviewProvider
+from biome_fm.preview.providers.git_diff import GitDiffPreviewProvider
+from biome_fm.preview.providers.hex import HexPreviewProvider
+from biome_fm.preview.providers.metadata import MetadataPreviewProvider
+from biome_fm.preview.providers.pdf import PDFPreviewProvider
+from biome_fm.utils.shell_vars import expand_shell_vars
+from biome_fm.utils.watcher import WatchService
 
 
 # ── Module-level constants ────────────────────────────────────────────────────
@@ -86,6 +112,7 @@ class _AppContext:
     panel_mgr: object
     op_queue: object
     plugins: object
+    git_worker: object = None
     timers: list = field(default_factory=list)
 
 
@@ -124,7 +151,7 @@ def _build_preview(cfg):
     """Construct PreviewRegistry, PreviewPanel, PreviewPresenter."""
     preview_registry = PreviewRegistry()
     for _p in [
-        ImagePreviewProvider(), MarkdownPreviewProvider(),
+        ImagePreviewProvider(), MarkdownPreviewProvider(), VideoPreviewProvider(),
         CodePreviewProvider(), TextPreviewProvider(), FallbackProvider(),
     ]:
         preview_registry.register(_p)
@@ -192,9 +219,26 @@ def create_app() -> MainWindow:
     vfs = VFSRouter(plugin_manager=plugins)
     history = CommandHistory()
     store = BookmarkStore(cfg_dir / "bookmarks.toml")
+    tag_store = TagStore.load(cfg_dir / "tags.toml")
+    ws_store = WorkspaceStore(cfg_dir / "workspaces.json")
     op_queue = OpQueue(max_workers=2)
     left_side, right_side, left_tabs, right_tabs = _build_panes(vfs)
-    _, preview_panel, preview_presenter = _build_preview(cfg)
+    import queue as _queue_mod
+    _watch_queue: _queue_mod.SimpleQueue = _queue_mod.SimpleQueue()
+    left_watcher = WatchService(callback=_watch_queue.put)
+    right_watcher = WatchService(callback=_watch_queue.put)
+    preview_registry, preview_panel, preview_presenter = _build_preview(cfg)
+    git_cache = GitStatusCache()
+    git_worker = GitStatusWorker(git_cache)
+    for _p4 in [GitDiffPreviewProvider(status_fn=git_cache.file_status),
+                ArchivePreviewProvider(), PDFPreviewProvider(),
+                MetadataPreviewProvider(), HexPreviewProvider()]:
+        preview_registry.register(_p4)
+    try:
+        from biome_fm.preview.providers.quicklook import QuickLookProvider
+        preview_registry.register(QuickLookProvider())
+    except ImportError:
+        pass
 
     coord: PanelCoordinator | None = None  # late-bound; set after window creation
 
@@ -211,14 +255,48 @@ def create_app() -> MainWindow:
             sig.connect(_on_view)
         sig2 = getattr(view, "cursor_changed", None)
         if sig2 is not None:
-            sig2.connect(preview_presenter.update_if_visible)
+            sig2.connect(lambda item, pp=preview_presenter: pp.update_if_visible(item) if cfg.auto_preview else None)
+
+    def _git_op(item: object, cmd_cls) -> None:
+        p = getattr(item, "path", None)
+        repo = git_cache.find_repo(p.parent) if p else None
+        if repo is None:
+            return
+        history.execute(cmd_cls(p, repo))
+        git_cache.invalidate(repo)
+        git_worker.request(_active().current_path)
+        manager._refresh_both()
+    def _wire_git(view: object, watcher: WatchService) -> None:
+        sig = getattr(view, "path_updated", None)
+        if sig is not None:
+            sig.connect(git_worker.request)
+            sig.connect(watcher.set_path)
+        if hasattr(view, "_git_status_fn"):
+            view._git_status_fn = git_cache.file_status  # type: ignore[union-attr]
+        for attr, cls in [("git_stage_requested", GitStageCmd), ("git_unstage_requested", GitUnstageCmd)]:
+            s = getattr(view, attr, None)
+            if s is not None:
+                s.connect(lambda item, c=cls: _git_op(item, c))
+
+    def _on_git_status(status: RepoStatus) -> None:
+        if not cfg.show_git_status:
+            return
+        for _t in [left_tabs, right_tabs]:
+            for _v in (_t.view_at(i) for i in range(_t.tab_count)):
+                _m = getattr(_v, "_model", None)
+                if _m and hasattr(_m, "set_git_status"):
+                    _m.set_git_status(status.statuses, status.dirty_dirs)
+
+    git_worker.status_ready.connect(_on_git_status)
 
     def _restore(tabs: TabsPresenter, state: PaneSideState) -> None:
+        watcher = left_watcher if tabs is left_tabs else right_watcher
         for ts in state.tabs:
             p = tabs.new_tab(Path(ts.path))
             v = tabs.view_at(tabs.tab_count - 1)
             _wire_pane(v, p)
             _wire_preview(v)
+            _wire_git(v, watcher)
         tabs.switch_tab(state.active_idx)
 
     home = Path.home()
@@ -230,10 +308,12 @@ def create_app() -> MainWindow:
         v0 = left_tabs.view_at(0)
         _wire_pane(v0, lp)
         _wire_preview(v0)
+        _wire_git(v0, left_watcher)
         rp = right_tabs.new_tab(home)
         v1 = right_tabs.view_at(0)
         _wire_pane(v1, rp)
         _wire_preview(v1)
+        _wire_git(v1, right_watcher)
 
     # ── Manager ───────────────────────────────────────────────────
     _confirm_parent: list[object] = [None]  # late-bound after window creation
@@ -301,6 +381,7 @@ def create_app() -> MainWindow:
     ai_panel.file_link_clicked.connect(_on_ai_navigate)
 
     search_panel = SearchResultsPanel()
+    terminal_panel = TerminalPanel()
 
     # ── Window ────────────────────────────────────────────────────
     window = MainWindow(left_side, right_side, ai_panel, preview_panel)
@@ -312,11 +393,46 @@ def create_app() -> MainWindow:
         mark_glass(window, recursive=True)
     window.splitter.addWidget(search_panel)
     search_panel.hide()
+    window.splitter.addWidget(terminal_panel)
+    terminal_panel.hide()
+
+    # ── Sidebar ───────────────────────────────────────────────────
+    from PySide6.QtWidgets import QDockWidget
+    from biome_fm.views.sidebar_panel import SidebarPanel
+    from PySide6.QtCore import QStorageInfo
+    _sidebar = SidebarPanel()
+    _dock = QDockWidget("Sidebar", window)
+    _dock.setWidget(_sidebar)
+    _dock.setFeatures(
+        QDockWidget.DockWidgetFeature.DockWidgetClosable
+        | QDockWidget.DockWidgetFeature.DockWidgetMovable
+    )
+    window.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, _dock)
+    _dock.hide()
+    _volumes = [
+        Path(v.rootPath())
+        for v in QStorageInfo.mountedVolumes()
+        if v.isValid() and v.isReady()
+    ]
+    _sidebar.set_volumes(_volumes)
+    _sidebar.set_bookmarks(store.tree())
+    bus.subscribe(BookmarkChanged, lambda _: _sidebar.set_bookmarks(store.tree()))
+    _sidebar.path_activated.connect(lambda p: manager.navigate_active(p))
+    window.sidebar_toggle_requested.connect(lambda: _dock.setVisible(not _dock.isVisible()))
+    QShortcut(QKeySequence("Ctrl+B"), window).activated.connect(
+        lambda: _dock.setVisible(not _dock.isVisible())
+    )
+
+    xfer_panel = TransferQueuePanel(op_queue.cancel, window)
+    xfer_panel.setWindowFlags(Qt.WindowType.Tool)
+    xfer_panel.resize(420, 280)
+    xfer_panel.setWindowTitle("Transfer Queue")
+    xfer_panel.hide()
 
     panel_mgr = PanelManager()
     coord = PanelCoordinator(
         panel_mgr,
-        panels={"preview": preview_panel, "ai": ai_panel, "search": search_panel},
+        panels={"preview": preview_panel, "ai": ai_panel, "search": search_panel, "terminal": terminal_panel},
         left_side=left_side,
         right_side=right_side,
         splitter=window.splitter,
@@ -325,6 +441,13 @@ def create_app() -> MainWindow:
 
     window.preview_toggle_requested.connect(lambda: coord.toggle("preview", manager.active_pane_id))
     window.ai_toggle_requested.connect(lambda: coord.toggle("ai", manager.active_pane_id))
+
+    def _toggle_terminal() -> None:
+        terminal_panel.start(_active().current_path)
+        coord.toggle("terminal", manager.active_pane_id)
+
+    window.terminal_requested.connect(_toggle_terminal)
+    QShortcut(QKeySequence("Ctrl+`"), window).activated.connect(_toggle_terminal)
 
     def _on_panel_state_changed(name: str, state: str) -> None:
         visible = state != "hidden"
@@ -338,6 +461,14 @@ def create_app() -> MainWindow:
     preview_panel.close_requested.connect(lambda: coord.toggle("preview"))
     ai_panel.detach_requested.connect(lambda: coord.detach("ai"))
     ai_panel.close_requested.connect(lambda: coord.toggle("ai"))
+    terminal_panel.detach_requested.connect(lambda: coord.detach("terminal"))
+    terminal_panel.close_requested.connect(lambda: coord.toggle("terminal"))
+    # Sync terminal cwd when any pane navigates
+    for _side_tabs in [left_tabs, right_tabs]:
+        for _i in range(_side_tabs.tab_count):
+            _sig = getattr(_side_tabs.view_at(_i), "path_updated", None)
+            if _sig is not None:
+                _sig.connect(terminal_panel.set_cwd)
     window.detach_preview_requested.connect(lambda: coord.detach("preview"))
     window.detach_ai_requested.connect(lambda: coord.detach("ai"))
 
@@ -374,6 +505,10 @@ def create_app() -> MainWindow:
             if isinstance(event, OpProgress):
                 if dlg:
                     dlg.update_progress(event)
+                xfer_panel.on_op_progress(
+                    event.task_id, event.files_done, event.files_total,
+                    event.bytes_done, event.bytes_total, event.current_file,
+                )
             elif isinstance(event, OpDone):
                 cmd = manager.pop_pending_cmd(event.task_id)
                 if cmd is not None:
@@ -383,22 +518,31 @@ def create_app() -> MainWindow:
                 if dlg:
                     dlg.mark_done()
                     _progress_dialogs.pop(event.task_id, None)
+                xfer_panel.on_op_done(event.task_id)
             elif isinstance(event, OpError):
                 manager._refresh_both()
                 if dlg:
                     dlg.mark_error(event.error)
                     _progress_dialogs.pop(event.task_id, None)
+                xfer_panel.on_op_error(event.task_id, str(event.error))
             elif isinstance(event, OpCancelled):
                 manager._refresh_both()
                 if dlg:
                     dlg.mark_cancelled()
                     _progress_dialogs.pop(event.task_id, None)
+                xfer_panel.on_op_cancelled(event.task_id)
+            elif isinstance(event, OpConflict):
+                from biome_fm.models.conflict_resolver import ConflictAction
+                action = ConflictDialog.ask(event.src, event.dst, parent=window)
+                event.resolver.reply(action)
 
     def _on_async_op(ev: AsyncOpSubmitted) -> None:
         dlg = ProgressDialog(ev.task_id, ev.description, window)
         dlg.set_cancel_callback(lambda: op_queue.cancel(ev.task_id))
         _progress_dialogs[ev.task_id] = dlg
         dlg.show()
+        xfer_panel.on_op_started(ev.task_id, ev.description)
+        xfer_panel.show()
 
     bus.subscribe(AsyncOpSubmitted, _on_async_op)
 
@@ -414,18 +558,98 @@ def create_app() -> MainWindow:
     )
     refresh_timer.start()
 
+    def _drain_watch_events() -> None:
+        if _progress_dialogs:
+            return
+        while not _watch_queue.empty():
+            try:
+                changed_path = _watch_queue.get_nowait()
+            except _queue_mod.Empty:
+                break
+            for _t in (left_tabs, right_tabs):
+                if _t.current_path == changed_path:
+                    _t.active.refresh()
+
+    watch_timer = QTimer(window)
+    watch_timer.setInterval(200)
+    watch_timer.timeout.connect(_drain_watch_events)
+    watch_timer.start()
+
     # ── Active side helper ────────────────────────────────────────
     def _active() -> TabsPresenter:
         return left_tabs if manager.active_pane_id == "left" else right_tabs
 
     def _run_cmd(cmd: str) -> None:
-        subprocess.Popen(shlex.split(cmd), cwd=str(_active().current_path))
+        active = _active()
+        other = right_tabs if manager.active_pane_id == "left" else left_tabs
+        expanded = expand_shell_vars(
+            cmd,
+            files=[item.path for item in _op_items()],
+            cwd=active.current_path,
+            other_cwd=other.current_path,
+        )
+        subprocess.Popen(shlex.split(expanded), cwd=str(active.current_path))
 
     window.command_submitted.connect(_run_cmd)
 
     # ── Search ────────────────────────────────────────────────────
-    sc = SearchCoordinator(vfs, coord, manager, search_panel, _active, window=window)
+    _tmpl_store = SearchTemplateStore(cfg_dir / "search_templates.toml")
+
+    def _on_search_completed(results) -> None:
+        _active().navigate_virtual(
+            [r.item for r in results], "Search Results",
+            on_activate=lambda item: sc.navigate_to(item.path.parent, item.name),
+        )
+
+    sc = SearchCoordinator(
+        vfs, coord, manager, search_panel, _active, window=window,
+        on_search_completed=_on_search_completed,
+        store=_tmpl_store,
+    )
     window.search_requested.connect(sc.request_search)
+
+    def _on_nl_op_requested() -> None:
+        provider = ai_presenter._provider
+        cwd = _active().current_path
+        dlg = NLOpsDialog(provider=provider, cwd=cwd, parent=window)
+
+        def _dispatch(op) -> None:
+            if op.op in ("copy", "move") and op.sources:
+                manager.drop_files(op.sources, manager.active_pane_id, op.op == "move", op.destination)
+            elif op.op == "delete" and op.sources:
+                items = [vfs.stat(p) for p in op.sources if p.exists()]
+                manager.delete_selected(items)
+            elif op.op == "mkdir" and op.destination:
+                manager.mkdir(op.destination.name)
+
+        dlg.execute_requested.connect(_dispatch)
+        dlg.exec()
+
+    window.nl_op_requested.connect(_on_nl_op_requested)
+
+    def _on_shell_ops_requested(cmds: list[str]) -> None:
+        provider = ai_presenter._provider
+        cwd = _active().current_path
+        dlg = NLOpsDialog(provider=provider, cwd=cwd,
+                          prefill=cmds[0] if cmds else "", parent=window)
+
+        def _dispatch(op) -> None:
+            if op.op in ("copy", "move") and op.sources:
+                manager.drop_files(op.sources, manager.active_pane_id, op.op == "move", op.destination)
+            elif op.op == "delete" and op.sources:
+                items = [vfs.stat(p) for p in op.sources if p.exists()]
+                manager.delete_selected(items)
+            elif op.op == "mkdir" and op.destination:
+                manager.mkdir(op.destination.name)
+
+        dlg.execute_requested.connect(_dispatch)
+        dlg.exec()
+
+    ai_panel.shell_ops_requested.connect(_on_shell_ops_requested)
+    window.transfer_queue_requested.connect(
+        lambda: xfer_panel.hide() if xfer_panel.isVisible() else xfer_panel.show()
+    )
+    window.flat_view_requested.connect(lambda: _active().toggle_flat_view())
     search_panel.stop_requested.connect(sc.cancel)
     search_panel.navigate_to_file.connect(sc.navigate_to)
     search_panel.close_requested.connect(lambda: coord.toggle("search", manager.active_pane_id))
@@ -440,6 +664,7 @@ def create_app() -> MainWindow:
     def _new_tab(tabs=None) -> None:
         tabs = tabs or _active()
         pid = "left" if tabs is left_tabs else "right"
+        watcher = left_watcher if tabs is left_tabs else right_watcher
         p = tabs.new_tab(tabs.current_path)
         v = tabs.view_at(tabs.tab_count - 1)
         _wire_pane(v, p)
@@ -449,6 +674,13 @@ def create_app() -> MainWindow:
         _wire_bm(v, tabs)
         _wire_dnd(v, pid)
         _wire_new_tab(v, tabs)
+        _wire_git(v, watcher)
+        _wire_tags(v)
+        _wire_ai_rename(v)
+        _wire_ai_context(v)
+        _sig = getattr(v, "path_updated", None)
+        if _sig is not None:
+            _sig.connect(terminal_panel.set_cwd)
 
     # ── Dialog helpers ────────────────────────────────────────────
     def _ask_mkdir() -> None:
@@ -514,9 +746,39 @@ def create_app() -> MainWindow:
                 else:
                     store.add(_active().current_path)
                 bus.publish(BookmarkChanged())
+            elif action == "checksum":
+                from biome_fm.views.checksum_dialog import ChecksumDialog
+                paths = [i.path for i in items if not i.is_dir]
+                if paths:
+                    ChecksumDialog(paths, window).show()
+            elif action == "open_terminal":
+                open_terminal(_active().current_path)
+            elif action == "compress":
+                if not items:
+                    return
+                name, ok = QInputDialog.getText(window, "Compress", "Archive name:", text="archive")
+                if ok and name.strip():
+                    n = name.strip()
+                    if not n.endswith(".zip"):
+                        n += ".zip"
+                    manager.compress(items, _active().current_path / n)
+            elif action == "extract":
+                item = _active().current_item()
+                if item:
+                    manager.extract(item)
+            elif action == "batch_rename":
+                marked = _active().marked_items
+                if len(marked) >= 2:
+                    from biome_fm.views.batch_rename_dialog import BatchRenameDialog
+                    dlg = BatchRenameDialog(marked, window)
+                    if dlg.exec() == QDialog.DialogCode.Accepted and dlg.renames:
+                        manager.multi_rename(dlg.renames)
         sig = getattr(view, "context_action_requested", None)
         if sig is not None:
             sig.connect(_dispatch)
+        ren_sig = getattr(view, "inline_rename_requested", None)
+        if ren_sig is not None:
+            ren_sig.connect(lambda item, name: manager.rename(item, name))
 
     # ── Bookmarks ──────────────────────────────────────────────────
     _bm_dialog: BookmarkDialog | None = None
@@ -555,8 +817,109 @@ def create_app() -> MainWindow:
         if sig2 is not None:
             sig2.connect(_open_bm_dialog)
 
-    # ── Single post-restore wire loop (DnD + new-tab + ctx + bm) ────────────
-    for _pid_w, _tabs_w in [("left", left_tabs), ("right", right_tabs)]:
+    def _wire_tags(view: object) -> None:
+        if hasattr(view, "set_tag_store"):
+            view.set_tag_store(tag_store)  # type: ignore[union-attr]
+        sig = getattr(view, "tag_requested", None)
+        if sig is not None:
+            def _on_tag_requested() -> None:
+                from biome_fm.views.tag_dialog import TagDialog
+                items = _op_items()
+                if not items:
+                    return
+                # Use the first item's tags as current (intersection would be complex)
+                current = tag_store.get_tags(items[0].path)
+                result = TagDialog.get_tags(current, tag_store.all_tags(), parent=window)
+                if result is not None:
+                    for item in items:
+                        tag_store.set_tags(item.path, result)
+                    tag_store.save()
+                    # Trigger model repaint
+                    for _t in [left_tabs, right_tabs]:
+                        for _i in range(_t.tab_count):
+                            _v = _t.view_at(_i)
+                            _m = getattr(_v, "_model", None)
+                            if _m and hasattr(_m, "set_tag_store"):
+                                _m.set_tag_store(tag_store)
+            sig.connect(_on_tag_requested)
+
+    def _wire_ai_rename(view: object) -> None:
+        sig = getattr(view, "ai_rename_requested", None)
+        if sig is None:
+            return
+
+        def _on_ai_rename_requested() -> None:
+            from biome_fm.presenters.ai_rename_presenter import suggest_renames
+            from biome_fm.views.ai_rename_dialog import AIRenameDialog
+
+            items = _op_items()
+            if not items:
+                return
+            provider = ai_presenter._provider
+            names = [i.name for i in items]
+            suggestions = suggest_renames(names, provider)
+            dlg = AIRenameDialog(names, suggestions, parent=window)
+
+            def _apply(pairs: list) -> None:
+                item_by_name = {i.name: i for i in items}
+                for original, new_name in pairs:
+                    item = item_by_name.get(original)
+                    if item:
+                        manager.rename(item, new_name)
+
+            dlg.rename_requested.connect(_apply)
+            dlg.exec()
+
+        sig.connect(_on_ai_rename_requested)
+
+    def _wire_ai_context(view: object) -> None:
+        sig = getattr(view, "ai_context_requested", None)
+        if sig is None:
+            return
+
+        def _on_ai_context_requested() -> None:
+            from biome_fm.views.ai_context_dialog import AIContextDialog
+
+            items = _op_items()
+            names = [i.name for i in items] if items else []
+            provider = ai_presenter._provider
+            dlg = AIContextDialog(names, provider, parent=window)
+            dlg.exec()
+
+        sig.connect(_on_ai_context_requested)
+
+    # ── Workspaces ─────────────────────────────────────────────────
+    def _save_workspace(name: str) -> None:
+        left_paths = [str(left_tabs.presenter_at(i).current_path) for i in range(left_tabs.tab_count)]
+        right_paths = [str(right_tabs.presenter_at(i).current_path) for i in range(right_tabs.tab_count)]
+        ws_store.save(name, left_paths, right_paths)
+
+    def _load_workspace(name: str) -> None:
+        data = ws_store.load(name)
+        if not data:
+            return
+        for side_str, tabs in [("left", left_tabs), ("right", right_tabs)]:
+            for i, p_str in enumerate(data.get(side_str, [])):
+                path = Path(p_str)
+                if not path.exists():
+                    continue
+                if i < tabs.tab_count:
+                    tabs.presenter_at(i).navigate_to(path)
+                else:
+                    _new_tab(tabs)
+                    tabs.presenter_at(tabs.tab_count - 1).navigate_to(path)
+
+    def _open_workspace_dialog() -> None:
+        dlg = WorkspaceDialog(ws_store, window)
+        dlg.save_requested.connect(_save_workspace)
+        dlg.load_requested.connect(_load_workspace)
+        dlg.exec()
+
+    # ── Single post-restore wire loop (DnD + new-tab + ctx + bm + git) ───────
+    for _pid_w, _tabs_w, _watcher_w in [
+        ("left", left_tabs, left_watcher),
+        ("right", right_tabs, right_watcher),
+    ]:
         for _i_w in range(_tabs_w.tab_count):
             _v_w = _tabs_w.view_at(_i_w)
             _wire_dnd(_v_w, _pid_w)
@@ -564,6 +927,10 @@ def create_app() -> MainWindow:
             _wire_ctx(_v_w)
             _wire_plugin_ctx(_v_w, _pid_w)
             _wire_bm(_v_w, _tabs_w)
+            _wire_git(_v_w, _watcher_w)
+            _wire_tags(_v_w)
+            _wire_ai_rename(_v_w)
+            _wire_ai_context(_v_w)
 
     def _bookmark_toggle() -> None:
         path = _active().current_path
@@ -580,6 +947,19 @@ def create_app() -> MainWindow:
         lambda: coord.toggle("ai", manager.active_pane_id)
     )
     QShortcut(QKeySequence("Ctrl+Shift+F"), window).activated.connect(sc.request_search)
+    QShortcut(QKeySequence("Ctrl+Shift+N"), window).activated.connect(_on_nl_op_requested)
+    QShortcut(QKeySequence("Ctrl+Shift+T"), window).activated.connect(lambda: _active().toggle_flat_view())
+
+    def _select_by_pattern() -> None:
+        dlg = PatternDialog(window)
+        if dlg.exec():
+            pattern, mode = dlg.result_values()
+            if mode == "select":
+                _active().select_by_pattern(pattern)
+            else:
+                _active().deselect_by_pattern(pattern)
+
+    QShortcut(QKeySequence("Ctrl+G"), window).activated.connect(_select_by_pattern)
 
     # ── Shortcuts ─────────────────────────────────────────────────
     QShortcut(QKeySequence("Ctrl+T"), window).activated.connect(_new_tab)
@@ -642,6 +1022,23 @@ def create_app() -> MainWindow:
     bar.view_requested.connect(_toggle_preview_f3)
     QShortcut(QKeySequence("Ctrl+Shift+C"), window).activated.connect(_copy_path)
     QShortcut(QKeySequence("F3"),           window).activated.connect(_toggle_preview_f3)
+    QShortcut(QKeySequence("F9"),           window).activated.connect(
+        lambda: open_terminal(_active().current_path)
+    )
+
+    def _open_fullscreen() -> None:
+        items = _active().active._items
+        cursor = _active().current_item()
+        idx = items.index(cursor) if cursor in items else 0
+        dark = "dark" in cfg.theme.lower()
+        viewer = FullscreenViewer(
+            items, idx,
+            lambda req: preview_registry.find(req.path).render(req),
+            dark=dark, parent=window,
+        )
+        viewer.showMaximized()
+
+    QShortcut(QKeySequence("F11"),          window).activated.connect(_open_fullscreen)
     QShortcut(QKeySequence("Ctrl+Z"),       window).activated.connect(manager.undo)
     QShortcut(QKeySequence("Ctrl+Shift+Z"), window).activated.connect(manager.redo)
     QShortcut(QKeySequence("Ctrl+Shift+L"), window).activated.connect(manager.toggle_mirror)
@@ -672,6 +1069,11 @@ def create_app() -> MainWindow:
                 if p is not None:
                     yield p
 
+    def _apply_hidden_columns(names: list[str]) -> None:
+        for tabs in (left_tabs, right_tabs):
+            for v in tabs._views:
+                v.set_hidden_columns(names)
+
     def _on_show_hidden(ev: ShowHiddenToggled) -> None:
         for proxy in _all_proxies():
             proxy.set_show_hidden(ev.enabled)
@@ -679,9 +1081,15 @@ def create_app() -> MainWindow:
 
     bus.subscribe(ShowHiddenToggled, _on_show_hidden)
 
+    bus.subscribe(SyncBrowsingToggled,
+                  lambda ev: [s.set_sync_indicator(ev.enabled) for s in (left_side, right_side)])
+
     if cfg.show_hidden:
         for proxy in _all_proxies():
             proxy.set_show_hidden(True)
+
+    if cfg.hidden_columns:
+        _apply_hidden_columns(cfg.hidden_columns)
 
     def _on_theme_changed(ev: ThemeChanged) -> None:
         for side in (left_side, right_side):
@@ -718,6 +1126,12 @@ def create_app() -> MainWindow:
         )
         if dlg.exec():
             presenter.apply()
+            if not cfg.show_git_status:
+                for _t in [left_tabs, right_tabs]:
+                    for _v in (_t.view_at(i) for i in range(_t.tab_count)):
+                        _m = getattr(_v, "_model", None)
+                        if _m and hasattr(_m, "set_git_status"):
+                            _m.set_git_status({}, frozenset())
             from biome_fm.views.theme import apply_theme
             apply_theme(QApplication.instance(), cfg.theme, plugin_manager=plugins, glass=cfg.glass, glass_opacity=cfg.glass_opacity)
             # apply_theme already publishes ThemeChanged(name, tokens) via global bus
@@ -743,6 +1157,7 @@ def create_app() -> MainWindow:
             else:
                 preview_panel.set_code_alpha(255)
             bus.publish(ShowHiddenToggled(enabled=cfg.show_hidden))
+            _apply_hidden_columns(cfg.hidden_columns)
             save_config(cfg, cfg_dir / "config.toml")
 
     # ── Command palette ───────────────────────────────────────────
@@ -776,10 +1191,103 @@ def create_app() -> MainWindow:
     ]:
         registry.register(entry)
 
+    cmd_store = CommandStore(cfg_dir / "commands.toml")
+    for uc in cmd_store.commands:
+        _uc_cmd = uc.command
+        registry.register(CommandEntry(uc.label, uc.shortcut, lambda c=_uc_cmd: _run_cmd(c)))
+
     palette = CommandPalette(registry, parent=window)
     QShortcut(QKeySequence("Ctrl+P"), window).activated.connect(palette.open)
+
+    # ── Fuzzy file finder ─────────────────────────────────────────
+    fuzzy = FuzzyFinder(parent=window)
+    def _on_fuzzy_chosen(path: Path) -> None:
+        _active().navigate_to(path if path.is_dir() else path.parent)
+        if path.is_file() and hasattr(v := _active().view_at(_active().active_idx), "select_item"):
+            v.select_item(path.name)
+
+    QShortcut(QKeySequence("Ctrl+Shift+P"), window).activated.connect(
+        lambda: fuzzy.open(_active().current_path)
+    )
+    fuzzy.file_chosen.connect(_on_fuzzy_chosen)
+
+    def _apply_highlight_rules(rules: list[dict]) -> None:
+        hr = [HighlightRule(d["pattern"], d["color"]) for d in rules]
+        for _t in (left_tabs, right_tabs):
+            for _v in (_t.view_at(i) for i in range(_t.tab_count)):
+                _m = getattr(_v, "_model", None)
+                if _m and hasattr(_m, "set_highlight_rules"):
+                    _m.set_highlight_rules(hr)
+
+    def _open_highlight_rules() -> None:
+        result = HighlightRulesDialog.get_rules(cfg.highlight_rules, window)
+        if result is not None:
+            cfg.highlight_rules = result
+            save_config(cfg, cfg_dir / "config.toml")
+            _apply_highlight_rules(result)
+
+    window.highlight_rules_requested.connect(_open_highlight_rules)
+    if cfg.highlight_rules:
+        _apply_highlight_rules(cfg.highlight_rules)
+
     QShortcut(QKeySequence("Ctrl+,"), window).activated.connect(_open_settings)
     window.settings_requested.connect(_open_settings)
+    window.workspaces_requested.connect(_open_workspace_dialog)
+
+    def _open_dup_finder() -> None:
+        from biome_fm.views.duplicate_panel import DuplicateFinderDialog
+        root = _active().current_path
+        dlg = DuplicateFinderDialog(root, parent=window)
+
+        def _delete(paths: list) -> None:
+            for p in paths:
+                try:
+                    Path(p).unlink()
+                except OSError:
+                    pass
+            _active().refresh()
+
+        dlg.delete_requested.connect(_delete)
+        dlg.show()
+
+    window.find_duplicates_requested.connect(_open_dup_finder)
+    QShortcut(QKeySequence("Ctrl+Shift+D"), window).activated.connect(_open_dup_finder)
+
+    def _open_temp_panel() -> None:
+        from biome_fm.views.temp_panel import TempPanel
+        dlg = TempPanel(parent=window)
+        dlg.show()
+
+    window.temp_panel_requested.connect(_open_temp_panel)
+
+    def _open_sync_dialog() -> None:
+        from biome_fm.presenters.compare_presenter import ComparePresenter
+        from biome_fm.presenters.sync_presenter import build_sync_commands
+        from biome_fm.views.sync_dialog import SyncDialog
+        try:
+            left_items = vfs.listdir(left_tabs.current_path)
+            right_items = vfs.listdir(right_tabs.current_path)
+        except OSError:
+            return
+        entries = ComparePresenter(left_items, right_items).compare()
+        dlg = SyncDialog(entries, left_tabs.current_path, right_tabs.current_path, parent=window)
+
+        def _on_sync(checked_entries, direction) -> None:
+            pairs = build_sync_commands(
+                checked_entries, direction,
+                left_tabs.current_path, right_tabs.current_path,
+            )
+            for src, dest_dir in pairs:
+                try:
+                    vfs.copy(src, dest_dir / src.name)
+                except OSError:
+                    pass
+            manager._refresh_both()
+
+        dlg.sync_requested.connect(_on_sync)
+        dlg.show()
+
+    window.sync_dirs_requested.connect(_open_sync_dialog)
 
     # ── Save on close ─────────────────────────────────────────────
     def _on_close() -> None:
@@ -811,6 +1319,9 @@ def create_app() -> MainWindow:
         search_timer.stop()
         op_timer.stop()
         refresh_timer.stop()
+        watch_timer.stop()
+        left_watcher.stop()
+        right_watcher.stop()
         op_queue.shutdown(wait=False)
 
     window.about_to_close.connect(_on_close)
@@ -824,7 +1335,8 @@ def create_app() -> MainWindow:
         panel_mgr=panel_mgr,
         op_queue=op_queue,
         plugins=plugins,
-        timers=[drain_timer, preview_timer, op_timer, search_timer, refresh_timer],
+        git_worker=git_worker,
+        timers=[drain_timer, preview_timer, op_timer, search_timer, refresh_timer, watch_timer],
     )
 
     return window

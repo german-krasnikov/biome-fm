@@ -5,6 +5,7 @@ from pathlib import Path as _P
 
 from biome_fm.qt import (
     QApplication,
+    QLabel,
     QStackedWidget,
     Qt,
     QTabBar,
@@ -48,10 +49,15 @@ class PaneSideView(QWidget):
         self._tab_bar.setMovable(True)
 
         self._stack = QStackedWidget()
+        self._sync_label = QLabel("⇄")
+        self._sync_label.setMaximumHeight(16)
+        self._sync_label.setToolTip("Sync browsing active")
+        self._sync_label.setVisible(False)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(3, 1, 0, 0)
         layout.setSpacing(0)
+        layout.addWidget(self._sync_label)
         layout.addWidget(self._tab_bar)
         layout.addWidget(self._stack)
 
@@ -111,6 +117,9 @@ class PaneSideView(QWidget):
         for tv in self.findChildren(QTableView):
             s.unpolish(tv)
             s.polish(tv)
+
+    def set_sync_indicator(self, visible: bool) -> None:
+        self._sync_label.setVisible(visible)
 
     # ── Factory ──────────────────────────────────────────────────
 

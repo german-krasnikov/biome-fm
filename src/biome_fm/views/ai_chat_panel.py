@@ -51,10 +51,12 @@ class AIChatPanel(QWidget):
     detach_requested = Signal()
     close_requested = Signal()
     file_link_clicked = Signal(str)
+    shell_ops_requested = Signal(list)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setAcceptDrops(True)
+        self._shell_cmds: list[str] = []
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -82,6 +84,7 @@ class AIChatPanel(QWidget):
         self._log = ChatLog()
         self._log.setPlaceholderText("Ask the AI about your files...")
         self._log.path_link_clicked.connect(self.file_link_clicked)
+        self._log.shell_ops_clicked.connect(self._on_shell_ops_clicked)
         layout.addWidget(self._log, 1)
 
         # Context bar (attachment chips)
@@ -171,6 +174,17 @@ class AIChatPanel(QWidget):
             self._model_combo.setCurrentText(active_model)
         self._provider_combo.blockSignals(False)
         self._model_combo.blockSignals(False)
+
+    def show_shell_ops(self, cmds: list[str]) -> None:
+        self._shell_cmds = cmds
+        self._log.append(
+            '<div style="color:#888;font-style:italic;font-size:11px;margin:2px 8px">'
+            '&#9881; Shell commands detected. '
+            '<a href="shell-ops:run">Click to review.</a></div>'
+        )
+
+    def _on_shell_ops_clicked(self) -> None:
+        self.shell_ops_requested.emit(self._shell_cmds)
 
     # ── Drag & Drop ───────────────────────────────────────────────
 

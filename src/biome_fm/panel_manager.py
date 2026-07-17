@@ -19,7 +19,7 @@ class Effect:
 
 
 class PanelManager:
-    PANELS = ("preview", "ai", "search")
+    PANELS = ("preview", "ai", "search", "terminal")
 
     def __init__(self) -> None:
         self._states: dict[str, PanelState] = {p: PanelState.HIDDEN for p in self.PANELS}

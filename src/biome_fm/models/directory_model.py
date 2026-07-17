@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from biome_fm.models.file_item import FileItem
+from biome_fm.models.highlight_rules import HighlightRule, match_highlight
 from biome_fm.qt import (
     QAbstractTableModel,
     QBrush,
@@ -33,6 +34,14 @@ _EXT_COLORS: dict[str, str] = {
     **{e: "#009E73" for e in (".exe", ".sh", ".bat", ".cmd", ".app")},
 }
 _DIM = "#565F89"
+_GIT_COLORS: dict[str, str] = {
+    "M ": "#E69F00", " M": "#E69F00", "MM": "#E69F00",
+    "A ": "#009E73", "AM": "#009E73",
+    "D ": "#E74C3C", " D": "#E74C3C",
+    "??": "#808080",
+    "R ": "#CC79A7", " R": "#CC79A7",
+}
+_GIT_DIR_DIRTY = "#E69F00"
 
 _Idx = QModelIndex | QPersistentModelIndex
 
@@ -42,6 +51,13 @@ class DirectoryModel(QAbstractTableModel):
         super().__init__(parent)
         self._items: list[FileItem] = []
         self._marks: set[Path] = set()
+        self._git_statuses: dict[Path, str] = {}
+        self._git_dirty_dirs: frozenset[Path] = frozenset()
+        self._highlight_rules: list[HighlightRule] = []
+        self._tag_store: object | None = None  # TagStore, duck-typed
+
+    def set_tag_store(self, store: object | None) -> None:
+        self._tag_store = store
 
     def set_items(self, items: list[FileItem]) -> None:
         self.beginResetModel()
@@ -57,8 +73,11 @@ class DirectoryModel(QAbstractTableModel):
         base = super().flags(index)
         if not index.isValid():
             return base
-        if self._items[index.row()].name != "..":
+        item = self._items[index.row()]
+        if item.name != "..":
             base |= Qt.ItemFlag.ItemIsDragEnabled
+            if index.column() == COL_NAME:
+                base |= Qt.ItemFlag.ItemIsEditable
         return base | Qt.ItemFlag.ItemIsDropEnabled
 
     def set_marks(self, paths: set[Path]) -> None:
@@ -71,6 +90,25 @@ class DirectoryModel(QAbstractTableModel):
     @property
     def marks(self) -> frozenset[Path]:
         return frozenset(self._marks)
+
+    def set_git_status(self, statuses: dict[Path, str], dirty_dirs: frozenset[Path]) -> None:
+        self._git_statuses = statuses
+        self._git_dirty_dirs = dirty_dirs
+        if self.rowCount():
+            self.dataChanged.emit(
+                self.index(0, 0),
+                self.index(self.rowCount() - 1, 0),
+                [Qt.ItemDataRole.ForegroundRole],
+            )
+
+    def set_highlight_rules(self, rules: list[HighlightRule]) -> None:
+        self._highlight_rules = rules
+        if self.rowCount():
+            self.dataChanged.emit(
+                self.index(0, 0),
+                self.index(self.rowCount() - 1, 0),
+                [Qt.ItemDataRole.ForegroundRole],
+            )
 
     def rowCount(self, parent: _Idx = QModelIndex()) -> int:  # noqa: B008
         return 0 if parent.isValid() else len(self._items)
@@ -97,6 +135,21 @@ class DirectoryModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.UserRole:
             return item
         if role == Qt.ItemDataRole.ForegroundRole:
+            if item.path in self._git_statuses:
+                color = _GIT_COLORS.get(self._git_statuses[item.path])
+                if color:
+                    return QBrush(QColor(color))
+            if item.is_dir and item.path in self._git_dirty_dirs:
+                return QBrush(QColor(_GIT_DIR_DIRTY))
+            c = match_highlight(item.name, self._highlight_rules)
+            if c:
+                return QBrush(QColor(c))
+            if self._tag_store is not None:
+                tags = self._tag_store.get_tags(item.path)  # type: ignore[attr-defined]
+                if tags:
+                    tc = self._tag_store.tag_color(tags[0])  # type: ignore[attr-defined]
+                    if tc:
+                        return QBrush(QColor(tc))
             if item.name == ".." or item.is_dir:
                 return None
             if item.name.startswith("."):
@@ -128,6 +181,12 @@ class DirectoryModel(QAbstractTableModel):
         return None
 
 
+def _fuzzy_match(pattern: str, text: str) -> bool:
+    """True if every char in pattern appears in text in order (subsequence)."""
+    it = iter(text.lower())
+    return all(c in it for c in pattern.lower())
+
+
 class DirSortFilterProxy(QSortFilterProxyModel):
     """Keeps '..' pinned first, dirs before files, then default sort."""
 
@@ -135,6 +194,13 @@ class DirSortFilterProxy(QSortFilterProxyModel):
         super().__init__(parent)
         self._filter = ""
         self._show_hidden = False
+        self._tag_filter: str | None = None
+        self._tag_store: object | None = None
+
+    def set_tag_filter(self, tag: str | None, store: object | None = None) -> None:
+        self._tag_filter = tag
+        self._tag_store = store
+        self.invalidateRowsFilter()
 
     def set_filter(self, text: str) -> None:
         self._filter = text.lower()
@@ -152,8 +218,12 @@ class DirSortFilterProxy(QSortFilterProxyModel):
             return True
         if not self._show_hidden and item.name.startswith("."):
             return False
+        if self._tag_filter and self._tag_store is not None:
+            tags = self._tag_store.get_tags(item.path)  # type: ignore[attr-defined]
+            if self._tag_filter not in tags:
+                return False
         if self._filter:
-            return self._filter in item.name.lower()
+            return _fuzzy_match(self._filter, item.name)
         return True
 
     def lessThan(self, left: _Idx, right: _Idx) -> bool:

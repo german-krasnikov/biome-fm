@@ -27,6 +27,10 @@ class Config:
     show_hidden: bool = False
     glass: bool = False
     glass_opacity: int = 47
+    show_git_status: bool = True
+    auto_preview: bool = True
+    highlight_rules: list[dict] = field(default_factory=list)
+    hidden_columns: list[str] = field(default_factory=list)
 
 
 def load_config(path: Path) -> Config:
@@ -56,6 +60,12 @@ def save_config(cfg: Config, path: Path) -> None:
         elif isinstance(val, list):
             if val and isinstance(val[0], int):
                 lines.append(f"{f.name} = [{', '.join(str(v) for v in val)}]")
+            elif val and isinstance(val[0], dict):
+                items = ", ".join(
+                    "{" + ", ".join(f'{k} = "{v}"' for k, v in d.items()) + "}"
+                    for d in val
+                )
+                lines.append(f"{f.name} = [{items}]")
             else:
                 items = ", ".join(f'"{v}"' for v in val)
                 lines.append(f"{f.name} = [{items}]")

@@ -14,16 +14,20 @@ from biome_fm.models.directory_model import (
     DirSortFilterProxy,
 )
 from biome_fm.models.file_item import FileItem
+from biome_fm.models.finder_tags import finder_tag_color, get_finder_tags
 from biome_fm.qt import (
     QApplication,
+    QColor,
     QDrag,
     QEvent,
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QMenu,
     QMimeData,
     QModelIndex,
+    QPen,
     QPushButton,
     QStyle,
     QStyledItemDelegate,
@@ -41,12 +45,31 @@ from biome_fm.views.jump_bar import JumpBar
 _MOVE_MODS = Qt.KeyboardModifier.ShiftModifier | Qt.KeyboardModifier.AltModifier
 
 
+def _match_positions(pattern: str, text: str) -> list[int]:
+    """Indices in text where fuzzy pattern chars match (subsequence)."""
+    if not pattern:
+        return []
+    pos = []
+    pi = 0
+    p = pattern.lower()
+    for ti, ch in enumerate(text.lower()):
+        if pi < len(p) and ch == p[pi]:
+            pos.append(ti)
+            pi += 1
+    return pos if pi == len(p) else []
+
+
 class _DropHintDelegate(QStyledItemDelegate):
     """Draws highlight border around folder row during DnD hover."""
 
     def __init__(self, table: _PaneTableView) -> None:
         super().__init__(table)
         self._table = table
+        self._filter: str = ""
+        self._show_finder_tags: bool = sys.platform == "darwin"
+
+    def set_filter(self, text: str) -> None:
+        self._filter = text
 
     def initStyleOption(self, option: object, index: object) -> None:
         super().initStyleOption(option, index)  # type: ignore[arg-type]
@@ -80,6 +103,68 @@ class _DropHintDelegate(QStyledItemDelegate):
             if model and index.column() == model.columnCount() - 1:
                 painter.drawLine(rect.right(), rect.top(), rect.right(), rect.bottom())
             painter.restore()
+        # Finder tag dots (macOS only)
+        if self._show_finder_tags and index.column() == COL_NAME:
+            item = index.data(Qt.ItemDataRole.UserRole)
+            if isinstance(item, FileItem) and item.name != "..":
+                tags = get_finder_tags(item.path)
+                colors = [c for t in tags if (c := finder_tag_color(t))]
+                if colors:
+                    painter.save()
+                    painter.setPen(Qt.PenStyle.NoPen)
+                    dot_x = option.rect.right() - len(colors) * 11 - 2
+                    dot_y = option.rect.center().y() - 4
+                    for color in colors[:4]:
+                        painter.setBrush(QColor(color))
+                        painter.drawEllipse(dot_x, dot_y, 8, 8)
+                        dot_x += 11
+                    painter.restore()
+        # Filter character underlines
+        if self._filter and index.column() == COL_NAME:
+            name = index.data(Qt.ItemDataRole.DisplayRole) or ""
+            positions = _match_positions(self._filter, name)
+            if positions:
+                fm = option.fontMetrics
+                base_x = option.rect.left() + 4
+                y = option.rect.bottom() - 2
+                accent = option.palette.highlight().color()
+                painter.save()
+                painter.setPen(QPen(accent, 2))
+                for p in positions:
+                    x = base_x + fm.horizontalAdvance(name[:p])
+                    w = fm.horizontalAdvance(name[p])
+                    painter.drawLine(x, y, x + w, y)
+                painter.restore()
+
+    def createEditor(self, parent, option, index) -> QLineEdit | None:
+        pane = self._table.parent()
+        if not isinstance(pane, PaneView):
+            return None
+        src_idx = pane._proxy.mapToSource(index)
+        item = pane._model.item_at(src_idx.row())
+        if item is None or item.name == ".." or index.column() != COL_NAME:
+            return None
+        editor = QLineEdit(parent)
+        editor.setText(item.name)
+        dot = item.name.rfind(".")
+        if dot > 0 and not item.is_dir:
+            editor.setSelection(0, dot)
+        else:
+            editor.selectAll()
+        return editor
+
+    def setEditorData(self, editor, index) -> None:
+        pass  # createEditor already sets text + selection
+
+    def setModelData(self, editor, model, index) -> None:
+        pane = self._table.parent()
+        if not isinstance(pane, PaneView):
+            return
+        src_idx = pane._proxy.mapToSource(index)
+        item = pane._model.item_at(src_idx.row())
+        new_name = editor.text().strip()
+        if item and new_name and new_name != item.name:
+            pane.inline_rename_requested.emit(item, new_name)
 
 
 class _PaneTableView(QTableView):
@@ -139,6 +224,11 @@ class _PaneTableView(QTableView):
         mods = event.modifiers()  # type: ignore[attr-defined]
         parent = self.parent()
         if isinstance(parent, PaneView):
+            if key == Qt.Key.Key_F2:
+                idx = self.currentIndex()
+                if idx.isValid():
+                    self.edit(self.model().index(idx.row(), COL_NAME))
+                return
             if key == Qt.Key.Key_Space:
                 parent.view_requested.emit()
                 return
@@ -281,7 +371,7 @@ class _PaneTableView(QTableView):
             ("copy", "Copy\tF5"),
             ("move", "Move\tF6"),
             ("delete", "Delete\tF8"),
-            ("rename", "Rename\tF9"),
+            ("rename", "Rename\tF2"),
         ]:
             menu.addAction(label, lambda n=action_name: p.context_action_requested.emit(n))
         menu.addSeparator()
@@ -291,8 +381,31 @@ class _PaneTableView(QTableView):
         menu.addAction("View\tF3", lambda: p.context_action_requested.emit("quick_look"))
         finder_label = "Open in Finder" if sys.platform == "darwin" else "Open in File Manager"
         menu.addAction(finder_label, lambda: p.context_action_requested.emit("open_finder"))
+        menu.addAction("Open Terminal Here\tF9", lambda: p.context_action_requested.emit("open_terminal"))
+        menu.addAction("Checksum...", lambda: p.context_action_requested.emit("checksum"))
+        menu.addSeparator()
+        if p._model.marks:
+            menu.addAction("Batch Rename...", lambda: p.context_action_requested.emit("batch_rename"))
+        menu.addAction("Compress...", lambda: p.context_action_requested.emit("compress"))
+        item = p.current_cursor_item()
+        if item and not item.is_dir:
+            suffixes = "".join(item.path.suffixes).lower()
+            if any(suffixes.endswith(e) for e in (".zip", ".tar", ".tar.gz", ".tar.bz2", ".tar.xz")):
+                menu.addAction("Extract Here", lambda: p.context_action_requested.emit("extract"))
         menu.addSeparator()
         menu.addAction("Add to Bookmarks", lambda: p.context_action_requested.emit("add_bookmark"))
+        menu.addAction("Tag Files…", lambda: p.tag_requested.emit())
+        menu.addAction("AI Rename Suggestions…", lambda: p.ai_rename_requested.emit())
+        # AI Actions submenu
+        from biome_fm.ai.context_actions import builtin_actions
+        ai_menu = menu.addMenu("AI Actions")
+        cursor_item = p.current_cursor_item()
+        if cursor_item and not cursor_item.is_dir:
+            ext = cursor_item.path.suffix
+            for label, _action_id in builtin_actions(ext):
+                ai_menu.addAction(label)
+            ai_menu.addSeparator()
+        ai_menu.addAction("Ask AI…", lambda: p.ai_context_requested.emit())
         # Plugin extra actions
         if p.plugin_menu_extra is not None:
             extras = p.plugin_menu_extra()
@@ -302,6 +415,18 @@ class _PaneTableView(QTableView):
                     if getattr(spec, "separator_before", False):
                         menu.addSeparator()
                     menu.addAction(spec.label, spec.callback)
+        if p._git_status_fn is not None:
+            item = p.current_cursor_item()
+            if item and item.name != "..":
+                xy = p._git_status_fn(item.path)
+                if xy is not None:
+                    menu.addSeparator()
+                    if xy[1] not in (" ",) or xy == "??":  # working tree dirty or untracked
+                        act = menu.addAction("Git: Stage")
+                        act.triggered.connect(lambda _, i=item: p.git_stage_requested.emit(i))
+                    if xy[0] not in (" ", "?"):  # staged changes
+                        act = menu.addAction("Git: Unstage")
+                        act.triggered.connect(lambda _, i=item: p.git_unstage_requested.emit(i))
         menu.exec(event.globalPos())  # type: ignore[attr-defined]
 
 
@@ -322,6 +447,13 @@ class PaneView(QWidget):
     edit_bookmarks_requested = Signal()
     cursor_changed = Signal(object)           # FileItem | None
     new_tab_requested = Signal()
+    path_updated = Signal(object)              # Path — emitted after set_path()
+    git_stage_requested = Signal(object)       # FileItem
+    git_unstage_requested = Signal(object)     # FileItem
+    inline_rename_requested = Signal(object, str)  # FileItem, new_name
+    tag_requested = Signal()
+    ai_rename_requested = Signal()
+    ai_context_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -329,6 +461,7 @@ class PaneView(QWidget):
         self._proxy = DirSortFilterProxy(self)
         self._proxy.setSourceModel(self._model)
         self.plugin_menu_extra = None  # Callable[[], list[ActionSpec]] — set by app.py
+        self._git_status_fn = None  # Callable[[Path], str | None] — set by app.py
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -405,6 +538,10 @@ class PaneView(QWidget):
         self._table.selectionModel().currentChanged.connect(self._table._on_cursor_row_changed)
         layout.addWidget(self._table)
 
+        _delegate = self._table.itemDelegate()
+        self.filter_bar.filter_changed.connect(_delegate.set_filter)
+        self.filter_bar.closed.connect(lambda: _delegate.set_filter(""))
+
         self._proxy.sort(COL_NAME, Qt.SortOrder.AscendingOrder)
 
         self._status_label = QLabel()
@@ -417,6 +554,16 @@ class PaneView(QWidget):
     def set_bookmark_store(self, store) -> None:
         self._bookmark_menu.set_store(store)
 
+    def set_tag_store(self, store: object | None) -> None:
+        self._model.set_tag_store(store)
+
+    _COL_MAP = {"Size": COL_SIZE, "Modified": COL_MODIFIED, "Ext": COL_EXT}
+
+    def set_hidden_columns(self, names: list[str]) -> None:
+        hh = self._table.horizontalHeader()
+        for col_name, col_idx in self._COL_MAP.items():
+            hh.setSectionHidden(col_idx, col_name in names)
+
     def set_items(self, items: list[FileItem], **kwargs: object) -> None:
         if kwargs.get("preserve_scroll"):
             vbar = self._table.verticalScrollBar()
@@ -428,6 +575,7 @@ class PaneView(QWidget):
 
     def set_path(self, path: Path) -> None:
         self._path_bar.set_path(path)
+        self.path_updated.emit(path)
 
     def show_error(self, message: str) -> None:
         self._path_bar.show_error(message)
@@ -515,6 +663,23 @@ class PaneView(QWidget):
                 self._table.setCurrentIndex(idx)
                 self._table.scrollTo(idx)
                 return
+
+    def get_view_state(self):
+        from biome_fm.models.view_state import ViewState
+        return ViewState(
+            sort_col=self._proxy.sortColumn(),
+            sort_asc=self._proxy.sortOrder() == Qt.SortOrder.AscendingOrder,
+            filter=self._proxy._filter,
+        )
+
+    def set_view_state(self, state) -> None:
+        order = Qt.SortOrder.AscendingOrder if state.sort_asc else Qt.SortOrder.DescendingOrder
+        self._table.sortByColumn(state.sort_col, order)
+        if state.filter:
+            self._proxy.set_filter(state.filter)
+            self.set_filter_visible(True)
+        else:
+            self._proxy.set_filter("")
 
     def _on_path_entered_text(self, text: str) -> None:
         self.path_change_requested.emit(Path(text))
