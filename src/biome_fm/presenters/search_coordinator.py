@@ -3,16 +3,24 @@ from __future__ import annotations
 
 import queue
 import threading
-from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING
+
+_HISTORY_MAX = 30
+
+
+def add_to_history(history: list[str], query: str) -> list[str]:
+    """Return new history list with query at front, deduped, max 30."""
+    deduped = [q for q in history if q != query]
+    return [query, *deduped][:_HISTORY_MAX]
 
 if TYPE_CHECKING:
     from biome_fm.models.vfs import VFSProtocol
+    from biome_fm.presenters.manager_presenter import ManagerPresenter
+    from biome_fm.presenters.search_presenter import SearchResult
     from biome_fm.presenters.tabs_presenter import TabsPresenter
     from biome_fm.views.panel_coordinator import PanelCoordinator
     from biome_fm.views.search_panel import SearchResultsPanel
-    from biome_fm.presenters.manager_presenter import ManagerPresenter
-    from biome_fm.presenters.search_presenter import SearchResult
 
 
 class SearchCoordinator:
@@ -30,6 +38,8 @@ class SearchCoordinator:
         window: object = None,
         on_search_completed: Callable[[list], None] | None = None,
         store: object = None,
+        history: list[str] | None = None,
+        on_history_update: Callable[[list[str]], None] | None = None,
     ) -> None:
         self._vfs = vfs
         self._coord = coord
@@ -39,6 +49,8 @@ class SearchCoordinator:
         self._window = window
         self._on_search_completed = on_search_completed
         self._store = store
+        self._history: list[str] = history if history is not None else []
+        self._on_history_update = on_history_update
         self._presenter = None
         self._queue: queue.SimpleQueue = queue.SimpleQueue()
         self._all_results: list = []
@@ -53,10 +65,16 @@ class SearchCoordinator:
         self._queue = queue.SimpleQueue()
         self._all_results = []
         active = self._get_active()
-        params = SearchDialog.get_params(active.current_path, self._window, store=self._store)  # type: ignore[arg-type]
+        params = SearchDialog.get_params(
+            active.current_path, self._window,  # type: ignore[arg-type]
+            store=self._store, history=self._history,
+        )
         if params is None:
             return
-        query, mode, max_results = params
+        query, mode, max_results, scope, filt = params
+        self._history = add_to_history(self._history, query)
+        if self._on_history_update is not None:
+            self._on_history_update(self._history)
         self._presenter = SearchPresenter(self._vfs, active.current_path)
         self._panel.on_search_started(query)
         self._coord.toggle("search", self._manager.active_pane_id)
@@ -65,7 +83,7 @@ class SearchCoordinator:
         def _run() -> None:
             self._presenter.search(  # type: ignore[union-attr]
                 query, mode=mode, max_results=max_results,
-                on_match=q.put,
+                on_match=q.put, scope=scope, filter=filt,
             )
             sentinel = self._CANCELLED if self._presenter._cancel.is_set() else None  # type: ignore[union-attr]
             q.put(sentinel)

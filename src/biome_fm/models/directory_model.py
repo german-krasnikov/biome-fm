@@ -46,23 +46,67 @@ _GIT_DIR_DIRTY = "#E69F00"
 _Idx = QModelIndex | QPersistentModelIndex
 
 
+def _fmt_size(size: int) -> str:
+    s = float(size)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if s < 1024:
+            return f"{s:.0f} {unit}" if unit == "B" else f"{s:.1f} {unit}"
+        s /= 1024
+    return f"{s:.1f} PB"
+
+
 class DirectoryModel(QAbstractTableModel):
+    _BATCH = 200
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._all_items: list[FileItem] = []
         self._items: list[FileItem] = []
+        self._fetch_offset: int = 0
         self._marks: set[Path] = set()
+        self._cut_paths: set[Path] = set()
         self._git_statuses: dict[Path, str] = {}
         self._git_dirty_dirs: frozenset[Path] = frozenset()
         self._highlight_rules: list[HighlightRule] = []
         self._tag_store: object | None = None  # TagStore, duck-typed
+        self._dir_sizes: dict[Path, int] = {}
 
     def set_tag_store(self, store: object | None) -> None:
         self._tag_store = store
 
+    def set_cut_paths(self, paths: set[Path]) -> None:
+        self._cut_paths = set(paths)
+        if self._items:
+            self.dataChanged.emit(
+                self.index(0, 0),
+                self.index(len(self._items) - 1, self.columnCount() - 1),
+                [Qt.ItemDataRole.ForegroundRole],
+            )
+
     def set_items(self, items: list[FileItem]) -> None:
         self.beginResetModel()
-        self._items = list(items)
+        self._all_items = list(items)
+        self._items = self._all_items[: self._BATCH]
+        self._fetch_offset = len(self._items)
         self.endResetModel()
+
+    def canFetchMore(self, parent: _Idx = QModelIndex()) -> bool:  # noqa: B008
+        return self._fetch_offset < len(self._all_items)
+
+    def fetchMore(self, parent: _Idx = QModelIndex()) -> None:  # noqa: B008
+        remaining = len(self._all_items) - self._fetch_offset
+        batch = min(remaining, self._BATCH)
+        self.beginInsertRows(parent, self._fetch_offset, self._fetch_offset + batch - 1)
+        self._items.extend(self._all_items[self._fetch_offset : self._fetch_offset + batch])
+        self._fetch_offset += batch
+        self.endInsertRows()
+
+    def set_dir_size(self, path: Path, size: int) -> None:
+        self._dir_sizes[path] = size
+        for row, item in enumerate(self._items):
+            if item.path == path:
+                idx = self.index(row, COL_SIZE)
+                self.dataChanged.emit(idx, idx, [Qt.ItemDataRole.DisplayRole])
 
     def item_at(self, row: int) -> FileItem | None:
         if 0 <= row < len(self._items):
@@ -135,6 +179,8 @@ class DirectoryModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.UserRole:
             return item
         if role == Qt.ItemDataRole.ForegroundRole:
+            if item.path in self._cut_paths:
+                return QBrush(QColor(128, 128, 128, 100))
             if item.path in self._git_statuses:
                 color = _GIT_COLORS.get(self._git_statuses[item.path])
                 if color:
@@ -158,6 +204,8 @@ class DirectoryModel(QAbstractTableModel):
             color = _EXT_COLORS.get(ext)
             return QBrush(QColor(color)) if color else None
         if role == Qt.ItemDataRole.ToolTipRole:
+            if item.name == "..":
+                return ""
             parts = [str(item.path)]
             if not item.is_dir and item.modified:
                 dt = datetime.datetime.fromtimestamp(item.modified)
@@ -171,6 +219,8 @@ class DirectoryModel(QAbstractTableModel):
         if col == COL_NAME:
             return item.name
         if col == COL_SIZE:
+            if item.is_dir and item.path in self._dir_sizes:
+                return _fmt_size(self._dir_sizes[item.path])
             return item.size_str
         if col == COL_MODIFIED:
             if item.modified == 0.0:

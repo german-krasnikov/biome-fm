@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from enum import Enum, auto
 from pathlib import Path
-from typing import Callable
 
 
 class ConflictAction(Enum):
@@ -37,7 +37,7 @@ class ConflictResolver:
         self._action: ConflictAction | None = None
         self._apply_all: ConflictAction | None = None
         self._timeout = timeout
-        self.on_conflict: Callable[[Path, Path, "ConflictResolver"], None] | None = None
+        self.on_conflict: Callable[[Path, Path, ConflictResolver], None] | None = None
 
     def ask(self, src: Path, dst: Path) -> ConflictAction:
         if self._apply_all is not None:

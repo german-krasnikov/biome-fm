@@ -77,6 +77,8 @@ class AIPresenter:
         self._epoch: int = 0
         self._cwd: Path | None = None
         self._selected: list[FileItem] = []
+        self._summary_cache: dict[tuple[Path, float], str] = {}
+        self._pending_summary_key: tuple[Path, float] | None = None
 
     @property
     def _provider(self) -> AIProviderProtocol:
@@ -110,6 +112,7 @@ class AIPresenter:
         self._view.clear_attachment_chips()
 
     def send(self, text: str) -> None:
+        self._pending_summary_key = None
         if not self._provider.available:
             self._view.append_message("assistant", "(AI not configured — set API key)")
             return
@@ -144,6 +147,22 @@ class AIPresenter:
                 self._history.pop()
             self._view.set_busy(False)
 
+    def build_rename_regex(self, filenames: list[str], instruction: str) -> tuple[str, str]:
+        """Ask AI to generate regex pattern+replacement for bulk rename."""
+        import json
+        names = ", ".join(filenames)
+        prompt = (
+            f"Given filenames: {names}\n"
+            f"Instruction: {instruction}\n"
+            'Respond with JSON: {"pattern": "...", "replacement": "..."}'
+        )
+        response = self._provider.chat([{"role": "user", "content": prompt}])
+        try:
+            data = json.loads(response)
+            return data["pattern"], data["replacement"]
+        except (json.JSONDecodeError, KeyError) as e:
+            raise ValueError(f"Invalid AI response: {response!r}") from e
+
     def suggest_rename(self, item: FileItem) -> None:
         self.send(f"Suggest 5 concise file names for: {item.name}")
 
@@ -151,9 +170,19 @@ class AIPresenter:
         self.send(f"In one sentence, what does this file likely contain?"
                   f" Name: {item.name}, size: {item.size} bytes")
 
+    def summarize_file(self, item: FileItem) -> None:
+        key = (item.path, item.modified)
+        cached = self._summary_cache.get(key)
+        if cached is not None:
+            self._view.append_message("assistant", cached)
+            return
+        self.send(f"Summarize this file in 2-3 sentences. Name: {item.name}, size: {item.size} bytes")
+        self._pending_summary_key = key  # set AFTER send() increments epoch
+
     def cancel(self) -> None:
         self._epoch += 1
         self._stream_buffer.clear()
+        self._pending_summary_key = None
         if hasattr(self._provider, "terminate"):
             self._provider.terminate()
         self._view.discard_stream()
@@ -174,6 +203,9 @@ class AIPresenter:
                     if full:
                         with self._lock:
                             self._history.append({"role": "assistant", "content": full})
+                        if self._pending_summary_key is not None:
+                            self._summary_cache[self._pending_summary_key] = full
+                            self._pending_summary_key = None
                     self._view.finalize_stream()
                     blocks = _extract_shell_blocks(full)
                     if blocks and hasattr(self._view, "show_shell_ops"):

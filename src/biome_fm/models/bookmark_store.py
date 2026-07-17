@@ -9,7 +9,6 @@ from pathlib import Path
 from biome_fm.models.bookmark_node import BookmarkNode
 from biome_fm.models.bookmark_node import display_label as _node_label
 
-
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 def _build_tree(flat: list[dict]) -> list[BookmarkNode]:

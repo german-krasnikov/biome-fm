@@ -8,9 +8,8 @@ from biome_fm.qt import (
     QDialogButtonBox,
     QFrame,
     QLabel,
-    QPushButton,
-    QVBoxLayout,
     Qt,
+    QVBoxLayout,
 )
 
 _MAX_SHOWN = 5

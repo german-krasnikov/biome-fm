@@ -94,6 +94,7 @@ class SearchResultsPanel(QWidget):
     detach_requested = Signal()
     navigate_to_file = Signal(object, str)  # (parent_dir: Path, filename: str)
     stop_requested = Signal()
+    context_action_requested = Signal(object, str)  # (SearchResult, action)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -188,6 +189,9 @@ class SearchResultsPanel(QWidget):
         self._model.clear()
         self._status.setText("Ready")
 
+    def _emit_context_action(self, result: object, action: str) -> None:
+        self.context_action_requested.emit(result, action)
+
     def _show_context_menu(self, pos) -> None:
         idx = self._table.indexAt(pos)
         if not idx.isValid():
@@ -199,6 +203,12 @@ class SearchResultsPanel(QWidget):
         menu.addAction("Go to File", lambda: self.navigate_to_file.emit(
             result.item.path.parent, result.item.name))
         menu.addAction("Copy Path", lambda: QApplication.clipboard().setText(str(result.item.path)))
+        menu.addSeparator()
+        menu.addAction("Copy", lambda r=result: self._emit_context_action(r, "copy"))
+        menu.addAction("Move", lambda r=result: self._emit_context_action(r, "move"))
+        menu.addAction("Delete", lambda r=result: self._emit_context_action(r, "delete"))
+        menu.addAction("Reveal in Pane", lambda r=result: self.navigate_to_file.emit(
+            r.item.path.parent, r.item.name))
         menu.popup(self._table.mapToGlobal(pos))
 
     def _on_double_click(self, index: QModelIndex) -> None:

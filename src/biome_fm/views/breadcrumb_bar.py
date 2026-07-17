@@ -25,7 +25,9 @@ from biome_fm.qt import (
 )
 from biome_fm.utils.opener import open_file
 from biome_fm.utils.platform import IS_MAC, open_terminal, reveal_in_finder
-from biome_fm.views.dnd_utils import make_path_mime
+from biome_fm.views.dnd_utils import _MIME, make_path_mime
+
+_MOVE_MODS = Qt.KeyboardModifier.ShiftModifier | Qt.KeyboardModifier.AltModifier
 
 # ---------------------------------------------------------------------------
 # Pure helper — no Qt
@@ -73,7 +75,8 @@ class _PathComboBox(QComboBox):
 
 
 class _SegmentButton(QToolButton):
-    navigated = Signal(object)  # Path
+    navigated = Signal(object)       # Path
+    files_dropped = Signal(list, bool, object)  # [Path], move, dest Path
 
     def __init__(self, label: str, full_path: Path, active: bool = False, parent=None):
         super().__init__(parent)
@@ -86,6 +89,7 @@ class _SegmentButton(QToolButton):
         self.setProperty("crumb", True)
         self.setProperty("crumb_active", active)
         self.clicked.connect(self._emit_navigated)
+        self.setAcceptDrops(True)
 
     def _emit_navigated(self) -> None:
         self.navigated.emit(self._path)
@@ -105,6 +109,23 @@ class _SegmentButton(QToolButton):
             drag.exec(Qt.DropAction.CopyAction)
             return
         super().mouseMoveEvent(event)
+
+    def dragEnterEvent(self, event) -> None:
+        if event.mimeData().hasFormat(_MIME):
+            event.acceptProposedAction()
+        else:
+            super().dragEnterEvent(event)
+
+    def dropEvent(self, event) -> None:
+        mime = event.mimeData()
+        if mime.hasFormat(_MIME):
+            raw = mime.data(_MIME).data().decode()
+            paths = [Path(p) for p in raw.splitlines() if p]
+            move = bool(event.modifiers() & _MOVE_MODS)
+            self.files_dropped.emit(paths, move, self._path)
+            event.acceptProposedAction()
+        else:
+            super().dropEvent(event)
 
     def contextMenuEvent(self, event) -> None:
         menu = QMenu(self.window())
@@ -140,6 +161,7 @@ class _SegmentButton(QToolButton):
 class _CrumbRow(QWidget):
     segment_clicked = Signal(object)  # Path
     edit_requested = Signal()
+    files_dropped = Signal(list, bool, object)  # [Path], move, dest Path
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -158,6 +180,7 @@ class _CrumbRow(QWidget):
         for i, (label, full_path) in enumerate(segments):
             btn = _SegmentButton(label, full_path, active=(full_path == path), parent=self)
             btn.navigated.connect(self.segment_clicked)
+            btn.files_dropped.connect(self.files_dropped)
             self._layout.addWidget(btn)
             if i < len(segments) - 1:
                 sep = QLabel("›", parent=self)  # noqa: RUF001
@@ -203,9 +226,11 @@ class _CrumbScrollArea(QScrollArea):
 
 class BreadcrumbBar(QWidget):
     path_entered = Signal(str)
+    files_dropped = Signal(list, bool, object)  # [Path], move, dest Path
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setAccessibleName("Path navigation")
         self._crumb = _CrumbRow()
         self._scroll = _CrumbScrollArea(self._crumb)
 
@@ -249,6 +274,7 @@ class BreadcrumbBar(QWidget):
 
         self._crumb.segment_clicked.connect(lambda p: self.path_entered.emit(str(p)))
         self._crumb.edit_requested.connect(self.activate_edit)
+        self._crumb.files_dropped.connect(self.files_dropped)
         self._combo.path_entered.connect(self._commit_edit)
         self._combo.lineEdit().installEventFilter(self)
 

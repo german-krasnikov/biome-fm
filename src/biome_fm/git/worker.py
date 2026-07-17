@@ -5,8 +5,8 @@ import queue
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from biome_fm.qt import QObject, QTimer, Signal
 from biome_fm.git.status_cache import GitStatusCache, RepoStatus
+from biome_fm.qt import QObject, QTimer, Signal
 
 
 class GitStatusWorker(QObject):

@@ -16,6 +16,7 @@ from biome_fm.qt import (
 )
 from biome_fm.views._linkify import _linkify_html
 
+
 def _make_styles(dark: bool) -> dict[str, tuple[str, str]]:
     if dark:
         return {

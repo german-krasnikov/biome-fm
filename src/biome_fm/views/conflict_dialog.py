@@ -7,13 +7,11 @@ from pathlib import Path
 from biome_fm.models.conflict_resolver import ConflictAction
 from biome_fm.qt import (
     QDialog,
-    QDialogButtonBox,
     QFrame,
     QHBoxLayout,
     QLabel,
     QPushButton,
     QVBoxLayout,
-    Qt,
 )
 
 

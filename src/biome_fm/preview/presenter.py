@@ -8,8 +8,23 @@ from pathlib import Path
 from typing import Protocol
 
 from biome_fm.models.file_item import FileItem
-from biome_fm.preview.provider import ContentKind, PreviewRequest, PreviewResult
+from biome_fm.preview.provider import ContentKind, PreviewMode, PreviewRequest, PreviewResult
 from biome_fm.preview.registry import PreviewRegistry
+
+
+class _RawProvider:
+    """Displays raw bytes as hex/text without sniffing."""
+    priority = 999
+
+    def can_handle(self, path: Path) -> bool:
+        return True
+
+    def render(self, req: PreviewRequest) -> PreviewResult:
+        try:
+            data = req.path.read_bytes()[:4096]
+            return PreviewResult(kind=ContentKind.TEXT, data=repr(data), title=req.path.name)
+        except OSError as e:
+            return PreviewResult(kind=ContentKind.ERROR, data=str(e))
 
 
 class PreviewViewProtocol(Protocol):
@@ -31,9 +46,20 @@ class PreviewPresenter:
         self._cache: dict[tuple[Path, float, bool], PreviewResult] = {}
         self._cache_lock = threading.Lock()
         self._dark = True  # theme hint; updated via set_dark()
+        self._forced_mode: PreviewMode = PreviewMode.AUTO
 
     def set_dark(self, dark: bool) -> None:
         self._dark = dark
+
+    def set_mode(self, mode: PreviewMode) -> None:
+        self._forced_mode = mode
+        if self._current is not None:
+            item = FileItem(
+                name=self._current.name,
+                path=self._current,
+                is_dir=False, size=0, modified=0.0,
+            )
+            self._render_item(item)
 
     def toggle_item(self, item: FileItem | None) -> None:
         if item is None or item.name == "..":
@@ -69,9 +95,28 @@ class PreviewPresenter:
             self._view.show_result(hit)
             return
         self._view.set_busy(True)
-        provider = self._registry.find(item.path)
+        provider = self._get_provider(item.path)
         req = PreviewRequest(path=item.path, dark=self._dark)
         self._pool.submit(self._run, provider, req, cache_key)
+
+    def _get_provider(self, path: Path):
+        match self._forced_mode:
+            case PreviewMode.TEXT:
+                from biome_fm.preview.providers.text import TextPreviewProvider
+                return TextPreviewProvider()
+            case PreviewMode.HEX:
+                from biome_fm.preview.providers.hex import HexPreviewProvider
+                return HexPreviewProvider()
+            case PreviewMode.RAW:
+                return _RawProvider()
+            case PreviewMode.GIT_LOG:
+                from biome_fm.preview.providers.git_log import GitLogPreviewProvider
+                return GitLogPreviewProvider()
+            case PreviewMode.GIT_BLAME:
+                from biome_fm.preview.providers.git_blame import GitBlamePreviewProvider
+                return GitBlamePreviewProvider()
+            case _:
+                return self._registry.find(path)
 
     def _run(self, provider, req: PreviewRequest, cache_key: tuple[Path, float, bool]) -> None:
         """Background thread — must not touch Qt."""

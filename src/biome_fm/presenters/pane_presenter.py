@@ -6,11 +6,14 @@ import contextlib
 import fnmatch
 import shutil
 import threading
+from collections import OrderedDict
 from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
+from biome_fm.models.dir_state_store import DirStateStore
 from biome_fm.models.file_item import FileItem
+from biome_fm.models.frecency_store import FrecencyStore
 from biome_fm.models.vfs import VFSProtocol
 
 _ARCHIVE_SUFFIXES = {".zip", ".tar"}
@@ -54,6 +57,8 @@ class PanePresenter:
         vfs: VFSProtocol,
         home: Path | None = None,
         opener: Callable[[Path], None] | None = None,
+        store: DirStateStore | None = None,
+        frecency: FrecencyStore | None = None,
     ) -> None:
         self._view = view
         self._vfs = vfs
@@ -70,6 +75,9 @@ class PanePresenter:
         self._size_cancel: list[bool] = [False]
         self._dir_size_result: int | None = None
         self._dir_view_state: dict[Path, object] = {}
+        self._store = store
+        self._frecency = frecency
+        self._persistent_marks: OrderedDict[Path, set[Path]] = OrderedDict()
 
     @property
     def current_path(self) -> Path:
@@ -116,6 +124,8 @@ class PanePresenter:
             if old is not None:
                 self._back.append(old)
             self._forward.clear()
+            if self._frecency is not None:
+                self._frecency.record(path)
 
     def navigate_virtual(self, items: list[FileItem], label: str = "Search Results", *, on_activate: Callable[[FileItem], None] | None = None) -> None:
         if self._cwd is not None:
@@ -312,7 +322,15 @@ class PanePresenter:
             self._view.show_error(str(e))
             return False
         if path != self._cwd:
+            if self._cwd is not None and self._marks:
+                self._persistent_marks[self._cwd] = set(self._marks)
+                self._persistent_marks.move_to_end(self._cwd)
+                while len(self._persistent_marks) > 20:
+                    self._persistent_marks.popitem(last=False)
             self._marks.clear()
+            if path in self._persistent_marks:
+                self._marks = set(self._persistent_marks[path])
+                self._persistent_marks.move_to_end(path)
             self._dir_size_result = None
         self._items = _sort(raw)
         items = list(self._items)
@@ -323,12 +341,17 @@ class PanePresenter:
         if not same_dir and self._cwd is not None:
             get_state = getattr(self._view, "get_view_state", None)
             if get_state:
-                self._dir_view_state[self._cwd] = get_state()
+                state = get_state()
+                self._dir_view_state[self._cwd] = state
+                if self._store is not None:
+                    self._store.save(self._cwd, state)
         self._cwd = path
         self._push_history(path)
         self._view.set_path(path)
         self._view.set_items(items, preserve_scroll=same_dir)
         saved = self._dir_view_state.get(path)
+        if saved is None and self._store is not None:
+            saved = self._store.load(path)
         set_state = getattr(self._view, "set_view_state", None)
         if saved is not None and set_state:
             set_state(saved)

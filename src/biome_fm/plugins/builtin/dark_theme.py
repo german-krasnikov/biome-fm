@@ -2,8 +2,7 @@
 from __future__ import annotations
 
 from biome_fm.plugins.hookspecs import hookimpl
-from biome_fm.plugins.types import ThemeTokens
-from biome_fm.plugins.types import _DARK_FALLBACK
+from biome_fm.plugins.types import _DARK_FALLBACK, ThemeTokens
 
 
 class BuiltinDarkTheme:

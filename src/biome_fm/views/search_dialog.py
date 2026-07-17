@@ -4,9 +4,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from biome_fm.presenters.search_presenter import SearchMode
+from PySide6.QtCore import QDate
+from PySide6.QtWidgets import QDateEdit, QGroupBox
+
+from biome_fm.presenters.search_presenter import SearchFilter, SearchMode, SearchScope
 from biome_fm.qt import (
     QComboBox,
+    QCompleter,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
@@ -16,12 +20,13 @@ from biome_fm.qt import (
     QLineEdit,
     QPushButton,
     QSpinBox,
+    QStringListModel,
     QVBoxLayout,
     QWidget,
 )
 
 if TYPE_CHECKING:
-    from biome_fm.models.search_template_store import SearchTemplate, SearchTemplateStore
+    from biome_fm.models.search_template_store import SearchTemplateStore
 
 
 class SearchDialog(QDialog):
@@ -33,6 +38,7 @@ class SearchDialog(QDialog):
         parent: QWidget | None = None,
         *,
         store: SearchTemplateStore | None = None,
+        history: list[str] | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Find Files")
@@ -63,14 +69,24 @@ class SearchDialog(QDialog):
         form = QFormLayout()
 
         self._query = QLineEdit()
+        self._query.setAccessibleName("Search query")
         self._query.setPlaceholderText("*.txt, foo*.py, ...")
+        if history:
+            completer = QCompleter(QStringListModel(history, self._query), self._query)
+            self._query.setCompleter(completer)
         form.addRow("Pattern:", self._query)
 
         self._mode = QComboBox()
         self._mode.addItem("Wildcard", SearchMode.NAME_WILDCARD)
         self._mode.addItem("Regex", SearchMode.NAME_REGEX)
         self._mode.addItem("Content", SearchMode.CONTENT)
+        self._mode.addItem("Content (Regex)", SearchMode.CONTENT_REGEX)
         form.addRow("Mode:", self._mode)
+
+        self._scope = QComboBox()
+        self._scope.addItem("Subtree", SearchScope.SUBTREE)
+        self._scope.addItem("Current dir only", SearchScope.CURRENT_DIR)
+        form.addRow("Scope:", self._scope)
 
         self._max_results = QSpinBox()
         self._max_results.setRange(10, 100_000)
@@ -79,6 +95,41 @@ class SearchDialog(QDialog):
         form.addRow("Max results:", self._max_results)
 
         layout.addLayout(form)
+
+        # Advanced filters (collapsible via checkbox)
+        adv_box = QGroupBox("Advanced filters")
+        adv_box.setCheckable(True)
+        adv_box.setChecked(False)
+        adv_form = QFormLayout(adv_box)
+
+        self._min_size = QSpinBox()
+        self._min_size.setRange(0, 10_000_000)
+        self._min_size.setSuffix(" B")
+        adv_form.addRow("Min size:", self._min_size)
+
+        self._max_size = QSpinBox()
+        self._max_size.setRange(0, 10_000_000)
+        self._max_size.setSuffix(" B")
+        adv_form.addRow("Max size:", self._max_size)
+
+        self._mod_after = QDateEdit()
+        self._mod_after.setCalendarPopup(True)
+        self._mod_after.setSpecialValueText("(any)")
+        self._mod_after.setDate(QDate(2000, 1, 1))
+        adv_form.addRow("Modified after:", self._mod_after)
+
+        self._mod_before = QDateEdit()
+        self._mod_before.setCalendarPopup(True)
+        self._mod_before.setSpecialValueText("(any)")
+        self._mod_before.setDate(QDate(2099, 12, 31))
+        adv_form.addRow("Modified before:", self._mod_before)
+
+        self._extensions = QLineEdit()
+        self._extensions.setPlaceholderText(".py .txt .md")
+        adv_form.addRow("Extensions:", self._extensions)
+
+        self._adv_box = adv_box
+        layout.addWidget(adv_box)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -105,6 +156,7 @@ class SearchDialog(QDialog):
             "wildcard": SearchMode.NAME_WILDCARD,
             "regex": SearchMode.NAME_REGEX,
             "content": SearchMode.CONTENT,
+            "content_regex": SearchMode.CONTENT_REGEX,
         }
         mode_idx = self._mode.findData(mode_map.get(t.mode, SearchMode.NAME_WILDCARD))
         if mode_idx >= 0:
@@ -122,6 +174,7 @@ class SearchDialog(QDialog):
             SearchMode.NAME_WILDCARD: "wildcard",
             SearchMode.NAME_REGEX: "regex",
             SearchMode.CONTENT: "content",
+            SearchMode.CONTENT_REGEX: "content_regex",
         }.get(self._mode.currentData(), "wildcard")
         t = SearchTemplate(name=name.strip(), pattern=self._query.text().strip(),
                            mode=mode_str, max_results=self._max_results.value())
@@ -155,8 +208,31 @@ class SearchDialog(QDialog):
         return self._mode.currentData()
 
     @property
+    def scope(self) -> SearchScope:
+        return self._scope.currentData()
+
+    @property
     def max_results(self) -> int:
         return self._max_results.value()
+
+    @property
+    def search_filter(self) -> SearchFilter | None:
+        if not self._adv_box.isChecked():
+            return None
+        import datetime
+        min_s = self._min_size.value() or None
+        max_s = self._max_size.value() or None
+        exts_raw = self._extensions.text().strip()
+        exts = frozenset(e if e.startswith(".") else f".{e}" for e in exts_raw.split()) if exts_raw else frozenset()
+        after_dt = self._mod_after.date().toPython()
+        before_dt = self._mod_before.date().toPython()
+        mod_after = datetime.datetime.combine(after_dt, datetime.time.min).timestamp()
+        mod_before = datetime.datetime.combine(before_dt, datetime.time.max).timestamp()
+        return SearchFilter(
+            min_size=min_s, max_size=max_s,
+            modified_after=mod_after, modified_before=mod_before,
+            extensions=exts,
+        )
 
     @staticmethod
     def get_params(
@@ -164,9 +240,10 @@ class SearchDialog(QDialog):
         parent: QWidget | None = None,
         *,
         store: SearchTemplateStore | None = None,
-    ) -> tuple[str, SearchMode, int] | None:
-        """Show dialog, return (query, mode, max_results) or None if cancelled."""
-        dlg = SearchDialog(root, parent, store=store)
+        history: list[str] | None = None,
+    ) -> tuple[str, SearchMode, int, SearchScope, SearchFilter | None] | None:
+        """Show dialog, return (query, mode, max_results, scope, filter) or None if cancelled."""
+        dlg = SearchDialog(root, parent, store=store, history=history)
         if dlg.exec() == QDialog.DialogCode.Accepted:
-            return dlg.query, dlg.mode, dlg.max_results
+            return dlg.query, dlg.mode, dlg.max_results, dlg.scope, dlg.search_filter
         return None

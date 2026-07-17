@@ -7,8 +7,13 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
-    QDialog, QLabel, QProgressBar, QPushButton, QTreeWidget,
-    QTreeWidgetItem, QVBoxLayout,
+    QDialog,
+    QLabel,
+    QProgressBar,
+    QPushButton,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
 )
 
 from biome_fm.presenters.duplicate_presenter import DupGroup, find_duplicates

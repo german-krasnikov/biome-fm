@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 
 from biome_fm.preview.provider import ContentKind, PreviewRequest, PreviewResult
+from biome_fm.preview.providers._git_helpers import find_repo as _find_repo
 
 _BINARY_EXTS = frozenset({
     ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp",
@@ -32,7 +33,7 @@ class GitDiffPreviewProvider:
 
     def render(self, req: PreviewRequest) -> PreviewResult:
         try:
-            repo = self._find_repo(req.path)
+            repo = _find_repo(req.path)
             if repo is None:
                 return PreviewResult(kind=ContentKind.TEXT, data="Not in a git repository")
 
@@ -76,13 +77,3 @@ class GitDiffPreviewProvider:
         css = fmt.get_style_defs(".highlight")
         return f"<style>{css}</style>{html}"
 
-    @staticmethod
-    def _find_repo(path: Path) -> Path | None:
-        cur = path.parent.resolve()
-        while True:
-            if (cur / ".git").exists():
-                return cur
-            parent = cur.parent
-            if parent == cur:
-                return None
-            cur = parent

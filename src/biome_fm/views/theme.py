@@ -9,7 +9,7 @@ from string import Template
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
 
-from biome_fm.plugins.types import ThemeTokens, _DARK_FALLBACK
+from biome_fm.plugins.types import _DARK_FALLBACK, ThemeTokens
 
 # Backward-compat aliases (existing tests import _TOKENS / _DARK_FALLBACK from here)
 _TOKENS = _DARK_FALLBACK

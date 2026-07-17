@@ -32,6 +32,7 @@ class LocalVFS:
                     is_dir=entry.is_dir(),
                     size=st.st_size if not entry.is_dir() else 0,
                     modified=st.st_mtime,
+                    is_symlink=entry.is_symlink(),
                 ))
             except OSError:
                 continue
@@ -48,7 +49,12 @@ class LocalVFS:
         if src.is_dir():
             shutil.copytree(src, dst)
         else:
-            shutil.copy2(src, dst)
+            try:
+                with open(src, "rb") as fin, open(dst, "wb") as fout:
+                    os.sendfile(fout.fileno(), fin.fileno(), 0, src.stat().st_size)
+                shutil.copystat(src, dst)
+            except (AttributeError, OSError):
+                shutil.copy2(src, dst)
 
     def move(self, src: Path, dst: Path) -> None:
         shutil.move(str(src), str(dst))

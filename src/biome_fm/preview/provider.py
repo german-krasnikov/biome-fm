@@ -15,6 +15,15 @@ class ContentKind(Enum):
     ERROR = auto()
 
 
+class PreviewMode(Enum):
+    AUTO = auto()
+    TEXT = auto()
+    HEX = auto()
+    RAW = auto()
+    GIT_LOG = auto()
+    GIT_BLAME = auto()
+
+
 @dataclass(frozen=True, slots=True)
 class PreviewRequest:
     path: Path

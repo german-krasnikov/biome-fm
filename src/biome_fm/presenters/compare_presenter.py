@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import difflib
+import hashlib
 from collections import Counter
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 
 from biome_fm.models.file_item import FileItem
 
@@ -77,6 +80,68 @@ class ComparePresenter:
         entries.sort(key=lambda e: (_SORT_ORDER[e.status], e.name.lower()))
         self._result = entries
         return entries
+
+    def content_compare(self, left: Path, right: Path) -> list[CompareEntry]:
+        """Compare dirs by file content (sha256 for <10 MB, size+mtime fallback)."""
+        _MAX = 10 * 1024 * 1024
+
+        def _digest(p: Path) -> str | None:
+            try:
+                if p.stat().st_size > _MAX:
+                    return None
+                return hashlib.sha256(p.read_bytes()).hexdigest()
+            except OSError:
+                return None
+
+        lfiles = {f.name: f for f in left.iterdir() if f.is_file()}
+        rfiles = {f.name: f for f in right.iterdir() if f.is_file()}
+        entries: list[CompareEntry] = []
+        for name in lfiles.keys() | rfiles.keys():
+            lp, rp = lfiles.get(name), rfiles.get(name)
+            if lp is None:
+                st = rp.stat()  # type: ignore[union-attr]
+                li, ri = None, FileItem(name=name, path=rp, is_dir=False, size=st.st_size, modified=st.st_mtime)  # type: ignore[arg-type]
+                status = CompareStatus.RIGHT_ONLY
+            elif rp is None:
+                st = lp.stat()
+                li, ri = FileItem(name=name, path=lp, is_dir=False, size=st.st_size, modified=st.st_mtime), None
+                status = CompareStatus.LEFT_ONLY
+            else:
+                lst, rst = lp.stat(), rp.stat()
+                li = FileItem(name=name, path=lp, is_dir=False, size=lst.st_size, modified=lst.st_mtime)
+                ri = FileItem(name=name, path=rp, is_dir=False, size=rst.st_size, modified=rst.st_mtime)
+                ld, rd = _digest(lp), _digest(rp)
+                if ld is not None and rd is not None:
+                    status = CompareStatus.EQUAL if ld == rd else CompareStatus.DIFF_SIZE
+                else:
+                    status = _compare_files(li, ri)
+            entries.append(CompareEntry(name=name, status=status, left=li, right=ri))
+        entries.sort(key=lambda e: (_SORT_ORDER[e.status], e.name.lower()))
+        return entries
+
+    @staticmethod
+    def content_diff(entry: CompareEntry, context_lines: int = 3) -> str:
+        """Return unified diff string for two files. Returns '' if equal/binary/missing side."""
+        if entry.left is None or entry.right is None:
+            return ""
+        _MAX = 512 * 1024
+        try:
+            lb = entry.left.path.read_bytes()
+            rb = entry.right.path.read_bytes()
+        except OSError:
+            return ""
+        for data in (lb[:8192], rb[:8192]):
+            if b"\x00" in data:
+                return "(binary files differ)"
+        la = lb[:_MAX].decode("utf-8", errors="replace").splitlines(keepends=True)
+        ra = rb[:_MAX].decode("utf-8", errors="replace").splitlines(keepends=True)
+        lines = list(difflib.unified_diff(
+            la, ra,
+            fromfile=str(entry.left.path),
+            tofile=str(entry.right.path),
+            n=context_lines,
+        ))
+        return "".join(lines)
 
     @property
     def summary(self) -> str:

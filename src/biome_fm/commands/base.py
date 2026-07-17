@@ -24,6 +24,7 @@ class CommandHistory:
         self._undo_stack: list[Command] = []
         self._redo_stack: list[Command] = []
         self._max_depth = max_depth
+        self.on_changed = None  # Callable[[], None] | None — set by app to update UI labels
 
     def execute(self, cmd: Command) -> None:
         cmd.execute()
@@ -32,6 +33,8 @@ class CommandHistory:
             if len(self._undo_stack) > self._max_depth:
                 self._undo_stack.pop(0)
         self._redo_stack.clear()
+        if self.on_changed:
+            self.on_changed()
 
     def push(self, cmd: Command) -> None:
         """Record an already-executed command for undo (no execute call)."""
@@ -41,6 +44,8 @@ class CommandHistory:
         if len(self._undo_stack) > self._max_depth:
             self._undo_stack.pop(0)
         self._redo_stack.clear()
+        if self.on_changed:
+            self.on_changed()
 
     def undo(self) -> None:
         if not self._undo_stack:
@@ -48,6 +53,8 @@ class CommandHistory:
         cmd = self._undo_stack.pop()
         cmd.undo()
         self._redo_stack.append(cmd)
+        if self.on_changed:
+            self.on_changed()
 
     def redo(self) -> None:
         if not self._redo_stack:
@@ -55,6 +62,8 @@ class CommandHistory:
         cmd = self._redo_stack.pop()
         cmd.execute()
         self._undo_stack.append(cmd)
+        if self.on_changed:
+            self.on_changed()
 
     @property
     def can_undo(self) -> bool:

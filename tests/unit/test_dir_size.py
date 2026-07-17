@@ -86,3 +86,40 @@ def test_presenter_sets_dir_size_result(tmp_path: Path) -> None:
         time.sleep(0.05)
 
     assert p._dir_size_result == 3  # "xyz"
+
+
+# ── DirectoryModel._dir_sizes column ──────────────────────────────────────────
+
+def test_dir_size_calculated(qapp, tmp_path: Path) -> None:
+    """set_dir_size caches size and data() reflects it in COL_SIZE."""
+    from biome_fm.models.directory_model import DirectoryModel, COL_SIZE
+    from biome_fm.models.file_item import FileItem
+    from biome_fm.qt import Qt
+
+    d = tmp_path / "mydir"
+    d.mkdir()
+    item = FileItem(name="mydir", path=d, is_dir=True, size=0, modified=0.0)
+    model = DirectoryModel()
+    model.set_items([item])
+    model.set_dir_size(d, 1024)
+    idx = model.index(0, COL_SIZE)
+    text = model.data(idx, Qt.ItemDataRole.DisplayRole)
+    assert "1.0 KB" == text
+
+
+def test_file_size_unchanged(qapp, tmp_path: Path) -> None:
+    """set_dir_size does not affect file rows."""
+    from biome_fm.models.directory_model import DirectoryModel, COL_SIZE
+    from biome_fm.models.file_item import FileItem
+    from biome_fm.qt import Qt
+
+    f = tmp_path / "readme.txt"
+    f.write_bytes(b"x" * 512)
+    item = FileItem(name="readme.txt", path=f, is_dir=False, size=512, modified=0.0)
+    model = DirectoryModel()
+    model.set_items([item])
+    # calling set_dir_size on a file path should have no effect
+    model.set_dir_size(f, 999)
+    idx = model.index(0, COL_SIZE)
+    text = model.data(idx, Qt.ItemDataRole.DisplayRole)
+    assert text == "512 B"

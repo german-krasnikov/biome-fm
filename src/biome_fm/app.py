@@ -3,47 +3,77 @@ from __future__ import annotations
 
 import shlex
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from biome_fm.ai.provider import make_providers
 from biome_fm.commands.base import CommandHistory
+from biome_fm.commands.git_stage import GitStageCmd, GitUnstageCmd
+from biome_fm.commands.new_file_cmd import NewFileCmd
 from biome_fm.commands.registry import CommandEntry, CommandRegistry
+from biome_fm.commands.trash_cmd import TrashCmd
 from biome_fm.config import load_config, save_config
 from biome_fm.event_bus import (
     ActivePaneChanged,
     AsyncOpSubmitted,
     BookmarkChanged,
+    OperationFinished,
+    OperationStarted,
     ShowHiddenToggled,
     SyncBrowsingToggled,
     ThemeChanged,
     bus,
 )
+from biome_fm.git.status_cache import GitStatusCache, RepoStatus
+from biome_fm.git.worker import GitStatusWorker
 from biome_fm.models.bookmark_store import BookmarkStore
+from biome_fm.models.clipboard_service import ClipboardService
+from biome_fm.models.command_store import CommandStore
+from biome_fm.models.dir_state_store import DirStateStore
+from biome_fm.models.frecency_store import FrecencyStore
+from biome_fm.models.highlight_rules import HighlightRule
+from biome_fm.models.search_template_store import SearchTemplateStore
 from biome_fm.models.tag_store import TagStore
-from biome_fm.models.workspace_store import WorkspaceStore
 from biome_fm.models.vfs_router import VFSRouter
+from biome_fm.models.workspace_store import WorkspaceStore
 from biome_fm.operations.queue import OpQueue
 from biome_fm.operations.task import OpCancelled, OpConflict, OpDone, OpError, OpProgress
-from biome_fm.views.conflict_dialog import ConflictDialog
 from biome_fm.panel_manager import PanelManager
 from biome_fm.plugins.builtin.dark_theme import BuiltinDarkTheme
 from biome_fm.plugins.manager import PluginManager
 from biome_fm.presenters.ai_presenter import AIPresenter
+from biome_fm.presenters.info_presenter import InfoPresenter
 from biome_fm.presenters.manager_presenter import ManagerPresenter
 from biome_fm.presenters.pane_presenter import PanePresenter, PaneViewProtocol
 from biome_fm.presenters.search_coordinator import SearchCoordinator
 from biome_fm.presenters.settings_presenter import SettingsPresenter
 from biome_fm.presenters.tabs_presenter import TabsPresenter
 from biome_fm.preview.presenter import PreviewPresenter
+from biome_fm.preview.providers.archive import ArchivePreviewProvider
 from biome_fm.preview.providers.code import CodePreviewProvider
 from biome_fm.preview.providers.fallback import FallbackProvider
+from biome_fm.preview.providers.git_blame import GitBlamePreviewProvider
+from biome_fm.preview.providers.git_diff import GitDiffPreviewProvider
+from biome_fm.preview.providers.git_log import GitLogPreviewProvider
+from biome_fm.preview.providers.hex import HexPreviewProvider
 from biome_fm.preview.providers.image import ImagePreviewProvider
 from biome_fm.preview.providers.markdown import MarkdownPreviewProvider
-from biome_fm.preview.providers.video import VideoPreviewProvider
+from biome_fm.preview.providers.metadata import MetadataPreviewProvider
+from biome_fm.preview.providers.pdf import PDFPreviewProvider
 from biome_fm.preview.providers.text import TextPreviewProvider
+from biome_fm.preview.providers.video import VideoPreviewProvider
 from biome_fm.preview.registry import PreviewRegistry
-from biome_fm.qt import QApplication, QDialog, QInputDialog, QKeySequence, Qt, QShortcut, QStandardPaths, QTimer
+from biome_fm.qt import (
+    QApplication,
+    QDialog,
+    QInputDialog,
+    QKeySequence,
+    QShortcut,
+    QStandardPaths,
+    Qt,
+    QTimer,
+)
 from biome_fm.session import (
     PanelSession,
     PaneSideState,
@@ -52,41 +82,31 @@ from biome_fm.session import (
     load_session,
     save_session,
 )
-from biome_fm.utils.opener import open_file
+from biome_fm.utils.opener import open_file, open_in_editor
 from biome_fm.utils.platform import open_terminal, reveal_in_finder
+from biome_fm.utils.shell_vars import expand_shell_vars
+from biome_fm.utils.watcher import WatchService
 from biome_fm.views.ai_chat_panel import AIChatPanel
 from biome_fm.views.bookmark_dialog import BookmarkDialog
 from biome_fm.views.command_palette import CommandPalette
+from biome_fm.views.confirm_dialog import ConfirmDialog
+from biome_fm.views.conflict_dialog import ConflictDialog
+from biome_fm.views.fullscreen_viewer import FullscreenViewer
+from biome_fm.views.fuzzy_finder import FuzzyFinder
+from biome_fm.views.highlight_rules_dialog import HighlightRulesDialog
+from biome_fm.views.info_panel import InfoPanel
 from biome_fm.views.main_window import MainWindow
+from biome_fm.views.nl_ops_dialog import NLOpsDialog
 from biome_fm.views.pane_side_view import PaneSideView
 from biome_fm.views.panel_coordinator import PanelCoordinator
+from biome_fm.views.pattern_dialog import PatternDialog
 from biome_fm.views.preview_panel import PreviewPanel
 from biome_fm.views.progress_dialog import ProgressDialog
 from biome_fm.views.search_panel import SearchResultsPanel
-from biome_fm.views.terminal_panel import TerminalPanel
-from biome_fm.views.confirm_dialog import ConfirmDialog
-from biome_fm.views.fullscreen_viewer import FullscreenViewer
-from biome_fm.views.fuzzy_finder import FuzzyFinder
-from biome_fm.views.pattern_dialog import PatternDialog
 from biome_fm.views.settings_dialog import SettingsDialog
-from biome_fm.views.highlight_rules_dialog import HighlightRulesDialog
-from biome_fm.models.highlight_rules import HighlightRule
-from biome_fm.views.workspace_dialog import WorkspaceDialog
+from biome_fm.views.terminal_panel import TerminalPanel
 from biome_fm.views.transfer_queue_panel import TransferQueuePanel
-from biome_fm.views.nl_ops_dialog import NLOpsDialog
-from biome_fm.commands.git_stage import GitStageCmd, GitUnstageCmd
-from biome_fm.git.status_cache import GitStatusCache, RepoStatus
-from biome_fm.git.worker import GitStatusWorker
-from biome_fm.models.command_store import CommandStore
-from biome_fm.models.search_template_store import SearchTemplateStore
-from biome_fm.preview.providers.archive import ArchivePreviewProvider
-from biome_fm.preview.providers.git_diff import GitDiffPreviewProvider
-from biome_fm.preview.providers.hex import HexPreviewProvider
-from biome_fm.preview.providers.metadata import MetadataPreviewProvider
-from biome_fm.preview.providers.pdf import PDFPreviewProvider
-from biome_fm.utils.shell_vars import expand_shell_vars
-from biome_fm.utils.watcher import WatchService
-
+from biome_fm.views.workspace_dialog import WorkspaceDialog
 
 # ── Module-level constants ────────────────────────────────────────────────────
 
@@ -100,6 +120,38 @@ _AI_MODEL_FIELDS: dict[str, str] = {
 }
 
 
+def _should_show_notification(ev: OperationFinished, *, has_active_window: bool) -> bool:
+    """Return True if a tray notification should be shown for this event."""
+    return ev.success and not has_active_window
+
+
+class _OpsCounter:
+    """Tracks in-progress operations and notifies a callback on change."""
+    def __init__(self, update_fn: Callable[[int], None]) -> None:
+        self._count = 0
+        self._update = update_fn
+
+    def inc(self) -> None:
+        self._count += 1
+        self._update(self._count)
+
+    def dec(self) -> None:
+        self._count = max(0, self._count - 1)
+        self._update(self._count)
+
+
+def _get_git_branch(path: Path) -> str:
+    """Return current git branch for path, or empty string if not in a repo."""
+    try:
+        r = subprocess.run(
+            ["git", "-C", str(path), "branch", "--show-current"],
+            capture_output=True, text=True, timeout=2,
+        )
+        return r.stdout.strip()
+    except Exception:
+        return ""
+
+
 @dataclass
 class _AppContext:
     """Keeps references alive for the lifetime of the window."""
@@ -108,6 +160,7 @@ class _AppContext:
     right_tabs: object
     ai_presenter: object
     preview_presenter: object
+    info_presenter: object
     coord: object
     panel_mgr: object
     op_queue: object
@@ -138,12 +191,12 @@ def _build_plugins(cfg):
     return plugins
 
 
-def _build_panes(vfs):
+def _build_panes(vfs, store: DirStateStore | None = None, frecency: FrecencyStore | None = None):
     """Construct left/right PaneSideViews and TabsPresenters."""
     left_side = PaneSideView()
     right_side = PaneSideView()
-    left_tabs = TabsPresenter(vfs, left_side, left_side.new_pane, opener=open_file)
-    right_tabs = TabsPresenter(vfs, right_side, right_side.new_pane, opener=open_file)
+    left_tabs = TabsPresenter(vfs, left_side, left_side.new_pane, opener=open_file, store=store, frecency=frecency)
+    right_tabs = TabsPresenter(vfs, right_side, right_side.new_pane, opener=open_file, store=store, frecency=frecency)
     return left_side, right_side, left_tabs, right_tabs
 
 
@@ -208,6 +261,47 @@ def _wire_pane(view: PaneViewProtocol, presenter: PanePresenter) -> None:
             sig.connect(slot)
 
 
+def _wire_ai_cursor(view: object, tabs: object, ai_presenter: object) -> None:
+    """Connect cursor_changed → ai_presenter.set_context."""
+    sig = getattr(view, "cursor_changed", None)
+    if sig is None:
+        return
+    sig.connect(lambda item, t=tabs, ap=ai_presenter: ap.set_context(
+        t.current_path, [item] if item is not None else []
+    ))
+
+
+def _wire_info_cursor(view: object, ip: object) -> None:
+    """Connect cursor_changed → info_presenter.on_cursor_changed."""
+    sig = getattr(view, "cursor_changed", None)
+    if sig is not None:
+        sig.connect(ip.on_cursor_changed)
+
+
+def _update_recent_dirs(cfg: object, path: Path) -> None:
+    """Prepend path to cfg.recent_dirs, dedup, limit 50."""
+    s = str(path)
+    dirs = [d for d in cfg.recent_dirs if d != s]
+    dirs.insert(0, s)
+    cfg.recent_dirs = dirs[:50]
+
+
+def _wire_recent_dirs(view: object, cfg: object) -> None:
+    """Connect path_updated → _update_recent_dirs."""
+    sig = getattr(view, "path_updated", None)
+    if sig is not None:
+        sig.connect(lambda path, c=cfg: _update_recent_dirs(c, path))
+
+
+def _wire_system_theme(cfg: object, style_hints: object, apply_fn: object) -> None:
+    """Connect colorSchemeChanged → apply_fn if cfg.follow_system_theme."""
+    if not cfg.follow_system_theme:
+        return
+    sig = getattr(style_hints, "colorSchemeChanged", None)
+    if sig is not None:
+        sig.connect(apply_fn)
+
+
 def create_app() -> MainWindow:
     # ── Config & Session ──────────────────────────────────────────
     cfg_dir = _config_dir()
@@ -218,11 +312,14 @@ def create_app() -> MainWindow:
     plugins = _build_plugins(cfg)
     vfs = VFSRouter(plugin_manager=plugins)
     history = CommandHistory()
+    clipboard = ClipboardService()
     store = BookmarkStore(cfg_dir / "bookmarks.toml")
     tag_store = TagStore.load(cfg_dir / "tags.toml")
     ws_store = WorkspaceStore(cfg_dir / "workspaces.json")
     op_queue = OpQueue(max_workers=2)
-    left_side, right_side, left_tabs, right_tabs = _build_panes(vfs)
+    dir_state_store = DirStateStore(cfg_dir / "dir_state.json")
+    frecency_store = FrecencyStore(cfg_dir / "frecency.json")
+    left_side, right_side, left_tabs, right_tabs = _build_panes(vfs, dir_state_store, frecency_store)
     import queue as _queue_mod
     _watch_queue: _queue_mod.SimpleQueue = _queue_mod.SimpleQueue()
     left_watcher = WatchService(callback=_watch_queue.put)
@@ -230,15 +327,20 @@ def create_app() -> MainWindow:
     preview_registry, preview_panel, preview_presenter = _build_preview(cfg)
     git_cache = GitStatusCache()
     git_worker = GitStatusWorker(git_cache)
+    from biome_fm.preview.providers.sqlite_preview import SqlitePreviewProvider
     for _p4 in [GitDiffPreviewProvider(status_fn=git_cache.file_status),
+                GitLogPreviewProvider(), GitBlamePreviewProvider(),
                 ArchivePreviewProvider(), PDFPreviewProvider(),
-                MetadataPreviewProvider(), HexPreviewProvider()]:
+                MetadataPreviewProvider(), HexPreviewProvider(), SqlitePreviewProvider()]:
         preview_registry.register(_p4)
     try:
         from biome_fm.preview.providers.quicklook import QuickLookProvider
         preview_registry.register(QuickLookProvider())
     except ImportError:
         pass
+    from biome_fm.preview.providers.script import load_script_providers
+    for _sp in load_script_providers(cfg_dir / "preview_scripts"):
+        preview_registry.register(_sp)
 
     coord: PanelCoordinator | None = None  # late-bound; set after window creation
 
@@ -290,14 +392,12 @@ def create_app() -> MainWindow:
     git_worker.status_ready.connect(_on_git_status)
 
     def _restore(tabs: TabsPresenter, state: PaneSideState) -> None:
-        watcher = left_watcher if tabs is left_tabs else right_watcher
         for ts in state.tabs:
-            p = tabs.new_tab(Path(ts.path))
+            p = tabs.new_tab(Path(ts.path), deferred=True)  # lazy — load on first switch
             v = tabs.view_at(tabs.tab_count - 1)
             _wire_pane(v, p)
             _wire_preview(v)
-            _wire_git(v, watcher)
-        tabs.switch_tab(state.active_idx)
+        tabs.switch_tab(state.active_idx)  # triggers load of active tab
 
     home = Path.home()
     if session:
@@ -308,12 +408,10 @@ def create_app() -> MainWindow:
         v0 = left_tabs.view_at(0)
         _wire_pane(v0, lp)
         _wire_preview(v0)
-        _wire_git(v0, left_watcher)
         rp = right_tabs.new_tab(home)
         v1 = right_tabs.view_at(0)
         _wire_pane(v1, rp)
         _wire_preview(v1)
-        _wire_git(v1, right_watcher)
 
     # ── Manager ───────────────────────────────────────────────────
     _confirm_parent: list[object] = [None]  # late-bound after window creation
@@ -380,6 +478,9 @@ def create_app() -> MainWindow:
 
     ai_panel.file_link_clicked.connect(_on_ai_navigate)
 
+    info_panel = InfoPanel()
+    info_presenter = InfoPresenter(info_panel)
+
     search_panel = SearchResultsPanel()
     terminal_panel = TerminalPanel()
 
@@ -397,9 +498,10 @@ def create_app() -> MainWindow:
     terminal_panel.hide()
 
     # ── Sidebar ───────────────────────────────────────────────────
-    from PySide6.QtWidgets import QDockWidget
-    from biome_fm.views.sidebar_panel import SidebarPanel
     from PySide6.QtCore import QStorageInfo
+    from PySide6.QtWidgets import QDockWidget
+
+    from biome_fm.views.sidebar_panel import SidebarPanel
     _sidebar = SidebarPanel()
     _dock = QDockWidget("Sidebar", window)
     _dock.setWidget(_sidebar)
@@ -432,7 +534,7 @@ def create_app() -> MainWindow:
     panel_mgr = PanelManager()
     coord = PanelCoordinator(
         panel_mgr,
-        panels={"preview": preview_panel, "ai": ai_panel, "search": search_panel, "terminal": terminal_panel},
+        panels={"preview": preview_panel, "ai": ai_panel, "search": search_panel, "terminal": terminal_panel, "info": info_panel},
         left_side=left_side,
         right_side=right_side,
         splitter=window.splitter,
@@ -459,10 +561,15 @@ def create_app() -> MainWindow:
 
     preview_panel.detach_requested.connect(lambda: coord.detach("preview"))
     preview_panel.close_requested.connect(lambda: coord.toggle("preview"))
+    preview_panel.mode_changed.connect(preview_presenter.set_mode)
+    preview_panel.summarize_requested.connect(
+        lambda: ai_presenter.summarize_file(_active().current_item()) if _active().current_item() is not None else None  # noqa: E501
+    )
     ai_panel.detach_requested.connect(lambda: coord.detach("ai"))
     ai_panel.close_requested.connect(lambda: coord.toggle("ai"))
     terminal_panel.detach_requested.connect(lambda: coord.detach("terminal"))
     terminal_panel.close_requested.connect(lambda: coord.toggle("terminal"))
+    terminal_panel.cwd_changed.connect(lambda p: manager.navigate_active(p) if p.is_dir() else None)
     # Sync terminal cwd when any pane navigates
     for _side_tabs in [left_tabs, right_tabs]:
         for _i in range(_side_tabs.tab_count):
@@ -532,7 +639,6 @@ def create_app() -> MainWindow:
                     _progress_dialogs.pop(event.task_id, None)
                 xfer_panel.on_op_cancelled(event.task_id)
             elif isinstance(event, OpConflict):
-                from biome_fm.models.conflict_resolver import ConflictAction
                 action = ConflictDialog.ask(event.src, event.dst, parent=window)
                 event.resolver.reply(action)
 
@@ -545,6 +651,30 @@ def create_app() -> MainWindow:
         xfer_panel.show()
 
     bus.subscribe(AsyncOpSubmitted, _on_async_op)
+
+    # ── Tray notifications ────────────────────────────────────────
+    from PySide6.QtWidgets import QSystemTrayIcon
+    _tray = QSystemTrayIcon(window)
+    _tray.show()
+
+    def _on_op_finished(ev: OperationFinished) -> None:
+        if _should_show_notification(ev, has_active_window=QApplication.activeWindow() is not None):
+            _tray.showMessage("Biome FM", ev.description,
+                              QSystemTrayIcon.MessageIcon.Information, 3000)
+
+    bus.subscribe(OperationFinished, _on_op_finished)
+
+    # ── Status bar: ops counter + git branch ─────────────────────
+    _ops_ctr = _OpsCounter(window.update_ops_count)
+    bus.subscribe(OperationStarted, lambda _ev: _ops_ctr.inc())
+
+    def _on_op_finished_sb(ev: OperationFinished) -> None:
+        _ops_ctr.dec()
+
+    bus.subscribe(OperationFinished, _on_op_finished_sb)
+
+    def _update_git_branch(path: Path) -> None:
+        window.update_git_branch(_get_git_branch(path))
 
     op_timer = QTimer(window)
     op_timer.setInterval(50)
@@ -678,15 +808,29 @@ def create_app() -> MainWindow:
         _wire_tags(v)
         _wire_ai_rename(v)
         _wire_ai_context(v)
+        _wire_ai_cursor(v, tabs, ai_presenter)
+        _wire_info_cursor(v, info_presenter)
+        _wire_recent_dirs(v, cfg)
+        _wire_new_file(v)
+        _wire_clipboard(v)
+        _wire_trash(v)
         _sig = getattr(v, "path_updated", None)
         if _sig is not None:
             _sig.connect(terminal_panel.set_cwd)
+            _sig.connect(_update_git_branch)
 
     # ── Dialog helpers ────────────────────────────────────────────
     def _ask_mkdir() -> None:
         name, ok = QInputDialog.getText(window, "New Folder", "Name:")
         if ok and name.strip():
             manager.mkdir(name.strip())
+
+    def _ask_new_file() -> None:
+        name, ok = QInputDialog.getText(window, "New File", "File name:")
+        if ok and name.strip():
+            path = _active().current_path / name.strip()
+            history.execute(NewFileCmd(path))
+            manager._refresh_both()
 
     def _ask_rename() -> None:
         item = _active().current_item()
@@ -712,6 +856,47 @@ def create_app() -> MainWindow:
             return items
         cursor = _active().current_item()
         return [cursor] if cursor and cursor.name != ".." else []
+
+    def _update_cut_state() -> None:
+        cut = clipboard.has_cut
+        for _tabs in (left_tabs, right_tabs):
+            for _i in range(_tabs.tab_count):
+                _v = _tabs.view_at(_i)
+                _m = getattr(_v, "_model", None)
+                if _m and hasattr(_m, "set_cut_paths"):
+                    _m.set_cut_paths(cut)
+
+    def _wire_clipboard(view: object) -> None:
+        def _on_copy() -> None:
+            clipboard.copy([i.path for i in _op_items()])
+        def _on_cut() -> None:
+            clipboard.cut([i.path for i in _op_items()])
+            _update_cut_state()
+        def _on_paste() -> None:
+            paths, is_cut = clipboard.paste(_active().current_path)
+            if not paths:
+                return
+            manager.drop_files(paths, manager.active_pane_id, is_cut)
+            _update_cut_state()
+        for _attr, _slot in [
+            ("clipboard_copy_requested", _on_copy),
+            ("clipboard_cut_requested", _on_cut),
+            ("clipboard_paste_requested", _on_paste),
+        ]:
+            _sig = getattr(view, _attr, None)
+            if _sig is not None:
+                _sig.connect(_slot)
+
+    def _wire_trash(view: object) -> None:
+        def _on_trash() -> None:
+            items = _op_items()
+            if not items:
+                return
+            history.execute(TrashCmd([i.path for i in items]))
+            manager._refresh_both()
+        _sig = getattr(view, "trash_requested", None)
+        if _sig is not None:
+            _sig.connect(_on_trash)
 
     def _wire_plugin_ctx(view: object, pane_id: str) -> None:
         if hasattr(view, "plugin_menu_extra"):
@@ -888,6 +1073,11 @@ def create_app() -> MainWindow:
 
         sig.connect(_on_ai_context_requested)
 
+    def _wire_new_file(view: object) -> None:
+        sig = getattr(view, "new_file_requested", None)
+        if sig is not None:
+            sig.connect(_ask_new_file)
+
     # ── Workspaces ─────────────────────────────────────────────────
     def _save_workspace(name: str) -> None:
         left_paths = [str(left_tabs.presenter_at(i).current_path) for i in range(left_tabs.tab_count)]
@@ -931,6 +1121,15 @@ def create_app() -> MainWindow:
             _wire_tags(_v_w)
             _wire_ai_rename(_v_w)
             _wire_ai_context(_v_w)
+            _wire_ai_cursor(_v_w, _tabs_w, ai_presenter)
+            _wire_info_cursor(_v_w, info_presenter)
+            _wire_recent_dirs(_v_w, cfg)
+            _wire_new_file(_v_w)
+            _wire_clipboard(_v_w)
+            _wire_trash(_v_w)
+            _pu = getattr(_v_w, "path_updated", None)
+            if _pu is not None:
+                _pu.connect(_update_git_branch)
 
     def _bookmark_toggle() -> None:
         path = _active().current_path
@@ -962,6 +1161,13 @@ def create_app() -> MainWindow:
     QShortcut(QKeySequence("Ctrl+G"), window).activated.connect(_select_by_pattern)
 
     # ── Shortcuts ─────────────────────────────────────────────────
+    def _open_jump_dialog() -> None:
+        from biome_fm.views.jump_dialog import JumpDialog
+        dlg = JumpDialog(frecency_store.top(20), parent=window)
+        dlg.path_selected.connect(lambda p: _active().navigate_to(p))
+        dlg.exec()
+
+    QShortcut(QKeySequence("Ctrl+J"), window).activated.connect(_open_jump_dialog)
     QShortcut(QKeySequence("Ctrl+T"), window).activated.connect(_new_tab)
     QShortcut(QKeySequence("Ctrl+W"), window).activated.connect(
         lambda: _active().close_tab(_active().active_idx)
@@ -1022,6 +1228,13 @@ def create_app() -> MainWindow:
     bar.view_requested.connect(_toggle_preview_f3)
     QShortcut(QKeySequence("Ctrl+Shift+C"), window).activated.connect(_copy_path)
     QShortcut(QKeySequence("F3"),           window).activated.connect(_toggle_preview_f3)
+
+    def _open_in_editor_f4() -> None:
+        item = _active().current_item()
+        if item is not None and item.name != "..":
+            open_in_editor(item.path, cfg.editor_cmd)
+
+    QShortcut(QKeySequence("F4"),           window).activated.connect(_open_in_editor_f4)
     QShortcut(QKeySequence("F9"),           window).activated.connect(
         lambda: open_terminal(_active().current_path)
     )
@@ -1039,13 +1252,29 @@ def create_app() -> MainWindow:
         viewer.showMaximized()
 
     QShortcut(QKeySequence("F11"),          window).activated.connect(_open_fullscreen)
+
+    def _open_shortcut_help() -> None:
+        from biome_fm.views.shortcut_help_dialog import ShortcutHelpDialog
+        ShortcutHelpDialog(window).exec()
+
+    QShortcut(QKeySequence("?"),  window).activated.connect(_open_shortcut_help)
+    QShortcut(QKeySequence("F1"), window).activated.connect(_open_shortcut_help)
     QShortcut(QKeySequence("Ctrl+Z"),       window).activated.connect(manager.undo)
     QShortcut(QKeySequence("Ctrl+Shift+Z"), window).activated.connect(manager.redo)
+    QShortcut(QKeySequence("Ctrl+U"),       window).activated.connect(manager.swap_panes)
+    QShortcut(QKeySequence("Ctrl+Shift+U"), window).activated.connect(manager.target_equals_source)
     QShortcut(QKeySequence("Ctrl+Shift+L"), window).activated.connect(manager.toggle_mirror)
 
     # ── Undo/Redo from menu ───────────────────────────────────────
     window.undo_requested.connect(manager.undo)
     window.redo_requested.connect(manager.redo)
+
+    def _update_undo_redo_labels() -> None:
+        undo_desc = history._undo_stack[-1].description if history._undo_stack else None
+        redo_desc = history._redo_stack[-1].description if history._redo_stack else None
+        window.update_undo_redo_labels(undo_desc, redo_desc)
+
+    history.on_changed = _update_undo_redo_labels
 
     # ── Menu signals ─────────────────────────────────────────────
     window.refresh_requested.connect(lambda: _active().refresh())
@@ -1101,6 +1330,19 @@ def create_app() -> MainWindow:
         ai_panel._log.set_dark(dark)
 
     bus.subscribe(ThemeChanged, _on_theme_changed)
+
+    # ── OS theme auto-switch ──────────────────────────────────────
+    def _on_system_scheme_changed() -> None:
+        from PySide6.QtCore import Qt
+        from PySide6.QtGui import QGuiApplication as _QGA
+
+        from biome_fm.views.theme import apply_theme
+        scheme = _QGA.styleHints().colorScheme()
+        name = "dark" if scheme == Qt.ColorScheme.Dark else "light"
+        apply_theme(QApplication.instance(), name, plugin_manager=plugins)
+
+    from PySide6.QtGui import QGuiApplication
+    _wire_system_theme(cfg, QGuiApplication.styleHints(), _on_system_scheme_changed)
 
     # ── Focus tracking → active pane ─────────────────────────────
     def _on_focus_changed(old: object, new: object) -> None:
@@ -1253,6 +1495,25 @@ def create_app() -> MainWindow:
     window.find_duplicates_requested.connect(_open_dup_finder)
     QShortcut(QKeySequence("Ctrl+Shift+D"), window).activated.connect(_open_dup_finder)
 
+    def _open_panelize() -> None:
+        from biome_fm.utils.panelize import parse_shell_output
+        cmd, ok = QInputDialog.getText(window, "Panelize", "Shell command:")
+        if not ok or not cmd.strip():
+            return
+        import subprocess as _sp
+        try:
+            proc = _sp.run(
+                cmd, shell=True, capture_output=True, text=True,
+                cwd=str(_active().current_path), timeout=30,
+            )
+            items = parse_shell_output(proc.stdout, _active().current_path)
+        except Exception:
+            items = []
+        if items:
+            _active().navigate_virtual(items, label=f"$ {cmd}")
+
+    window.panelize_requested.connect(_open_panelize)
+
     def _open_temp_panel() -> None:
         from biome_fm.views.temp_panel import TempPanel
         dlg = TempPanel(parent=window)
@@ -1331,6 +1592,7 @@ def create_app() -> MainWindow:
         right_tabs=right_tabs,
         ai_presenter=ai_presenter,
         preview_presenter=preview_presenter,
+        info_presenter=info_presenter,
         coord=coord,
         panel_mgr=panel_mgr,
         op_queue=op_queue,

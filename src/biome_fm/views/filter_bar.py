@@ -37,6 +37,10 @@ class FilterBar(QWidget):
         self._edit.setFocus()
         self._edit.selectAll()
 
+    def set_text(self, text: str) -> None:
+        """Set filter text without triggering focus/selectAll."""
+        self._edit.setText(text)
+
     def deactivate(self) -> None:
         self._edit.clear()
         self.hide()

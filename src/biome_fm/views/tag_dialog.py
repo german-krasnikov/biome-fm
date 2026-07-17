@@ -6,12 +6,11 @@ from biome_fm.qt import (
     QDialog,
     QDialogButtonBox,
     QHBoxLayout,
-    QLabel,
     QLineEdit,
     QPushButton,
+    Qt,
     QVBoxLayout,
     QWidget,
-    Qt,
 )
 
 

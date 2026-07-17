@@ -5,7 +5,9 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
+from biome_fm.models.dir_state_store import DirStateStore
 from biome_fm.models.file_item import FileItem
+from biome_fm.models.frecency_store import FrecencyStore
 from biome_fm.models.vfs import VFSProtocol
 from biome_fm.presenters.pane_presenter import PanePresenter, PaneViewProtocol
 
@@ -27,14 +29,20 @@ class TabsPresenter:
         tabs_view: TabsViewProtocol,
         view_factory: Callable[[], PaneViewProtocol],
         opener: Callable[[Path], None] | None = None,
+        store: DirStateStore | None = None,
+        frecency: FrecencyStore | None = None,
     ) -> None:
         self._vfs = vfs
         self._tabs_view = tabs_view
         self._view_factory = view_factory
         self._opener = opener
+        self._store = store
+        self._frecency = frecency
         self._tabs: list[PanePresenter] = []
         self._views: list[PaneViewProtocol] = []
         self._active_idx: int = 0
+        self._locked: set[int] = set()
+        self._pending: dict[int, Path] = {}  # deferred tab paths
 
     # ── tab management ────────────────────────────────────────────────────────
 
@@ -52,23 +60,38 @@ class TabsPresenter:
     def tab_count(self) -> int:
         return len(self._tabs)
 
-    def new_tab(self, path: Path) -> PanePresenter:
+    def new_tab(self, path: Path, deferred: bool = False) -> PanePresenter:
         view = self._view_factory()
-        presenter = PanePresenter(view=view, vfs=self._vfs, opener=self._opener)
+        presenter = PanePresenter(view=view, vfs=self._vfs, opener=self._opener, store=self._store, frecency=self._frecency)
         self._tabs.append(presenter)
         self._views.append(view)
         idx = self._tabs_view.add_tab("")
         self._active_idx = idx
         self._tabs_view.set_active_tab(idx)
-        presenter.navigate_to(path)
+        if deferred:
+            self._pending[idx] = path
+        else:
+            presenter.navigate_to(path)
         return presenter
 
+    def lock_tab(self, idx: int) -> None:
+        self._locked.add(idx)
+
+    def unlock_tab(self, idx: int) -> None:
+        self._locked.discard(idx)
+
+    def is_locked(self, idx: int) -> bool:
+        return idx in self._locked
+
     def close_tab(self, idx: int) -> None:
-        if self.tab_count <= 1:
+        if self.tab_count <= 1 or idx in self._locked:
             return
         self._tabs.pop(idx)
         self._views.pop(idx)
         self._tabs_view.remove_tab(idx)
+        # Shift locked/pending indices above idx down by one
+        self._locked = {k - 1 if k > idx else k for k in self._locked}
+        self._pending = {(k - 1 if k > idx else k): v for k, v in self._pending.items() if k != idx}
         if self._active_idx >= self.tab_count:
             self._active_idx = self.tab_count - 1
         elif self._active_idx > idx:
@@ -79,6 +102,8 @@ class TabsPresenter:
         if 0 <= idx < self.tab_count:
             self._active_idx = idx
             self._tabs_view.set_active_tab(idx)
+            if idx in self._pending:
+                self._tabs[idx].navigate_to(self._pending.pop(idx))
 
     def paths(self) -> list[Path]:
         return [t.current_path for t in self._tabs]
@@ -88,6 +113,13 @@ class TabsPresenter:
 
     def presenter_at(self, idx: int) -> PanePresenter:
         return self._tabs[idx]
+
+    def save_group(self, name: str, store: object) -> None:
+        store.save_group(name, self.paths())  # type: ignore[attr-defined]
+
+    def load_group(self, name: str, store: object) -> None:
+        for path in store.load_group(name):  # type: ignore[attr-defined]
+            self.new_tab(path)
 
     # ── PanePresenter delegation for ManagerPresenter ─────────────────────────
 
@@ -112,6 +144,9 @@ class TabsPresenter:
         return self.active.marked_items
 
     def navigate_to(self, path: Path) -> None:
+        if self._active_idx in self._locked:
+            self.new_tab(path)
+            return
         self.active.navigate_to(path)
         self._tabs_view.set_tab_title(self._active_idx, str(path))
         self._tabs_view.set_tab_tooltip(self._active_idx, str(path))

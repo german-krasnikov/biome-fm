@@ -31,6 +31,16 @@ class Config:
     auto_preview: bool = True
     highlight_rules: list[dict] = field(default_factory=list)
     hidden_columns: list[str] = field(default_factory=list)
+    follow_system_theme: bool = True
+    editor_cmd: str = ""
+    search_history: list[str] = field(default_factory=list)
+    layout_profiles: dict[str, dict] = field(default_factory=dict)
+
+    def save_layout(self, name: str, data: dict) -> None:
+        self.layout_profiles[name] = data
+
+    def load_layout(self, name: str) -> dict | None:
+        return self.layout_profiles.get(name)
 
 
 def load_config(path: Path) -> Config:
@@ -44,6 +54,22 @@ def load_config(path: Path) -> Config:
         data["ai_claude_key"] = data["ai_api_key"]
     valid = {f.name for f in fields(Config)}
     return Config(**{k: v for k, v in data.items() if k in valid})
+
+
+def _toml_val(v: object) -> str:
+    """Serialize a Python value to a TOML inline value."""
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, int):
+        return str(v)
+    if isinstance(v, str):
+        return '"' + v.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    if isinstance(v, dict):
+        inner = ", ".join(f"{k} = {_toml_val(val)}" for k, val in v.items())
+        return "{" + inner + "}"
+    if isinstance(v, list):
+        return "[" + ", ".join(_toml_val(i) for i in v) + "]"
+    return str(v)
 
 
 def save_config(cfg: Config, path: Path) -> None:
@@ -69,6 +95,8 @@ def save_config(cfg: Config, path: Path) -> None:
             else:
                 items = ", ".join(f'"{v}"' for v in val)
                 lines.append(f"{f.name} = [{items}]")
+        elif isinstance(val, dict):
+            lines.append(f"{f.name} = {_toml_val(val)}")
         else:
             lines.append(f"{f.name} = {val}")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")

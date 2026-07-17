@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import sys
 from pathlib import Path
+
+_OSC7_RE = re.compile(r"\x1b\]7;file://[^/]*(/.+?)\x07")
 
 from biome_fm.qt import (
     QHBoxLayout,
@@ -29,6 +32,7 @@ class TerminalPanel(QWidget):
     # ponytail: no VT100 escape stripping; upgrade to qtermwidget when needed
     detach_requested = Signal()
     close_requested = Signal()
+    cwd_changed = Signal(Path)  # emitted when OSC 7 sequence detected
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -45,6 +49,7 @@ class TerminalPanel(QWidget):
         layout.addWidget(header)
 
         self._out = QPlainTextEdit()
+        self._out.setAccessibleName("Terminal")
         self._out.setReadOnly(True)
         self._out.setMaximumBlockCount(2000)
         layout.addWidget(self._out)
@@ -78,6 +83,8 @@ class TerminalPanel(QWidget):
         if self._proc:
             data = self._proc.readAllStandardOutput().data().decode("utf-8", errors="replace")
             self._out.appendPlainText(data.rstrip())
+            for m in _OSC7_RE.finditer(data):
+                self.cwd_changed.emit(Path(m.group(1)))
 
     def _read_err(self) -> None:
         if self._proc:

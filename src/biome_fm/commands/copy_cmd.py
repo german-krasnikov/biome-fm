@@ -50,6 +50,7 @@ class ProgressCopyCmd(Command):
         report: Callable[..., None],
         chunk: int | None = None,
         conflict_resolver: ConflictResolver | None = None,
+        verify: bool = False,
     ) -> None:
         self._sources = sources
         self._dest_dir = dest_dir
@@ -57,6 +58,7 @@ class ProgressCopyCmd(Command):
         self._report = report
         self._chunk = chunk or self.CHUNK
         self._resolver = conflict_resolver
+        self._verify = verify
         self._created: list[Path] = []
 
     def execute(self) -> None:
@@ -77,7 +79,7 @@ class ProgressCopyCmd(Command):
                 # OVERWRITE / OVERWRITE_ALL fall through
             if src.is_dir():
                 try:
-                    shutil.copytree(src, dst)
+                    self._copy_dir(src, dst)
                 except Exception:
                     shutil.rmtree(dst, ignore_errors=True)
                     raise
@@ -85,7 +87,18 @@ class ProgressCopyCmd(Command):
                 self._copy_file(src, dst, i, total)
             self._created.append(dst)
 
-    def _copy_file(self, src: Path, dst: Path, files_done: int, files_total: int) -> None:
+    def _copy_dir(self, src: Path, dst: Path) -> None:
+        dst.mkdir(parents=True, exist_ok=True)
+        for child in src.iterdir():
+            if self._cancel.is_set():
+                raise Cancelled()
+            if child.is_dir():
+                self._copy_dir(child, dst / child.name)
+            else:
+                self._copy_file(child, dst / child.name)
+        shutil.copystat(src, dst)
+
+    def _copy_file(self, src: Path, dst: Path, files_done: int = 0, files_total: int = 0) -> None:
         size = src.stat().st_size
         done = 0
         with open(src, "rb") as fin, open(dst, "wb") as fout:
@@ -99,6 +112,21 @@ class ProgressCopyCmd(Command):
                 self._report(files_done, files_total, done, size, src.name)
         shutil.copystat(src, dst)
         self._report(files_done + 1, files_total, size, size, src.name)
+        if self._verify:
+            self._verify_file(src, dst)
+
+    def _verify_file(self, src: Path, dst: Path) -> None:
+        import hashlib
+
+        def _hash(p: Path) -> bytes:
+            h = hashlib.sha256()
+            with p.open("rb") as f:
+                for chunk in iter(lambda: f.read(65536), b""):
+                    h.update(chunk)
+            return h.digest()
+
+        if _hash(src) != _hash(dst):
+            raise RuntimeError(f"Checksum mismatch: {src.name}")
 
     def undo(self) -> None:
         for p in reversed(self._created):

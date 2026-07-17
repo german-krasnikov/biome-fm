@@ -80,4 +80,4 @@ def test_show_image_result(qtbot):
     )
     result = PreviewResult(kind=ContentKind.IMAGE, data=png_bytes)
     panel.show_result(result)
-    assert panel._stack.currentWidget() == panel._img_label
+    assert panel._stack.currentWidget() == panel._img_widget

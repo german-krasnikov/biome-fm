@@ -6,7 +6,7 @@ import contextlib
 import fnmatch
 import re
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
@@ -18,6 +18,36 @@ class SearchMode(Enum):
     NAME_WILDCARD = "wildcard"
     NAME_REGEX = "regex"
     CONTENT = "content"
+    CONTENT_REGEX = "content_regex"
+
+
+class SearchScope(Enum):
+    SUBTREE = "subtree"
+    CURRENT_DIR = "current_dir"
+
+
+@dataclass(frozen=True, slots=True)
+class SearchFilter:
+    min_size: int | None = None
+    max_size: int | None = None
+    modified_after: float | None = None
+    modified_before: float | None = None
+    extensions: frozenset[str] = field(default_factory=frozenset)
+
+    def passes(self, item: FileItem) -> bool:
+        if item.is_dir:
+            return True  # never filter directories by size/ext
+        if self.min_size is not None and item.size < self.min_size:
+            return False
+        if self.max_size is not None and item.size > self.max_size:
+            return False
+        if self.modified_after is not None and item.modified < self.modified_after:
+            return False
+        if self.modified_before is not None and item.modified > self.modified_before:
+            return False
+        if self.extensions and Path(item.name).suffix not in self.extensions:
+            return False
+        return True
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +71,8 @@ class SearchPresenter:
         max_results: int = 1000,
         on_match: object = None,
         on_progress: object = None,
+        scope: SearchScope = SearchScope.SUBTREE,
+        filter: SearchFilter | None = None,
     ) -> list[SearchResult]:
         """Synchronous recursive search. Call from a worker thread."""
         if not query or max_results <= 0:
@@ -48,7 +80,10 @@ class SearchPresenter:
         self._cancel.clear()
         results: list[SearchResult] = []
         with contextlib.suppress(RecursionError):
-            self._search_dir(self._root, query, mode, results, max_results, on_match, on_progress)
+            self._search_dir(
+                self._root, query, mode, results, max_results,
+                on_match, on_progress, scope, filter,
+            )
         return results
 
     def cancel(self) -> None:
@@ -69,6 +104,8 @@ class SearchPresenter:
         max_results: int,
         on_match: object = None,
         on_progress: object = None,
+        scope: SearchScope = SearchScope.SUBTREE,
+        filt: SearchFilter | None = None,
     ) -> None:
         if self._cancel.is_set() or len(results) >= max_results:
             return
@@ -86,16 +123,20 @@ class SearchPresenter:
                 return
 
             if item.is_dir:
-                if mode != SearchMode.CONTENT:
+                if mode not in (SearchMode.CONTENT, SearchMode.CONTENT_REGEX):
                     result = self._match(item, query, mode)
                     if result is not None:
                         results.append(result)
                         if on_match is not None:
                             on_match(result)  # type: ignore[operator]
-                self._search_dir(
-                    item.path, query, mode, results, max_results, on_match, on_progress,
-                )
+                if scope == SearchScope.SUBTREE:
+                    self._search_dir(
+                        item.path, query, mode, results, max_results,
+                        on_match, on_progress, scope, filt,
+                    )
             else:
+                if filt is not None and not filt.passes(item):
+                    continue
                 result = self._match(item, query, mode)
                 if result is not None:
                     results.append(result)
@@ -115,6 +156,9 @@ class SearchPresenter:
         if mode == SearchMode.CONTENT and not item.is_dir:
             return self._content_match(item, query)
 
+        if mode == SearchMode.CONTENT_REGEX and not item.is_dir:
+            return self._content_regex_match(item, query)
+
         return None
 
     def _content_match(self, item: FileItem, query: str) -> SearchResult | None:
@@ -123,6 +167,23 @@ class SearchPresenter:
                 for line in fh:
                     if query in line:
                         return SearchResult(item=item, context=line.strip()[:200])
+        except (UnicodeDecodeError, OSError):
+            return None
+        return None
+
+    def _content_regex_match(self, item: FileItem, query: str) -> SearchResult | None:
+        try:
+            pattern = re.compile(query)
+        except re.error:
+            return None
+        try:
+            with open(item.path, encoding="utf-8") as fh:
+                for lineno, line in enumerate(fh, 1):
+                    if pattern.search(line):
+                        return SearchResult(
+                            item=item,
+                            context=f":{lineno}: {line.strip()[:200]}",
+                        )
         except (UnicodeDecodeError, OSError):
             return None
         return None

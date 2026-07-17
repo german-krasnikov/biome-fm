@@ -12,6 +12,7 @@
 | `/` | Quick filter |
 | (printable) | Type-to-navigate (JumpBar) |
 | `Ctrl+P` | Command palette / fuzzy finder |
+| `Ctrl+J` | Frecency jump dialog (recent directories) |
 
 ## File Operations
 
@@ -22,7 +23,12 @@
 | `F7` | Create directory |
 | `F8` | Delete selected |
 | `F2` / `F9` | Inline rename |
-| `Insert` | Toggle mark on item |
+| `Insert` | Mark item and advance cursor |
+| `Delete` | Move selected to trash |
+| `Shift+Delete` | Permanently delete selected |
+| `Ctrl+C` | Copy selected to clipboard |
+| `Ctrl+X` | Cut selected to clipboard |
+| `Ctrl+V` | Paste from clipboard |
 | `Ctrl+Z` | Undo last operation |
 | `Ctrl+Shift+Z` | Redo |
 
@@ -31,13 +37,24 @@
 | Key | Action |
 |-----|--------|
 | `Space` / `F3` | Toggle preview panel |
+| `F4` | Open current file in editor |
+| `F11` | Fullscreen preview viewer |
 | `Ctrl+I` | Toggle AI chat panel |
 | `Ctrl+`` ` | Toggle embedded terminal |
 | `Ctrl+H` | Toggle hidden files |
 | `Ctrl+Shift+L` | Toggle sync browsing |
-| `Ctrl+W` | Close tab |
+| `Ctrl+T` | New tab |
+| `Ctrl+W` | Close tab / close built-in editor |
 | `Ctrl+R` | Refresh |
-| `F11` | Fullscreen preview viewer |
+| `Ctrl+B` | Toggle sidebar |
+
+## Preview / Editor
+
+| Key | Action |
+|-----|--------|
+| `R` | Rotate image (image preview) |
+| `Ctrl+Wheel` | Zoom in / out (image preview) |
+| `Ctrl+S` | Save file (built-in editor) |
 
 ## Search & Select
 
@@ -45,6 +62,7 @@
 |-----|--------|
 | `Ctrl+Shift+F` | Global search |
 | `Ctrl+Shift+N` | Natural-language file operation |
+| `Ctrl+G` | Select / deselect by pattern |
 | `Shift+Down` | Mark item and advance cursor |
 | `Shift+Up` | Mark item and retreat cursor |
 
@@ -56,3 +74,5 @@
 | `Ctrl+D` | Toggle bookmark for current path |
 | `Ctrl+Shift+C` | Copy current path to clipboard |
 | `Ctrl+Shift+Y` | Custom column visibility |
+| `Ctrl+U` | Swap panes |
+| `F1` / `?` | Show shortcut help |

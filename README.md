@@ -195,12 +195,15 @@ Full architecture: [`AI/architecture.md`](AI/architecture.md)
 ## Recent Changes
 
 <details>
-<summary><strong>Unreleased</strong> — MCP server removed, cli/ module renamed</summary>
+<summary><strong>Unreleased</strong> — 75 killer features (Sprints 1–10)</summary>
 
-- MCP server (`mcp/` directory, `biome-fm-mcp` entry point, `mcp` dependency) deleted
-- `src/biome_fm/mcp/` renamed to `src/biome_fm/cli/` — CLI installer subcommands unchanged
-- Merger function names genericised (no `_mcp_` infix)
-- `__version__` now resolved via `importlib.metadata` instead of hardcoded string
+- Built-in text editor (`F4`), zoomable image viewer (zoom/rotate), SQLite preview, Git log + blame in preview panel
+- Clipboard cut/copy/paste (`Ctrl+X/C/V`), trash (`Delete`), spring-loaded DnD folders, persistent marks
+- Frecency jump dialog (`Ctrl+J`), per-directory view state, Git status badges, volume watcher
+- SFTP VFS (paramiko), content diff/compare, swap panes (`Ctrl+U`), move tab to other pane
+- New dialogs: Properties, Open With, Diff view, Dir tree panel, Git stash, Shortcut help (`F1`)
+- New commands: `NewFileCmd`, `SymlinkCmd`/`HardlinkCmd`, `EditorRenameCmd`, `ExportListingCmd`, `TrashCmd`
+- MCP server removed; `mcp/` renamed to `cli/`
 
 </details>
 

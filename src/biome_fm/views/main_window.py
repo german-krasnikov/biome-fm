@@ -6,6 +6,7 @@ from biome_fm.qt import (
     QAction,
     QCompleter,
     QKeySequence,
+    QLabel,
     QLineEdit,
     QMainWindow,
     QMenu,
@@ -84,6 +85,7 @@ class MainWindow(QMainWindow):
     highlight_rules_requested = Signal()
     sync_dirs_requested = Signal()
     nl_op_requested = Signal()
+    panelize_requested = Signal()
 
     def __init__(
         self,
@@ -148,7 +150,12 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._cmd_line)
 
         self.setCentralWidget(central)
-        self.setStatusBar(QStatusBar())
+        sb = QStatusBar()
+        self._git_label = QLabel()
+        self._ops_label = QLabel()
+        sb.addPermanentWidget(self._git_label)
+        sb.addPermanentWidget(self._ops_label)
+        self.setStatusBar(sb)
         self._build_menubar()
         self._build_drag_toolbar()
 
@@ -206,13 +213,12 @@ class MainWindow(QMainWindow):
             a.triggered.connect(sig.emit)
             em.addAction(a)
         em.addSeparator()
-        for label, sig in [
-            ("&Undo\tCtrl+Z", self.undo_requested),
-            ("&Redo\tCtrl+Shift+Z", self.redo_requested),
-        ]:
-            a = QAction(label, self)
-            a.triggered.connect(sig.emit)
-            em.addAction(a)
+        self._act_undo = QAction("&Undo\tCtrl+Z", self)
+        self._act_undo.triggered.connect(self.undo_requested.emit)
+        em.addAction(self._act_undo)
+        self._act_redo = QAction("&Redo\tCtrl+Shift+Z", self)
+        self._act_redo.triggered.connect(self.redo_requested.emit)
+        em.addAction(self._act_redo)
         em.addSeparator()
         a = QAction("&Find Files\tCtrl+Shift+F", self)
         a.triggered.connect(lambda _: self.search_requested.emit())
@@ -286,6 +292,10 @@ class MainWindow(QMainWindow):
         a = QAction("&Natural Language Op...\tCtrl+Shift+N", self)
         a.triggered.connect(lambda _: self.nl_op_requested.emit())
         tm.addAction(a)
+        tm.addSeparator()
+        a = QAction("&Panelize...", self)
+        a.triggered.connect(lambda _: self.panelize_requested.emit())
+        tm.addAction(a)
 
     def _setup_shortcuts(self) -> None:
         for key, signal in [
@@ -297,6 +307,10 @@ class MainWindow(QMainWindow):
         ]:
             QShortcut(QKeySequence(key), self).activated.connect(signal)
         self.tab_shortcut = QShortcut(Qt.Key.Key_Tab, self)
+
+    def update_undo_redo_labels(self, undo_desc: str | None, redo_desc: str | None) -> None:
+        self._act_undo.setText(f"&Undo {undo_desc}\tCtrl+Z" if undo_desc else "&Undo\tCtrl+Z")
+        self._act_redo.setText(f"&Redo {redo_desc}\tCtrl+Shift+Z" if redo_desc else "&Redo\tCtrl+Shift+Z")
 
     def _show_ratio_menu(self, global_pos: object) -> None:
         menu = QMenu(self)
@@ -340,3 +354,9 @@ class MainWindow(QMainWindow):
     @property
     def splitter_sizes(self) -> list[int]:
         return self._splitter.sizes()
+
+    def update_git_branch(self, branch: str) -> None:
+        self._git_label.setText(f"  {branch}" if branch else "")
+
+    def update_ops_count(self, n: int) -> None:
+        self._ops_label.setText(f" {n} op(s) running" if n > 0 else "")

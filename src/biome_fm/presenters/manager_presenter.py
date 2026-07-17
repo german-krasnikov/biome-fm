@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Literal
+from typing import TYPE_CHECKING, Literal
 
 from biome_fm.commands.base import Command, CommandHistory
 from biome_fm.commands.copy_cmd import CopyCmd, ProgressCopyCmd
@@ -22,12 +23,11 @@ from biome_fm.event_bus import (
     ShowHiddenToggled,
     SyncBrowsingToggled,
 )
+from biome_fm.models.conflict_resolver import ConflictResolver
 from biome_fm.models.file_item import FileItem
 from biome_fm.models.vfs import VFSProtocol
-from biome_fm.presenters.pane_presenter import PanePresenter
-
-from biome_fm.models.conflict_resolver import ConflictResolver
 from biome_fm.operations.task import OpConflict, OpProgress
+from biome_fm.presenters.pane_presenter import PanePresenter
 
 if TYPE_CHECKING:
     from biome_fm.operations.queue import OpQueue
@@ -106,6 +106,15 @@ class ManagerPresenter:
 
     def switch_active_pane(self) -> None:
         self.set_active_pane(_OTHER[self._active])
+
+    def swap_panes(self) -> None:
+        left_path = self._panes["left"].current_path
+        right_path = self._panes["right"].current_path
+        self._panes["left"].navigate_to(right_path)
+        self._panes["right"].navigate_to(left_path)
+
+    def target_equals_source(self) -> None:
+        self._target().navigate_to(self._source().current_path)
 
     def toggle_mirror(self) -> None:
         self._mirror = not self._mirror
@@ -257,6 +266,19 @@ class ManagerPresenter:
     def _publish(self, event: object) -> None:
         if self._bus is not None:
             self._bus.publish(event)
+
+    def move_tab_to_other_pane(self, pane_idx: int, tab_idx: int) -> None:
+        """Move tab from one pane to the other. No-op if pane has only 1 tab."""
+        pane_id: PaneId = "left" if pane_idx == 0 else "right"
+        src = self._panes[pane_id]
+        dst = self._panes[_OTHER[pane_id]]
+        if not (hasattr(src, "tab_count") and hasattr(src, "presenter_at") and hasattr(src, "close_tab")):
+            return
+        if src.tab_count <= 1:  # type: ignore[attr-defined]
+            return
+        path = src.presenter_at(tab_idx).current_path  # type: ignore[attr-defined]
+        dst.new_tab(path)  # type: ignore[attr-defined]
+        src.close_tab(tab_idx)  # type: ignore[attr-defined]
 
     def multi_rename(self, renames: list[tuple[Path, str]]) -> None:
         """Execute batch rename. renames = [(old_path, new_name), ...]"""

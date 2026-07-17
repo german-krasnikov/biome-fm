@@ -1,15 +1,19 @@
 """Fullscreen preview viewer with arrow-key file navigation."""
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Callable
+from collections.abc import Callable
+
+from PySide6.QtGui import QPixmap
 
 from biome_fm.models.file_item import FileItem
 from biome_fm.preview.provider import ContentKind, PreviewRequest, PreviewResult
-from PySide6.QtGui import QPixmap
-
 from biome_fm.qt import (
-    QDialog, QLabel, QTextBrowser, QVBoxLayout, QWidget, Qt,
+    QDialog,
+    QLabel,
+    Qt,
+    QTextBrowser,
+    QVBoxLayout,
+    QWidget,
 )
 
 

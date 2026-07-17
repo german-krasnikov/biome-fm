@@ -33,10 +33,13 @@ from biome_fm.qt import (
     QStyledItemDelegate,
     Qt,
     QTableView,
+    QTimer,
     QVBoxLayout,
     QWidget,
     Signal,
 )
+
+_AUTO_RESIZE_THRESHOLD = 500
 from biome_fm.views.bookmark_menu import BookmarkMenu
 from biome_fm.views.dnd_utils import _MIME, make_path_mime
 from biome_fm.views.filter_bar import FilterBar
@@ -173,6 +176,7 @@ class _PaneTableView(QTableView):
     _uniform_row_heights: bool = False
     _drop_hint_row: int = -1
     _cursor_row: int = -1
+    _spring_row: int = -1
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -182,6 +186,10 @@ class _PaneTableView(QTableView):
         self.setDefaultDropAction(Qt.DropAction.CopyAction)
         self.setDropIndicatorShown(True)
         self.setItemDelegate(_DropHintDelegate(self))
+        self._spring_timer = QTimer(self)
+        self._spring_timer.setSingleShot(True)
+        self._spring_timer.setInterval(800)
+        self._spring_timer.timeout.connect(self._spring_navigate)
 
     # QTreeView compat: QTableView lacks this; Fixed row sections achieve same effect
     def setUniformRowHeights(self, uniform: bool) -> None:
@@ -232,6 +240,9 @@ class _PaneTableView(QTableView):
             if key == Qt.Key.Key_Space:
                 parent.view_requested.emit()
                 return
+            if key == Qt.Key.Key_Insert:
+                parent.mark_toggle_requested.emit()
+                return
             if key == Qt.Key.Key_Down and mods & Qt.KeyboardModifier.ShiftModifier:
                 parent.mark_toggle_requested.emit()
                 return
@@ -250,6 +261,23 @@ class _PaneTableView(QTableView):
                 item = parent.current_item()
                 if item is not None:
                     parent.item_activated.emit(item)
+                return
+            ctrl = Qt.KeyboardModifier.ControlModifier
+            if mods & ctrl:
+                if key == Qt.Key.Key_C:
+                    parent.clipboard_copy_requested.emit()
+                    return
+                if key == Qt.Key.Key_X:
+                    parent.clipboard_cut_requested.emit()
+                    return
+                if key == Qt.Key.Key_V:
+                    parent.clipboard_paste_requested.emit()
+                    return
+            if key == Qt.Key.Key_Delete:
+                if mods & Qt.KeyboardModifier.ShiftModifier:
+                    parent.context_action_requested.emit("delete")
+                else:
+                    parent.trash_requested.emit()
                 return
         text = event.text()  # type: ignore[attr-defined]
         ctrl_or_alt = Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier
@@ -327,6 +355,12 @@ class _PaneTableView(QTableView):
         else:
             self._drop_hint_row = -1
         self.viewport().update()
+        # Spring-loaded: start/reset timer when hovering a new dir row
+        if self._drop_hint_row != self._spring_row:
+            self._spring_timer.stop()
+            self._spring_row = self._drop_hint_row
+            if self._spring_row >= 0:
+                self._spring_timer.start()
         if event.modifiers() & _MOVE_MODS:  # type: ignore[attr-defined]
             event.setDropAction(Qt.DropAction.MoveAction)  # type: ignore[attr-defined]
         else:
@@ -334,9 +368,20 @@ class _PaneTableView(QTableView):
         event.accept()  # type: ignore[attr-defined]
 
     def dragLeaveEvent(self, event: object) -> None:
+        self._spring_timer.stop()
+        self._spring_row = -1
         self._drop_hint_row = -1
         self.viewport().update()
         super().dragLeaveEvent(event)  # type: ignore[arg-type]
+
+    def _spring_navigate(self) -> None:
+        pane = self.parent()
+        if isinstance(pane, PaneView) and self._spring_row >= 0:
+            src_idx = pane._proxy.mapToSource(pane._proxy.index(self._spring_row, 0))
+            item = pane._model.item_at(src_idx.row())
+            if item and item.is_dir:
+                pane.item_activated.emit(item)
+        self._spring_row = -1
 
     def dropEvent(self, event: object) -> None:
         if not (hasattr(event, "mimeData") and event.mimeData().hasFormat(_MIME)):
@@ -374,6 +419,7 @@ class _PaneTableView(QTableView):
             ("rename", "Rename\tF2"),
         ]:
             menu.addAction(label, lambda n=action_name: p.context_action_requested.emit(n))
+        menu.addAction("New File…", lambda: p.new_file_requested.emit())
         menu.addSeparator()
         menu.addAction(
             "Copy Path\tCtrl+Shift+C", lambda: p.context_action_requested.emit("copy_path")
@@ -454,6 +500,11 @@ class PaneView(QWidget):
     tag_requested = Signal()
     ai_rename_requested = Signal()
     ai_context_requested = Signal()
+    new_file_requested = Signal()
+    clipboard_copy_requested = Signal()
+    clipboard_cut_requested = Signal()
+    clipboard_paste_requested = Signal()
+    trash_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -513,6 +564,7 @@ class PaneView(QWidget):
         layout.addWidget(self.filter_bar)
 
         self._table = _PaneTableView(self)
+        self._table.setAccessibleName("File list")
         self._table.setModel(self._proxy)
         self._table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
         self._table.setShowGrid(False)
@@ -572,6 +624,8 @@ class PaneView(QWidget):
             vbar.setValue(scroll_pos)
         else:
             self._model.set_items(items)
+        if len(items) <= _AUTO_RESIZE_THRESHOLD:
+            self._table.horizontalHeader().resizeSections(QHeaderView.ResizeMode.ResizeToContents)
 
     def set_path(self, path: Path) -> None:
         self._path_bar.set_path(path)
@@ -672,11 +726,15 @@ class PaneView(QWidget):
             filter=self._proxy._filter,
         )
 
+    def set_filter_text(self, text: str) -> None:
+        self.filter_bar.set_text(text)
+
     def set_view_state(self, state) -> None:
         order = Qt.SortOrder.AscendingOrder if state.sort_asc else Qt.SortOrder.DescendingOrder
         self._table.sortByColumn(state.sort_col, order)
         if state.filter:
             self._proxy.set_filter(state.filter)
+            self.filter_bar.set_text(state.filter)
             self.set_filter_visible(True)
         else:
             self._proxy.set_filter("")

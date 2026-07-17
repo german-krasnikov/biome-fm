@@ -3,6 +3,68 @@
 All notable changes to Biome FM are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.20.0] — 2026-07-17
+
+### Added
+- **Preview Script Providers** — drop a `.toml` file in `~/.config/biome-fm/preview_scripts/` to add a custom preview renderer for any file extension (`ScriptSpec` / `ScriptPreviewProvider` / `load_script_providers`)
+- **Custom File Associations** — JSON-backed suffix→app mapping (`FileAssociations`); edit via `~/.config/biome-fm/associations.json`
+- **User Actions / Context Menu** — define shell commands that appear in the right-click menu (`UserActionsStore`, `UserAction`); edit via Tools → Menu Builder dialog
+- **Script Runner** — run `.py` and `.sh` scripts from a user directory with `BIOME_SELECTED` / `BIOME_CWD` env vars injected (`ScriptRunner`)
+- **Git preview modes** — Log and Blame buttons in the preview panel route to `GitLogPreviewProvider` / `GitBlamePreviewProvider`; shows last-50 commits and per-line authorship
+- **SQLite preview** — `SqlitePreviewProvider` renders `.db`/`.sqlite`/`.sqlite3` tables (up to 5 tables × 20 rows) as HTML
+- **Built-in text editor** — `EditorDialog` + `EditorPresenter`; `F4` opens the cursor file; `Ctrl+S` saves; unsaved-changes guard on close
+- **Frecency-based jump dialog** — `FrecencyStore` tracks directory visits; `Ctrl+J` opens `JumpDialog` sorted by frecency score
+- **Clipboard cut/copy/paste** — `ClipboardService` (Qt-free); `Ctrl+X/C/V` wired in `app.py`; cut items shown dimmed in the file list
+- **Trash** — `TrashCmd` wraps `send2trash`; `Delete` key moves selection to OS trash
+- **Zoomable image viewer** — `ZoomableImageWidget` in preview panel; `Ctrl+Wheel` zooms, `R` rotates 90°
+- **Spring-loaded folders** — hovering DnD payload over a folder for 800ms auto-expands it
+- **Persistent marks** — marked files survive navigation within the same pane; restored on back-navigate
+- **Per-directory view state** — `DirStateStore` remembers sort column/order and filter per directory (LRU-500, JSON persistence)
+- **Git status in status bar** — `GitStatusCache` + `GitStatusWorker` (ThreadPoolExecutor, 10s TTL) push XY codes to the status bar as colored badges
+- **Volume watcher** — `VolumeWatcher` polls OS every 3s; `volume_added`/`volume_removed` Signals update the sidebar
+- **File indexer** — `FileIndexer` uses SQLite FTS5 for background full-directory indexing; `search(query)` → list[Path]
+- **Project detector** — `detect_project(path)` walks up looking for `pyproject.toml`, `package.json`, `Cargo.toml`, etc.
+- **Tab groups** — `TabGroupStore` saves/restores named tab-set snapshots (JSON)
+- **File templates** — `TemplateStore` with builtin Python/Markdown/Text templates used by `NewFileCmd`
+- **Keyboard shortcut store** — `ShortcutStore` (JSON) + `ShortcutHelpDialog` cheatsheet (28 bindings); `F1` / `?` to open
+- **Gitignore filter** — `GitignoreFilter.is_ignored(path)` via `git check-ignore -q`
+- **Encoding detection** — `utils/encoding.py`: `detect_encoding` (chardet if available) + `decode_smart`
+- **Panelize** — `parse_shell_output(stdout, cwd)` → `list[FileItem]`; pipe any shell command into the pane
+- **Swap panes** — `ManagerPresenter.swap_panes()` exchanges left/right paths + histories; `Ctrl+U`
+- **Move tab to other pane** — `ManagerPresenter.move_tab_to_other_pane(tab_idx)`
+- **Content diff / compare** — `ComparePresenter.content_diff` → unified diff string; `content_compare` → bool
+- **SFTP VFS** — `SFTPVfs` (paramiko); `parse_sftp_uri()` / `SFTPConnectDialog`; full connect/ls/read/stat
+- **Open With dialog** — `OpenWithDialog` lists discovered apps + custom command field; `app_selected` Signal
+- **Properties dialog** — `PropertiesDialog` shows General + Permissions (9-bit checkboxes) tabs
+- **Diff view dialog** — `DiffViewDialog` renders unified diff with Pygments syntax highlight
+- **Directory tree panel** — `DirTreePanel` (QFileSystemModel, dirs only); `path_selected` Signal
+- **Disk usage widget** — `DiskUsageWidget` (compact progress bar, 120px); shows free GB in tooltip
+- **Op log panel** — `OpLogPanel` + `OpLogModel` live table of file operations (Time/Op/Status/Details; max 500)
+- **Info panel** — `InfoPanel` + `InfoPresenter` sidebar: name/size/mtime/permissions/MIME per cursor file
+- **Menu builder dialog** — `MenuBuilderDialog` GUI for editing `UserActionsStore`
+- **Archive format dialog** — `ArchiveFormatDialog` for choosing name + format (zip/tar.gz/tar.bz2)
+- **Git stash dialog** — `GitStashDialog` (passive view); apply/pop/drop/new stash operations
+- **Config bundle** — `config_bundle.export_config` / `import_config`; TOML import validates field names
+- **App chooser** — `discover_apps()` cross-platform (macOS: mdfind, XDG: .desktop, Windows: stub)
+- **FAYT bar** — `FAYTBar` with mode prefixes (`/` navigate, `:` command, `?` search)
+- **Deferred tab loading** — `TabsPresenter` restores session tab paths lazily on first activation
+- **Layout profiles** — `Config.layout_profiles` dict stores named splitter layouts; `save_layout_profile` / `load_layout_profile`
+- **Follow system theme** — `Config.follow_system_theme`; `Config.editor_cmd` for external editor preference
+- **Virtual scroll** — `DirectoryModel.canFetchMore` / `fetchMore` for large directories
+- **New commands**: `NewFileCmd`, `SymlinkCmd`, `HardlinkCmd`, `EditorRenameCmd` ($EDITOR bulk rename), `ExportListingCmd` (txt/csv), `TrashCmd`
+- **New keyboard shortcuts** (feat/48-killer-features branch):
+  - `Delete` — move selected to trash
+  - `Shift+Delete` — permanently delete selected
+  - `Ctrl+C` / `Ctrl+X` / `Ctrl+V` — clipboard copy / cut / paste
+  - `Ctrl+U` — swap panes
+  - `Ctrl+J` — frecency jump dialog (recent directories)
+  - `F4` — open file in editor
+  - `F1` / `?` — shortcut help dialog
+  - `Ctrl+S` — save in built-in editor
+  - `R` — rotate image in preview
+  - `Ctrl+Wheel` — zoom in image preview
+  - `Insert` — mark without advancing cursor
+
 ## [v0.19.1] — 2026-07-17
 
 ### Removed

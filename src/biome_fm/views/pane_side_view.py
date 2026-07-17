@@ -6,6 +6,7 @@ from pathlib import Path as _P
 from biome_fm.qt import (
     QApplication,
     QLabel,
+    QMenu,
     QStackedWidget,
     Qt,
     QTabBar,
@@ -18,7 +19,37 @@ from biome_fm.views.pane_view import PaneView
 
 
 class _PathTabBar(QTabBar):
-    """Middle-click or Ctrl+click copies full path from tab tooltip."""
+    """Middle-click or Ctrl+click copies full path. Right-click: lock menu."""
+
+    lock_tab_requested = Signal(int)
+    unlock_tab_requested = Signal(int)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._locked: set[int] = set()
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._show_context_menu)
+
+    def _show_context_menu(self, pos: object) -> None:
+        idx = self.tabAt(pos)  # type: ignore[arg-type]
+        if idx < 0:
+            return
+        menu = QMenu(self)
+        if idx in self._locked:
+            act = menu.addAction("Unlock Tab")
+            act.triggered.connect(lambda: self.unlock_tab_requested.emit(idx))
+        else:
+            act = menu.addAction("Lock Tab")
+            act.triggered.connect(lambda: self.lock_tab_requested.emit(idx))
+        menu.exec(self.mapToGlobal(pos))  # type: ignore[arg-type]
+
+    def set_locked(self, idx: int, locked: bool) -> None:
+        if locked:
+            self._locked.add(idx)
+            self.setTabText(idx, "🔒 " + self.tabText(idx).removeprefix("🔒 "))
+        else:
+            self._locked.discard(idx)
+            self.setTabText(idx, self.tabText(idx).removeprefix("🔒 "))
 
     def mousePressEvent(self, event: object) -> None:
         btn = event.button()  # type: ignore[attr-defined]
@@ -39,6 +70,8 @@ class PaneSideView(QWidget):
 
     tab_close_requested = Signal(int)
     tab_changed = Signal(int)
+    lock_tab_requested = Signal(int)
+    unlock_tab_requested = Signal(int)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -63,6 +96,8 @@ class PaneSideView(QWidget):
 
         self._tab_bar.tabCloseRequested.connect(self.tab_close_requested)
         self._tab_bar.currentChanged.connect(self._on_tab_changed)
+        self._tab_bar.lock_tab_requested.connect(self.lock_tab_requested)
+        self._tab_bar.unlock_tab_requested.connect(self.unlock_tab_requested)
 
     def _on_tab_changed(self, idx: int) -> None:
         self._stack.setCurrentIndex(idx)
@@ -107,6 +142,9 @@ class PaneSideView(QWidget):
 
     def set_tab_tooltip(self, idx: int, tooltip: str) -> None:
         self._tab_bar.setTabToolTip(idx, tooltip)
+
+    def set_tab_locked(self, idx: int, locked: bool) -> None:
+        self._tab_bar.set_locked(idx, locked)
 
     def set_active(self, active: bool) -> None:
         self.setProperty("active", active)

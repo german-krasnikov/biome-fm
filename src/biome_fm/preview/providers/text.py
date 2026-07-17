@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from biome_fm.preview.provider import ContentKind, PreviewRequest, PreviewResult
+from biome_fm.utils.encoding import decode_smart
 
 _TEXT_EXT = {
     ".txt", ".py", ".js", ".ts", ".json", ".toml", ".yaml", ".yml",
@@ -23,6 +24,7 @@ class TextPreviewProvider:
     def render(self, req: PreviewRequest) -> PreviewResult:
         try:
             data = req.path.read_bytes()[:_MAX_BYTES]
-            return PreviewResult(kind=ContentKind.TEXT, data=data.decode("utf-8", errors="replace"), title=req.path.name)
+            text, _ = decode_smart(data)
+            return PreviewResult(kind=ContentKind.TEXT, data=text, title=req.path.name)
         except OSError as e:
             return PreviewResult(kind=ContentKind.ERROR, data=str(e))

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from biome_fm.qt import (
-    Qt,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -13,6 +12,7 @@ from biome_fm.qt import (
     QLineEdit,
     QListWidget,
     QSlider,
+    Qt,
     QTabWidget,
     QVBoxLayout,
     QWidget,

@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
 )
 
 from biome_fm.models.file_item import FileItem
-from biome_fm.presenters.rename_presenter import RenamePreview, RenamePresenter
+from biome_fm.presenters.rename_presenter import RenamePresenter, RenamePreview
 from biome_fm.qt import (
     QCheckBox,
     QColor,

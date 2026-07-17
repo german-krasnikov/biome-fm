@@ -6,13 +6,15 @@ from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QStackedWidget,
     QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
 
-from biome_fm.preview.provider import ContentKind, PreviewResult
+from biome_fm.preview.provider import ContentKind, PreviewMode, PreviewResult
+from biome_fm.views._zoomable_image import ZoomableImageWidget
 
 
 class PreviewPanel(QWidget):
@@ -20,23 +22,25 @@ class PreviewPanel(QWidget):
     visibility_changed = Signal(bool)
     detach_requested = Signal()
     close_requested = Signal()
+    mode_changed = Signal(object)  # emits PreviewMode
+    summarize_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.setAccessibleName("Preview panel")
         self.setMinimumWidth(0)
         self._anim: QPropertyAnimation | None = None
 
         self._stack = QStackedWidget()
         self._busy_label = QLabel("Loading…", alignment=Qt.AlignmentFlag.AlignCenter)
-        self._img_label = QLabel(alignment=Qt.AlignmentFlag.AlignCenter)
-        self._img_label.setScaledContents(False)
+        self._img_widget = ZoomableImageWidget()
         self._text_view = QTextBrowser()
         self._text_view.setReadOnly(True)
         self._text_view.setOpenExternalLinks(True)
         self._dark = True
         self._code_alpha = 140
 
-        for w in (self._busy_label, self._img_label, self._text_view):
+        for w in (self._busy_label, self._img_widget, self._text_view):
             self._stack.addWidget(w)
         self._stack.setCurrentWidget(self._busy_label)
 
@@ -47,10 +51,33 @@ class PreviewPanel(QWidget):
         header.setContentsMargins(0, 0, 0, 0)
         header.setSpacing(2)
         header.addWidget(QLabel("Preview"))
+        _ai_btn = QPushButton("AI ✨")
+        _ai_btn.setFixedHeight(20)
+        _ai_btn.setToolTip("Summarize file with AI")
+        _ai_btn.clicked.connect(lambda: self.summarize_requested.emit())
+        header.addWidget(_ai_btn)
         header.addStretch()
         from biome_fm.views._panel_buttons import add_panel_buttons
         add_panel_buttons(header, self.detach_requested, self.close_requested)
         layout.addLayout(header)
+
+        mode_bar = QHBoxLayout()
+        mode_bar.setContentsMargins(0, 0, 0, 0)
+        mode_bar.setSpacing(2)
+        for label, mode in [
+            ("Auto", PreviewMode.AUTO),
+            ("Text", PreviewMode.TEXT),
+            ("Hex", PreviewMode.HEX),
+            ("Raw", PreviewMode.RAW),
+            ("Log", PreviewMode.GIT_LOG),
+            ("Blame", PreviewMode.GIT_BLAME),
+        ]:
+            btn = QPushButton(label)
+            btn.setFixedHeight(20)
+            btn.clicked.connect(lambda _checked=False, m=mode: self.mode_changed.emit(m))
+            mode_bar.addWidget(btn)
+        mode_bar.addStretch()
+        layout.addLayout(mode_bar)
 
         layout.addWidget(self._stack)
 
@@ -61,13 +88,8 @@ class PreviewPanel(QWidget):
             case ContentKind.IMAGE:
                 px = QPixmap()
                 px.loadFromData(result.data)  # type: ignore[arg-type]
-                scaled = px.scaled(
-                    max(self.width() - 8, 1), max(self.height() - 8, 1),
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
-                self._img_label.setPixmap(scaled)
-                self._stack.setCurrentWidget(self._img_label)
+                self._img_widget.set_pixmap(px)
+                self._stack.setCurrentWidget(self._img_widget)
             case ContentKind.HTML:
                 self._text_view.setHtml(result.data)  # type: ignore[arg-type]
                 self._stack.setCurrentWidget(self._text_view)
