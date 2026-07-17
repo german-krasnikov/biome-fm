@@ -1,13 +1,13 @@
-"""MCP client registry — known clients and their config paths."""
+"""AI client registry — known clients and their config paths."""
 
 from __future__ import annotations
 
 import os
 import shutil
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 SERVER_NAME = "biome-fm"
 
@@ -31,7 +31,7 @@ def _vscode_transformer(entry: dict[str, object]) -> dict[str, object]:
 def _opencode_transformer(entry: dict[str, object]) -> dict[str, object]:
     cmd = str(entry.get("command", ""))
     args = list(entry.get("args", []))  # type: ignore[call-overload]
-    return {"type": "local", "command": [cmd] + args}
+    return {"type": "local", "command": [cmd, *args]}
 
 
 def _build_registry() -> dict[str, ClientInfo]:
@@ -49,7 +49,8 @@ def _build_registry() -> dict[str, ClientInfo]:
     if sys.platform == "darwin":
         _claude_desktop = h / "Library/Application Support/Claude/claude_desktop_config.json"
     elif sys.platform == "win32":
-        _claude_desktop = Path(os.environ.get("APPDATA", str(h))) / "Claude/claude_desktop_config.json"
+        appdata = os.environ.get("APPDATA", str(h))
+        _claude_desktop = Path(appdata) / "Claude/claude_desktop_config.json"
     else:
         _claude_desktop = h / ".config/Claude/claude_desktop_config.json"
 
@@ -133,8 +134,6 @@ def detect_installed() -> list[str]:
     """
     result = []
     for key, info in CLIENT_REGISTRY.items():
-        if info.config_path.exists():
-            result.append(key)
-        elif info.binary and shutil.which(info.binary):
+        if info.config_path.exists() or (info.binary and shutil.which(info.binary)):
             result.append(key)
     return result

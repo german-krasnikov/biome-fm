@@ -1,4 +1,4 @@
-"""MCP CLI dispatcher — routes argv to handlers without touching Qt."""
+"""CLI dispatcher — routes argv to handlers without touching Qt."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import sys
 
 UNHANDLED = object()
 
-_COMMANDS = {"version", "configure", "doctor", "uninstall", "mcp"}
+_COMMANDS = {"version", "configure", "doctor", "uninstall"}
 
 
 def dispatch(argv: list[str]) -> int | object:
@@ -22,9 +22,7 @@ def dispatch(argv: list[str]) -> int | object:
         return _doctor()
     if cmd == "uninstall":
         return _uninstall(argv[1:])
-    if cmd == "mcp":
-        return _serve()
-    return UNHANDLED  # unreachable but satisfies type checker
+    return UNHANDLED
 
 
 def _version() -> int:
@@ -46,13 +44,13 @@ def _configure(argv: list[str]) -> int:
             if key not in clients.CLIENT_REGISTRY:
                 print(f"Unknown client: {key}", file=sys.stderr)
                 return 1
-            keys.append(key)  # accumulate, last flag no longer wins
+            keys.append(key)
 
     if not keys:
         keys = clients.detect_installed()
 
     if not keys:
-        print("No supported MCP clients detected.", file=sys.stderr)
+        print("No supported AI clients detected.", file=sys.stderr)
         return 1
 
     failures = 0
@@ -60,9 +58,9 @@ def _configure(argv: list[str]) -> int:
         info = clients.CLIENT_REGISTRY[key]
         try:
             if info.is_toml:
-                merger.merge_toml_mcp(info.config_path, entry)
+                merger.merge_toml_config(info.config_path, entry)
             else:
-                merger.merge_mcp_config(info, entry)
+                merger.merge_config(info, entry)
             print(f"Configured {info.name}")
         except Exception as exc:
             print(f"Failed to configure {info.name}: {exc}", file=sys.stderr)
@@ -78,15 +76,12 @@ def _doctor() -> int:
     from . import clients
 
     found = False
-    for key, info in clients.CLIENT_REGISTRY.items():
+    for _key, info in clients.CLIENT_REGISTRY.items():
         if not info.config_path.exists():
             continue
         try:
             raw = info.config_path.read_text(encoding="utf-8")
-            if info.is_toml:
-                data = tomllib.loads(raw)
-            else:
-                data = json.loads(raw)
+            data = tomllib.loads(raw) if info.is_toml else json.loads(raw)
             section = data.get(info.root_key, {})
             status = "[OK]" if clients.SERVER_NAME in section else "[--]"
             print(f"{status} {info.name}")
@@ -113,16 +108,11 @@ def _uninstall(argv: list[str]) -> int:
         if info is None:
             continue
         removed = (
-            merger.remove_toml_mcp_entry(info.config_path)
+            merger.remove_toml_entry(info.config_path)
             if info.is_toml
-            else merger.remove_mcp_entry(info)
+            else merger.remove_entry(info)
         )
         if removed:
             print(f"Removed from {info.name}")
 
     return 0
-
-
-def _serve() -> int:
-    from biome_fm.mcp._entry import main as mcp_main  # lazy — optional dep
-    return mcp_main()

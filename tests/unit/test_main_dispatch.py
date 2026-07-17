@@ -5,7 +5,7 @@ import sys
 
 def test_subcommand_handled_before_qt_start(monkeypatch, capsys):
     """dispatch() returns a real int for known subcommands — Qt never starts."""
-    from biome_fm.mcp.cli import UNHANDLED, dispatch
+    from biome_fm.cli.cli import UNHANDLED, dispatch
 
     qt_before = "PySide6.QtWidgets" in sys.modules
     result = dispatch(["version"])
@@ -18,7 +18,7 @@ def test_subcommand_handled_before_qt_start(monkeypatch, capsys):
 
 def test_dispatch_unhandled_does_not_exit(monkeypatch):
     """Unknown subcommands return UNHANDLED so Qt startup proceeds normally."""
-    from biome_fm.mcp.cli import UNHANDLED, dispatch
+    from biome_fm.cli.cli import UNHANDLED, dispatch
 
     result = dispatch(["--some-qt-flag"])
     assert result is UNHANDLED

@@ -3,7 +3,7 @@
 import sys
 
 if len(sys.argv) > 1:
-    from biome_fm.mcp.cli import UNHANDLED, dispatch
+    from biome_fm.cli.cli import UNHANDLED, dispatch
 
     _result = dispatch(sys.argv[1:])
     if _result is not UNHANDLED:

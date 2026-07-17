@@ -3,6 +3,21 @@
 All notable changes to Biome FM are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.19.1] — 2026-07-17
+
+### Removed
+- **MCP server** — `src/biome_fm/mcp/` (server.py, _entry.py, tools/) deleted entirely;
+  the `biome-fm-mcp` entry point and `mcp` optional dependency removed from `pyproject.toml`;
+  all MCP server unit tests removed (`tests/unit/mcp/`)
+- **Renamed `mcp/` → `cli/`** — the CLI installer subcommands (configure/doctor/version/uninstall)
+  were kept intact; module is now `src/biome_fm/cli/`
+
+### Changed
+- **`merger.py` function names** — `merge_mcp_config` → `merge_config`, `remove_mcp_entry` →
+  `remove_entry`, `merge_toml_mcp` → `merge_toml_config`, `remove_toml_mcp_entry` →
+  `remove_toml_entry` (generic names now that MCP is gone)
+- **`__version__`** uses `importlib.metadata.version("biome-fm")` instead of a hardcoded string
+
 ## [v0.19.0] — 2026-07-17
 
 ### Fixed

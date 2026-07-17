@@ -1,4 +1,4 @@
-"""Atomic read-patch-write for MCP client configs (JSON and TOML)."""
+"""Atomic read-patch-write for AI client configs (JSON and TOML)."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from typing import Any
 from .clients import SERVER_NAME, ClientInfo
 
 
-def merge_mcp_config(client: ClientInfo, entry: dict[str, Any]) -> None:
+def merge_config(client: ClientInfo, entry: dict[str, Any]) -> None:
     """Patch client JSON config: set data[root_key][SERVER_NAME] = entry, atomic write."""
     path = client.config_path
     data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
@@ -19,7 +19,7 @@ def merge_mcp_config(client: ClientInfo, entry: dict[str, Any]) -> None:
     _atomic_write_json(path, data)
 
 
-def remove_mcp_entry(client: ClientInfo) -> bool:
+def remove_entry(client: ClientInfo) -> bool:
     """Remove SERVER_NAME from client JSON config. Returns True if found and removed."""
     path = client.config_path
     if not path.exists():
@@ -33,7 +33,7 @@ def remove_mcp_entry(client: ClientInfo) -> bool:
     return True
 
 
-def merge_toml_mcp(path: Path, entry: dict[str, Any]) -> None:
+def merge_toml_config(path: Path, entry: dict[str, Any]) -> None:
     """Write/update [mcp_servers."biome-fm"] section in a TOML file."""
     header = f'[mcp_servers."{SERVER_NAME}"]'
     lines = [header]
@@ -51,7 +51,7 @@ def merge_toml_mcp(path: Path, entry: dict[str, Any]) -> None:
     _atomic_write(path, content)
 
 
-def remove_toml_mcp_entry(path: Path) -> bool:
+def remove_toml_entry(path: Path) -> bool:
     """Remove [mcp_servers."biome-fm"] section. Returns True if found."""
     if not path.exists():
         return False

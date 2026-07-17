@@ -4,8 +4,8 @@
 
 ```
 src/biome_fm/
-├── __main__.py         # CLI entry point: dispatches known subcommands (configure/doctor/version/uninstall/mcp)
-│                       #   via mcp/cli.dispatch() before importing Qt; falls through to QApplication bootstrap
+├── __main__.py         # CLI entry point: dispatches known subcommands (configure/doctor/version/uninstall)
+│                       #   via cli/cli.dispatch() before importing Qt; falls through to QApplication bootstrap
 ├── app.py              # create_app() factory — full DI wiring (VFSRouter, Config,
 │                       #   Session, Plugins, AI, CommandPalette, PaneSideViews);
 │                       #   _AppContext dataclass keeps all long-lived objects alive (replaces window._refs tuple);
@@ -310,29 +310,18 @@ src/biome_fm/
 │       └── stream_parse.py # Line normalizers: parse_claude_code_line / parse_codex_line /
 │                           #   parse_plain_line → str | None (skip control/JSON lines)
 │
-├── mcp/                  # MCP server + CLI installer (no Qt dependency)
-│   ├── server.py         # create_server(allowed_roots) → FastMCP("biome-fm");
-│   │                     #   registers fs_read + fs_write tool modules;
-│   │                     #   _validate_path() blocks traversal outside allowed_roots
-│   ├── _entry.py         # biome-fm-mcp entry point: create_server().run() stdio transport
+├── cli/                  # CLI installer (no Qt dependency)
 │   ├── cli.py            # dispatch(argv) → int | UNHANDLED; subcommands:
-│   │                     #   configure (auto/--client KEY), doctor, version, uninstall, mcp;
+│   │                     #   configure (auto/--client KEY), doctor, version, uninstall;
 │   │                     #   UNHANDLED sentinel object for __main__ fallthrough
 │   ├── clients.py        # ClientInfo(name, config_path, fmt); CLIENT_REGISTRY dict (8 clients:
 │   │                     #   claude-code, claude-desktop, cursor, windsurf, vscode,
 │   │                     #   opencode, codex, kimi); detect_installed() → list[str]
-│   ├── merger.py         # merge_mcp_config/remove_mcp_entry for JSON clients;
-│   │                     #   merge_toml_mcp/remove_toml_mcp_entry for TOML clients;
+│   ├── merger.py         # merge_config/remove_entry for JSON clients;
+│   │                     #   merge_toml_config/remove_toml_entry for TOML clients;
 │   │                     #   atomic writes via temp file + rename
-│   ├── resolver.py       # find_server_command() → list[str] (uvx > venv > python -m);
-│   │                     #   build_server_entry() → dict ready for client config injection
-│   └── tools/
-│       ├── __init__.py   # _validate_path(path_str, allowed_roots) → Path (traversal guard)
-│       ├── fs_read.py    # register(mcp, vfs, allowed_roots): 4 tools —
-│       │                 #   list_directory, stat_item, read_file (64KB cap), search_files
-│       └── fs_write.py   # register(mcp, vfs, history, allowed_roots): 6 tools —
-│                         #   copy_files, move_files, delete_files, make_directory,
-│                         #   rename_file, undo_last — all via Command pattern + CommandHistory
+│   └── resolver.py       # find_server_command() → list[str] (uvx > venv > python -m);
+│                         #   build_server_entry() → dict ready for client config injection
 │
 └── utils/
     ├── platform.py       # IS_MAC / IS_WIN / IS_LINUX; quick_look(path), quick_look_item(item),
@@ -682,40 +671,23 @@ make_cli_providers()
 `stream_parse.py` handles per-backend quirks: claude-code emits JSON SSE lines that
 are filtered; codex emits plain text; opencode uses a different JSON schema.
 
-### MCP Server (v0.11.0)
+### CLI Installer (v0.11.0)
 
-`mcp/` exposes the file manager's VFS as a Model Context Protocol server. The server
-runs over stdio transport (MCP standard) and is registered in AI tool client configs
-via `biome-fm configure`.
+`cli/` provides subcommands for registering biome-fm in AI tool client configs
+(Claude Code, Cursor, VS Code, etc.) without importing Qt.
 
 ```
 biome-fm configure          # dispatched in __main__.py before Qt import
       │
-      └─ mcp/cli.py::_configure(argv)
+      └─ cli/cli.py::_configure(argv)
                │
                ├─ clients.detect_installed() → list of found client config files
                ├─ resolver.build_server_entry() → {"command": ..., "args": [...]}
                │       find_server_command():
-               │           1. uvx run biome-fm-mcp   (preferred — isolated env)
-               │           2. .venv/bin/biome-fm-mcp  (project venv)
-               │           3. python -m biome_fm.mcp._entry  (fallback)
-               └─ merger.merge_mcp_config(info, entry)
+               │           1. uvx run biome-fm   (preferred — isolated env)
+               │           2. .venv/bin/biome-fm  (project venv)
+               │           3. python -m biome_fm  (fallback)
+               └─ merger.merge_config(info, entry)
                        JSON clients: atomic write via tmp file + os.replace
-                       TOML clients: tomlkit-based section merge
-
-biome-fm-mcp                # separate entry point, no Qt
-      │
-      └─ mcp/_entry.py::main()
-               └─ server.create_server(allowed_roots).run()   [stdio transport]
+                       TOML clients: section merge
 ```
-
-`create_server(allowed_roots)` builds a `FastMCP` instance. All tool functions call
-`_validate_path(path_str, allowed_roots)` which resolves the path and checks
-`is_relative_to()` against each allowed root — raises `ValueError` on traversal attempt.
-
-Read tools (4): `list_directory`, `stat_item`, `read_file` (64 KB cap, binary detection),
-`search_files` (glob, recursive flag).
-
-Write tools (6): `copy_files`, `move_files`, `delete_files`, `make_directory`,
-`rename_file`, `undo_last` — all executed via Command pattern + `CommandHistory`,
-so undo is available within a session.

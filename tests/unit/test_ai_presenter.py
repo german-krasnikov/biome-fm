@@ -409,6 +409,9 @@ def test_remove_attachment_by_index(tmp_path):
     presenter._pool = ThreadPoolExecutor(max_workers=2)
     presenter.drain()
     assert len(presenter._pending_attachments) == 2
+    paths_before = {a.path for a in presenter._pending_attachments}
+    assert paths_before == {f1, f2}
+    removed = presenter._pending_attachments[0].path
     presenter.remove_attachment(0)
     assert len(presenter._pending_attachments) == 1
-    assert presenter._pending_attachments[0].path == f2
+    assert presenter._pending_attachments[0].path != removed
