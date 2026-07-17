@@ -185,7 +185,7 @@ def test_segment_drag_mime_data(bar, qtbot):
     """Dragging a breadcrumb segment produces correct MIME: uri-list + text/plain."""
     bar.set_path(Path("/foo/bar"))
     btn = next(b for b in bar.findChildren(_SegmentButton) if b.text() == "foo")
-    from biome_fm.views.pane_view import make_path_mime
+    from biome_fm.views.dnd_utils import make_path_mime
     mime = make_path_mime([str(btn._path)])
     assert mime.hasUrls()
     assert mime.hasText()

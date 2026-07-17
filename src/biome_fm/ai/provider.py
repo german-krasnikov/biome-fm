@@ -14,6 +14,8 @@ class AIProviderProtocol(Protocol):
 
     @property
     def available(self) -> bool: ...
+    @property
+    def supports_events(self) -> bool: ...
     def chat(self, messages: list[dict], system: str = "") -> str: ...
     def chat_stream(self, messages: list[dict], system: str = "") -> Iterator[str]: ...
     def set_model(self, model: str) -> None: ...
@@ -28,6 +30,10 @@ class NoOpProvider:
     def available(self) -> bool:
         return False
 
+    @property
+    def supports_events(self) -> bool:
+        return False
+
     def chat(self, messages: list[dict], system: str = "") -> str:
         return ""
 
@@ -38,22 +44,11 @@ class NoOpProvider:
         pass
 
 
-def _import_claude() -> type:
-    from biome_fm.ai.claude_provider import ClaudeProvider
-    return ClaudeProvider
-
-
-try:
-    ClaudeProvider = _import_claude()
-except ImportError:
-    ClaudeProvider = None  # type: ignore
-
-
 def make_providers(cfg) -> dict[str, AIProviderProtocol]:
     """Build dict of available providers from Config."""
     result: dict[str, AIProviderProtocol] = {}
     # Claude
-    claude_key = cfg.ai_claude_key or cfg.ai_api_key or os.environ.get("ANTHROPIC_API_KEY", "")
+    claude_key = cfg.ai_claude_key or os.environ.get("ANTHROPIC_API_KEY", "")
     if claude_key:
         try:
             from biome_fm.ai.claude_provider import ClaudeProvider as _Claude
@@ -83,14 +78,3 @@ def make_providers(cfg) -> dict[str, AIProviderProtocol]:
     if not result:
         result["none"] = NoOpProvider()
     return result
-
-
-def make_provider(api_key: str = "") -> AIProviderProtocol:
-    """Legacy factory — returns ClaudeProvider or NoOp."""
-    key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
-    if key and ClaudeProvider is not None:
-        try:
-            return ClaudeProvider(key)
-        except ImportError:
-            pass
-    return NoOpProvider()

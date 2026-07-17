@@ -225,3 +225,25 @@ def test_migrate_old_groups(tmp_path):
     s = BookmarkStore(p)
     assert Path("/a") in s
     assert Path("/work/proj") in s
+
+
+# ── Cycle E: deepcopy isolation (I14) ─────────────────────────────────────────
+
+def test_tree_returns_independent_copy(tmp_path):
+    """Mutating the returned tree must not affect store internals."""
+    p = tmp_path / "bm.toml"
+    s = BookmarkStore(p)
+    s.set_tree([BookmarkNode("dir", Path("/x"), "Original")])
+    nodes = s.tree()
+    nodes[0].name = "MUTATED"
+    assert s.tree()[0].name == "Original"
+
+
+def test_set_tree_stores_independent_copy(tmp_path):
+    """Mutating the list passed to set_tree must not affect store internals."""
+    p = tmp_path / "bm.toml"
+    s = BookmarkStore(p)
+    nodes = [BookmarkNode("dir", Path("/y"), "A")]
+    s.set_tree(nodes)
+    nodes[0].name = "MUTATED"
+    assert s.tree()[0].name == "A"

@@ -1,6 +1,8 @@
 """TOML-backed bookmark tree. Supports dirs, submenus, and separators."""
 from __future__ import annotations
 
+import copy
+import os
 import tomllib
 from pathlib import Path
 
@@ -146,10 +148,10 @@ class BookmarkStore:
     # ── tree API ──────────────────────────────────────────────────────────────
 
     def tree(self) -> list[BookmarkNode]:
-        return list(self._nodes)
+        return copy.deepcopy(self._nodes)
 
     def set_tree(self, nodes: list[BookmarkNode]) -> None:
-        self._nodes = list(nodes)
+        self._nodes = copy.deepcopy(nodes)
         self._save()
 
     # ── flat compat API ───────────────────────────────────────────────────────
@@ -207,7 +209,9 @@ class BookmarkStore:
             if "depth" in item:
                 lines.append(f'depth = {item["depth"]}')
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        tmp = self._path.with_suffix(".tmp")
+        tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        os.replace(tmp, self._path)
 
     def _load(self) -> None:
         if not self._path.exists():

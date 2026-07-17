@@ -199,7 +199,7 @@ class AIPresenter:
 
     def _run_stream(self, messages: list[dict], system: str, epoch: int = 0) -> None:
         try:
-            if hasattr(self._provider, "chat_stream_events"):
+            if getattr(self._provider, "supports_events", False):
                 for kind, content in self._provider.chat_stream_events(messages, system):
                     if self._epoch != epoch:
                         self._events.put(_AIEvent("cancelled", epoch=epoch))

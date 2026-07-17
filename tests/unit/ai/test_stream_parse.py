@@ -46,6 +46,18 @@ def test_parse_codex_non_assistant_none():
     assert parse_codex_line(line) is None
 
 
+def test_parse_codex_multi_block():
+    """Multiple output_text blocks must be joined, not dropped after first."""
+    line = json.dumps({
+        "role": "assistant",
+        "content": [
+            {"type": "output_text", "text": "Hello "},
+            {"type": "output_text", "text": "world"},
+        ],
+    })
+    assert parse_codex_line(line) == "Hello world"
+
+
 # ── parse_plain_line ──────────────────────────────────────────────────────────
 
 def test_parse_plain_line_strips():

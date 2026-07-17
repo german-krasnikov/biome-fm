@@ -125,3 +125,11 @@ def test_render_item_skips_dotdot():
     item = FileItem(name="..", path=Path("/tmp"), is_dir=True, size=0, modified=0.0)
     presenter.render_item(item)
     view.set_busy.assert_not_called()
+
+
+def test_cache_has_lock():
+    """I13: PreviewPresenter must have a _cache_lock for thread-safety."""
+    import threading
+    presenter, _ = _make_presenter()
+    assert hasattr(presenter, "_cache_lock")
+    assert isinstance(presenter._cache_lock, type(threading.Lock()))

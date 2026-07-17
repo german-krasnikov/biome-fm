@@ -16,11 +16,18 @@ from biome_fm.qt import (
 )
 from biome_fm.views._linkify import _linkify_html
 
-_STYLES = {
-    "user": ("right", "background:#1a2840;color:#e0e0e0;border-radius:12px 12px 2px 12px"),
-    "assistant": ("left", "background:transparent;color:#e0e0e0;border-radius:12px 12px 12px 2px"),
-    "error": ("left", "background:#2a1a1a;color:#ef9a9a;border-radius:8px"),
-}
+def _make_styles(dark: bool) -> dict[str, tuple[str, str]]:
+    if dark:
+        return {
+            "user": ("right", "background:#1a2840;color:#e0e0e0;border-radius:12px 12px 2px 12px"),
+            "assistant": ("left", "background:transparent;color:#e0e0e0;border-radius:12px 12px 12px 2px"),
+            "error": ("left", "background:#2a1a1a;color:#ef9a9a;border-radius:8px"),
+        }
+    return {
+        "user": ("right", "background:#cce4ff;color:#1a2840;border-radius:12px 12px 2px 12px"),
+        "assistant": ("left", "background:transparent;color:#1a2840;border-radius:12px 12px 12px 2px"),
+        "error": ("left", "background:#ffd6d6;color:#8b0000;border-radius:8px"),
+    }
 
 _BODY_RE = re.compile(r"<body[^>]*>(.*?)</body>", re.DOTALL | re.IGNORECASE)
 
@@ -39,7 +46,7 @@ th,td { border:1px solid #444; padding:4px 8px; }
 def _md_fragment(content: str) -> str:
     """Render markdown to HTML body fragment; fallback to escaped plain text."""
     try:
-        from biome_fm.models import markdown_renderer  # lazy — needs QApplication
+        from biome_fm.preview import markdown_renderer  # lazy — needs QApplication
         full_html = markdown_renderer.render(content, dark=True)
         m = _BODY_RE.search(full_html)
         return m.group(1) if m else html.escape(content)
@@ -52,13 +59,14 @@ class ChatLog(QTextBrowser):
 
     path_link_clicked = Signal(str)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, dark: bool = True):
         super().__init__(parent)
         self.setOpenLinks(False)
         self.setReadOnly(True)
         self.viewport().setAutoFillBackground(False)
         self.document().setDefaultStyleSheet(_CODE_CSS)
         self.anchorClicked.connect(self._on_anchor_clicked)
+        self._styles = _make_styles(dark)
         self._streaming = False
         self._buf: list[str] = []
         self._stream_block_start: int = 0
@@ -74,9 +82,12 @@ class ChatLog(QTextBrowser):
         else:
             QDesktopServices.openUrl(url)
 
+    def set_dark(self, dark: bool) -> None:
+        self._styles = _make_styles(dark)
+
     def append_bubble(self, role: str, content: str) -> None:
         """Insert a complete message bubble."""
-        align, style = _STYLES.get(role, ("left", "background:#333;color:#ccc"))
+        align, style = self._styles.get(role, ("left", "background:#333;color:#ccc"))
         cursor = QTextCursor(self.document())
         cursor.movePosition(cursor.MoveOperation.End)
         if cursor.position() > 0 and cursor.block().text():

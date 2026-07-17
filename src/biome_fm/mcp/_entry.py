@@ -3,6 +3,8 @@ from pathlib import Path
 
 
 def main(allowed_roots: list[Path] | None = None) -> int:
+    if allowed_roots is None:
+        allowed_roots = [Path.home()]
     from biome_fm.mcp.server import create_server
     create_server(allowed_roots).run()
     return 0

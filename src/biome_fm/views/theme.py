@@ -9,27 +9,9 @@ from string import Template
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
 
-from biome_fm.plugins.types import ThemeTokens
+from biome_fm.plugins.types import ThemeTokens, _DARK_FALLBACK
 
-# Inline dark fallback — safety net if TOML files missing from install
-_DARK_FALLBACK: ThemeTokens = {
-    "base":     "#1c1c1e",
-    "base_bg":  "#1c1c1e",
-    "surface":  "#2c2c2e",
-    "surface_opaque":  "#2c2c2e",
-    "surface2": "#3a3a3c",
-    "surface2_opaque": "#3a3a3c",
-    "border":   "#48484a",
-    "text":     "#f5f5f7",
-    "text_dim": "#98989f",
-    "accent":   "#0a84ff",
-    "accent2":  "#5e5ce6",
-    "red":      "#ff453a",
-    "green":    "#32d74b",
-    "selection_bg": "#0a84ff",
-}
-
-# Backward-compat alias (existing tests import _TOKENS)
+# Backward-compat aliases (existing tests import _TOKENS / _DARK_FALLBACK from here)
 _TOKENS = _DARK_FALLBACK
 
 _GLASS_KEYS: frozenset[str] = frozenset({"base", "surface", "surface2"})
@@ -38,6 +20,12 @@ _SELECTION_BUMP = 20
 
 def _opacity_to_alpha(opacity_pct: int) -> int:
     return max(0, min(255, int(2.55 * opacity_pct)))
+
+
+def _glass_alphas(opacity_pct: int) -> tuple[int, int]:
+    """Return (alpha, sel_alpha) for glass rendering at given opacity percent."""
+    alpha = _opacity_to_alpha(opacity_pct)
+    return alpha, min(alpha + _SELECTION_BUMP, 255)
 
 
 def _hex_to_rgba(hex_color: str, alpha: int) -> str:
@@ -49,8 +37,7 @@ def _hex_to_rgba(hex_color: str, alpha: int) -> str:
 
 
 def _apply_glass_alpha(tokens: dict, opacity_pct: int = 47) -> dict:
-    alpha = _opacity_to_alpha(opacity_pct)
-    sel_alpha = min(alpha + _SELECTION_BUMP, 255)
+    alpha, sel_alpha = _glass_alphas(opacity_pct)
     result = dict(tokens)
     result["base_bg"] = "transparent"
     for key in _GLASS_KEYS - {"base"}:
@@ -129,8 +116,7 @@ def load_theme(
 def _apply_palette(
     app: QApplication, tokens: ThemeTokens, glass: bool = False, opacity_pct: int = 47,
 ) -> None:
-    alpha = _opacity_to_alpha(opacity_pct)
-    sel_alpha = min(alpha + _SELECTION_BUMP, 255)
+    alpha, sel_alpha = _glass_alphas(opacity_pct)
     p = QPalette()
     window_color = QColor(0, 0, 0, 0) if glass else QColor(tokens["base"])
     p.setColor(QPalette.ColorRole.Window,         window_color)

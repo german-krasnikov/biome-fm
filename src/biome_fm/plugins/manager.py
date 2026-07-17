@@ -42,14 +42,10 @@ class PluginManager:
                 warnings.warn(f"Failed to load entry point plugin {ep.name!r}: {exc}")
 
     def load_local_plugins(self, plugin_dir: Path | None = None) -> list[str]:
-        """Load .py files from plugin_dir (default ~/.config/biome-fm/plugins/).
-        Each file must define a top-level ``Plugin`` class. Returns loaded names."""
+        """Load .py files from plugin_dir. Each file must define a top-level
+        ``Plugin`` class. Returns loaded names. Caller resolves the default path."""
         if plugin_dir is None:
-            from PySide6.QtCore import QStandardPaths
-            loc = QStandardPaths.writableLocation(
-                QStandardPaths.StandardLocation.AppConfigLocation
-            )
-            plugin_dir = Path(loc) / "biome-fm" / "plugins"
+            return []
         if not plugin_dir.exists():
             return []
         loaded: list[str] = []

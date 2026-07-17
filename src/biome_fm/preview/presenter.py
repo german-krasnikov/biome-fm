@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import queue
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Protocol
@@ -28,6 +29,7 @@ class PreviewPresenter:
         self._queue: queue.SimpleQueue[PreviewResult] = queue.SimpleQueue()
         self._current: Path | None = None
         self._cache: dict[tuple[Path, float, bool], PreviewResult] = {}
+        self._cache_lock = threading.Lock()
         self._dark = True  # theme hint; updated via set_dark()
 
     def set_dark(self, dark: bool) -> None:
@@ -61,8 +63,10 @@ class PreviewPresenter:
     def _render_item(self, item: FileItem) -> None:
         self._current = item.path
         cache_key = (item.path, item.modified, self._dark)
-        if cache_key in self._cache:
-            self._view.show_result(self._cache[cache_key])
+        with self._cache_lock:
+            hit = self._cache.get(cache_key)
+        if hit is not None:
+            self._view.show_result(hit)
             return
         self._view.set_busy(True)
         provider = self._registry.find(item.path)
@@ -75,10 +79,11 @@ class PreviewPresenter:
             result = provider.render(req)
         except Exception as e:
             result = PreviewResult(kind=ContentKind.ERROR, data=str(e))
-        if len(self._cache) >= self._CACHE_MAX:
-            self._cache.pop(next(iter(self._cache)))
-        self._cache[cache_key] = result
-        if req.path == self._current:
+        with self._cache_lock:
+            if len(self._cache) >= self._CACHE_MAX:
+                self._cache.pop(next(iter(self._cache)))
+            self._cache[cache_key] = result
+        if req.path == self._current and req.dark == self._dark:
             self._queue.put(result)
 
     def drain(self) -> None:

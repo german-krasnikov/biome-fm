@@ -90,8 +90,11 @@ def test_pane_ratio_2575(qtbot, win_panes):
     assert s[0] == int(total * 0.25)
 
 
-def test_handle_has_context_menu_policy(win_panes):
-    from PySide6.QtCore import Qt
+def test_handle_intercepts_context_menu_via_event_filter(win_panes):
+    from PySide6.QtCore import QPoint
+    from PySide6.QtGui import QContextMenuEvent
     handle = win_panes._splitter.handle(1)
     assert handle is not None
-    assert handle.contextMenuPolicy() == Qt.ContextMenuPolicy.CustomContextMenu
+    # Context menu handled via eventFilter, not CustomContextMenu policy
+    evt = QContextMenuEvent(QContextMenuEvent.Reason.Mouse, QPoint(0, 0))
+    assert win_panes.eventFilter(handle, evt) is True

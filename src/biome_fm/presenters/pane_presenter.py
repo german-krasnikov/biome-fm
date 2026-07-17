@@ -243,10 +243,11 @@ class PanePresenter:
         if path.parent != path:
             dotdot = FileItem(name="..", path=path.parent, is_dir=True, size=0, modified=0.0)
             items = [dotdot, *items]
+        same_dir = (path == self._cwd)
         self._cwd = path
         self._push_history(path)
         self._view.set_path(path)
-        self._view.set_items(items, preserve_scroll=(path == self._cwd))
+        self._view.set_items(items, preserve_scroll=same_dir)
         self._view.set_marked(set(self._marks))
         target = initial_cursor if initial_cursor and any(i.name == initial_cursor for i in items) else (items[0].name if items else "..")
         self._view.select_item(target)

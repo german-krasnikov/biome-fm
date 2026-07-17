@@ -74,16 +74,8 @@ class AIChatPanel(QWidget):
         header.addWidget(self._provider_combo)
         header.addWidget(self._model_combo)
         header.addStretch()
-        btn_detach = QPushButton("⬒")
-        btn_detach.setFixedSize(24, 24)
-        btn_detach.setToolTip("Detach to window")
-        btn_detach.clicked.connect(self.detach_requested)
-        btn_close = QPushButton("✕")
-        btn_close.setFixedSize(24, 24)
-        btn_close.setToolTip("Close")
-        btn_close.clicked.connect(self.close_requested)
-        header.addWidget(btn_detach)
-        header.addWidget(btn_close)
+        from biome_fm.views._panel_buttons import add_panel_buttons
+        add_panel_buttons(header, self.detach_requested, self.close_requested)
         layout.addLayout(header)
 
         # Chat log (bubbles)

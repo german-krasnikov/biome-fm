@@ -37,10 +37,12 @@ def parse_codex_line(line: str) -> str | None:
         return None
     if data.get("role") != "assistant":
         return None
-    for block in data.get("content", []):
-        if isinstance(block, dict) and block.get("type") == "output_text":
-            return block.get("text") or None
-    return None
+    texts = [
+        b.get("text", "")
+        for b in data.get("content", [])
+        if isinstance(b, dict) and b.get("type") == "output_text" and b.get("text")
+    ]
+    return "".join(texts) if texts else None
 
 
 def parse_plain_line(line: str) -> str | None:

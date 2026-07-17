@@ -1,6 +1,7 @@
 """CliProvider — AIProviderProtocol via subprocess.Popen."""
 from __future__ import annotations
 
+import contextlib
 import logging
 import logging.handlers
 import subprocess
@@ -47,6 +48,10 @@ class CliProvider:
     def available(self) -> bool:
         return self._available
 
+    @property
+    def supports_events(self) -> bool:
+        return self._backend.parse_events is not None
+
     def set_model(self, model: str) -> None:
         self.active_model = model
 
@@ -54,6 +59,41 @@ class CliProvider:
         with self._proc_lock:
             if self._proc is not None:
                 self._proc.terminate()
+
+    @contextlib.contextmanager
+    def _proc_ctx(self, argv: list[str]):
+        """Start subprocess, yield it, clean up on exit (even on exception)."""
+        stderr_fh = None
+        try:  # noqa: SIM105
+            stderr_fh = open(_STDERR_LOG, "ab")  # noqa: SIM115
+        except OSError:
+            pass
+        try:
+            proc = subprocess.Popen(
+                argv,
+                stdout=subprocess.PIPE,
+                stderr=stderr_fh or subprocess.DEVNULL,
+                stdin=subprocess.DEVNULL,
+            )
+        except (FileNotFoundError, OSError):
+            if stderr_fh:
+                stderr_fh.close()
+            raise
+        with self._proc_lock:
+            self._proc = proc
+        try:
+            yield proc
+        finally:
+            with self._proc_lock:
+                self._proc = None
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+            if stderr_fh:
+                stderr_fh.close()
 
     def chat(self, messages: list[dict[str, object]], system: str = "") -> str:
         return "".join(self.chat_stream(messages, system))
@@ -68,45 +108,19 @@ class CliProvider:
             return
         prompt = self._build_prompt(messages, system)
         argv = self._backend.build_argv(prompt, self.active_model)
-        stderr_fh = None
-        try:  # noqa: SIM105
-            stderr_fh = open(_STDERR_LOG, "ab")  # noqa: SIM115
-        except OSError:
-            pass
         try:
-            proc = subprocess.Popen(
-                argv,
-                stdout=subprocess.PIPE,
-                stderr=stderr_fh or subprocess.DEVNULL,
-                stdin=subprocess.DEVNULL,
-            )
+            with self._proc_ctx(argv) as proc:
+                yielded_any = False
+                for raw in proc.stdout:  # type: ignore[union-attr]
+                    for kind, content in self._backend.parse_events(
+                        raw.decode("utf-8", errors="replace")
+                    ):
+                        yield (kind, content)
+                        if kind == "text":
+                            yielded_any = True
         except (FileNotFoundError, OSError) as exc:
-            if stderr_fh:
-                stderr_fh.close()
             yield ("text", f"[Error: CLI binary not found: {exc}]")
             return
-        with self._proc_lock:
-            self._proc = proc
-        yielded_any = False
-        try:
-            for raw in proc.stdout:  # type: ignore[union-attr]
-                for kind, content in self._backend.parse_events(
-                    raw.decode("utf-8", errors="replace")
-                ):
-                    yield (kind, content)
-                    if kind == "text":
-                        yielded_any = True
-        finally:
-            with self._proc_lock:
-                self._proc = None
-            proc.terminate()
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait()
-            if stderr_fh:
-                stderr_fh.close()
         if not yielded_any and proc.returncode != 0:
             err = _read_last_stderr()
             msg = err or f"exit code {proc.returncode}"
@@ -116,44 +130,18 @@ class CliProvider:
         prompt = self._build_prompt(messages, system)
         argv = self._backend.build_argv(prompt, self.active_model)
         _log.info("CLI start: %s model=%s", self._backend.name, self.active_model)
-        stderr_fh = None
-        try:  # noqa: SIM105
-            stderr_fh = open(_STDERR_LOG, "ab")  # noqa: SIM115
-        except OSError:
-            pass
         try:
-            proc = subprocess.Popen(
-                argv,
-                stdout=subprocess.PIPE,
-                stderr=stderr_fh or subprocess.DEVNULL,
-                stdin=subprocess.DEVNULL,
-            )
+            with self._proc_ctx(argv) as proc:
+                yielded_any = False
+                for raw in proc.stdout:  # type: ignore[union-attr]
+                    token = self._backend.parse_line(raw.decode("utf-8", errors="replace"))
+                    if token:
+                        yield token
+                        yielded_any = True
         except (FileNotFoundError, OSError) as exc:
             _log.error("CLI binary not found: %s", exc)
-            if stderr_fh:
-                stderr_fh.close()
             yield f"[Error: CLI binary not found: {exc}]"
             return
-        with self._proc_lock:
-            self._proc = proc
-        yielded_any = False
-        try:
-            for raw in proc.stdout:  # type: ignore[union-attr]
-                token = self._backend.parse_line(raw.decode("utf-8", errors="replace"))
-                if token:
-                    yield token
-                    yielded_any = True
-        finally:
-            with self._proc_lock:
-                self._proc = None
-            proc.terminate()
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait()
-            if stderr_fh:
-                stderr_fh.close()
         _log.info(
             "CLI done: %s exit=%s yielded=%s",
             self._backend.name, proc.returncode, yielded_any,

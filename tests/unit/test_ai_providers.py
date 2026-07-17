@@ -1,7 +1,7 @@
 """Unit tests for AI providers — no Qt, no real anthropic calls."""
 from unittest.mock import MagicMock, patch
 
-from biome_fm.ai.provider import NoOpProvider, make_provider
+from biome_fm.ai.provider import NoOpProvider
 
 
 def test_noop_available_is_false():
@@ -10,25 +10,6 @@ def test_noop_available_is_false():
 
 def test_noop_chat_returns_empty():
     assert NoOpProvider().chat([{"role": "user", "content": "hi"}]) == ""
-
-
-def test_make_provider_no_key_returns_noop():
-    with patch.dict("os.environ", {}, clear=True):
-        p = make_provider()
-    assert isinstance(p, NoOpProvider)
-
-
-def test_make_provider_with_key_returns_claude():
-    with patch("biome_fm.ai.provider.ClaudeProvider") as MockClaude:
-        MockClaude.return_value = MagicMock()
-        p = make_provider(api_key="sk-test")
-    assert not isinstance(p, NoOpProvider)
-
-
-def test_make_provider_import_error_falls_back_to_noop():
-    with patch("biome_fm.ai.provider._import_claude", side_effect=ImportError):
-        p = make_provider(api_key="sk-test")
-    assert isinstance(p, NoOpProvider)
 
 
 def test_claude_provider_available_is_true():

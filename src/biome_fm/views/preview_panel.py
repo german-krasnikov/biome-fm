@@ -6,7 +6,6 @@ from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
-    QPushButton,
     QStackedWidget,
     QTextBrowser,
     QVBoxLayout,
@@ -49,16 +48,8 @@ class PreviewPanel(QWidget):
         header.setSpacing(2)
         header.addWidget(QLabel("Preview"))
         header.addStretch()
-        btn_detach = QPushButton("⬒")
-        btn_detach.setFixedSize(24, 24)
-        btn_detach.setToolTip("Detach to window")
-        btn_detach.clicked.connect(self.detach_requested)
-        btn_close = QPushButton("✕")
-        btn_close.setFixedSize(24, 24)
-        btn_close.setToolTip("Close")
-        btn_close.clicked.connect(self.close_requested)
-        header.addWidget(btn_detach)
-        header.addWidget(btn_close)
+        from biome_fm.views._panel_buttons import add_panel_buttons
+        add_panel_buttons(header, self.detach_requested, self.close_requested)
         layout.addLayout(header)
 
         layout.addWidget(self._stack)
@@ -84,7 +75,7 @@ class PreviewPanel(QWidget):
                 self._text_view.setPlainText(result.data)  # type: ignore[arg-type]
                 self._stack.setCurrentWidget(self._text_view)
             case ContentKind.MARKDOWN:
-                from biome_fm.models.markdown_renderer import render as _md_render
+                from biome_fm.preview.markdown_renderer import render as _md_render
                 self._text_view.setHtml(_md_render(result.data, self._dark, self._code_alpha))  # type: ignore[arg-type]
                 self._stack.setCurrentWidget(self._text_view)
             case _:  # ERROR

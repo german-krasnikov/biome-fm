@@ -60,7 +60,6 @@ def test_save_creates_parent_dirs(tmp_path: Path) -> None:
 
 def test_new_config_defaults() -> None:
     cfg = Config()
-    assert cfg.bookmarks == []
     assert cfg.sync_browsing is False
     assert cfg.file_type_colors is True
     assert cfg.show_hidden is False
@@ -68,13 +67,25 @@ def test_new_config_defaults() -> None:
 
 def test_config_roundtrip_new_fields(tmp_path: Path) -> None:
     p = tmp_path / "cfg.toml"
-    save_config(Config(bookmarks=["/home", "/tmp"], sync_browsing=True,
-                       file_type_colors=False, show_hidden=True), p)
+    save_config(Config(sync_browsing=True, file_type_colors=False, show_hidden=True), p)
     cfg = load_config(p)
-    assert cfg.bookmarks == ["/home", "/tmp"]
     assert cfg.sync_browsing is True
     assert cfg.file_type_colors is False
     assert cfg.show_hidden is True
+
+
+def test_ai_api_key_migrated_to_claude_key(tmp_path: Path) -> None:
+    p = tmp_path / "cfg.toml"
+    p.write_text('ai_api_key = "sk-old"\n', encoding="utf-8")
+    cfg = load_config(p)
+    assert cfg.ai_claude_key == "sk-old"
+
+
+def test_ai_api_key_not_overwrite_existing_claude_key(tmp_path: Path) -> None:
+    p = tmp_path / "cfg.toml"
+    p.write_text('ai_api_key = "sk-old"\nai_claude_key = "sk-new"\n', encoding="utf-8")
+    cfg = load_config(p)
+    assert cfg.ai_claude_key == "sk-new"
 
 
 def test_config_ai_fields_have_defaults() -> None:

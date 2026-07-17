@@ -3,6 +3,82 @@
 All notable changes to Biome FM are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.18.0] — 2026-07-17
+
+### Fixed
+- **`preserve_scroll` always True** — `PanePresenter._navigate_no_history` now passes `preserve_scroll`
+  only when staying in the same directory; navigating to a new path resets scroll to top
+- **Archive crash on .tar.bz2 / .tar.xz** — `_is_tar()` in `archive_vfs.py` now recognises all
+  compound `.tar.*` extensions, not just `.tar.gz`
+- **Dual EventBus singleton** — `app.py` was constructing two `EventBus` instances; unified to one
+- **Progress dialog showed no progress** — callback now correctly forwards `(current, total)` pairs
+  from `ProgressCopyCmd` / `ProgressMoveCmd` to the dialog
+- **MCP server unrestricted by default** — `mcp/_entry.py` now sets `allowed_roots` to the user home
+  directory when no explicit roots are configured, preventing accidental full-filesystem exposure
+- **Chat log ignores system theme** — `_chat_log.py` bubble colours now react to Qt palette so they
+  look correct in both dark and light themes
+- **Dead `customContextMenuRequested` connection** — stale signal wiring in `main_window.py` removed
+- **TabsPresenter missing delegations** — `close_tab`, `rename_tab`, `reorder_tabs` were not
+  forwarded to the underlying model; all three now properly delegated
+- **Bookmark write data loss** — `BookmarkStore._save()` now writes atomically (temp file + replace)
+  and deep-copies the node tree before serialising to prevent mutation mid-write
+- **`parse_codex_line` multi-block** — parser now accumulates across continuation lines correctly
+  instead of emitting partial fragments
+
+### Added
+- **`SearchCoordinator`** — extracted from `app.py`; owns the search dialog / results panel lifecycle
+  and wires `SearchPresenter`; `presenters/search_coordinator.py`
+- **`dnd_utils.py`** — `make_path_mime()` DRY helper moved from `pane_view.py` to
+  `views/dnd_utils.py` so breadcrumb bar and pane view share one implementation
+- **`_panel_buttons.py`** — `add_panel_buttons()` factory extracted from `ai_chat_panel.py` /
+  `preview_panel.py` into `views/_panel_buttons.py`; panels share one button builder
+- **`markdown_renderer` in `preview/`** — `models/markdown_renderer.py` relocated to
+  `preview/markdown_renderer.py` (single owner; models layer no longer imports Qt rendering code)
+- **`_DARK_FALLBACK` in `plugins/types.py`** — moved from `plugins/builtin/dark_theme.py` so all
+  plugins can reference the canonical fallback token dict without a circular import
+- **`supports_events` on `AIProviderProtocol`** — boolean property; CLI providers return `True`,
+  API providers return `False`; lets callers skip `chat_stream_events()` without duck-typing
+- **`_proc_ctx()` helper in `CliProvider`** — DRY context manager wraps `Popen` setup / teardown
+- **`_file_text()` helper in `archive_vfs`** — single reader for member text extraction
+- **`_child_of()` helper in `archive_vfs`** — replaces repeated `Path.is_relative_to()` guard
+- **`_glass_alphas()` helper in `theme.py`** — computes all three alpha values from one opacity %
+- **EventBus error isolation** — uncaught exceptions in subscribers are caught and logged; one bad
+  handler no longer silences the remaining subscribers on the same event
+- **Preview cache thread-safety** — `PreviewPresenter._cache` access now guarded by `threading.Lock`
+- **PaneView cursor-row cache** — `_cursor_row` cached on selection change; `_DropHintDelegate.paint`
+  reads cache instead of re-querying `currentIndex()` on every cell repaint
+- **Plugin file-operation hooks** — `ManagerPresenter` now calls `before_file_operation` (veto) and
+  `on_file_operation` (notification) hooks for copy / move / delete via the plugin manager
+
+### Removed
+- **`make_provider()` factory** — replaced by `make_providers()` (plural); dead single-provider
+  factory removed from `ai/__init__.py`
+- **Dead config fields** — `Config.ai_api_key`, `Config.ai_model`, and unused toggle wrapper fields
+  removed; per-provider model fields remain
+- **`_home()` helper on `PanePresenter`** — inlined; was a one-liner wrapping `Path.home()`
+- **Qt imports from `plugins/manager.py`** — plugin manager is now pure Python; Qt-dependent plugin
+  helpers moved to the views layer
+
+### Tests
+- `tests/unit/test_archive_is_tar.py` — `_is_tar` with .tar.bz2/.tar.xz (new)
+- `tests/unit/test_archive_child_of.py` — `_child_of` helper (new)
+- `tests/unit/test_event_bus_isolation.py` — subscriber exception isolation (new)
+- `tests/unit/test_search_coordinator.py` — `SearchCoordinator` unit tests (new)
+- `tests/unit/ai/test_supports_events.py` — `supports_events` property across all providers (new)
+- `tests/unit/test_plugin_hooks.py` — `before_file_operation` veto + `on_file_operation` notify (new)
+- `tests/unit/test_plugin_types.py` — `_DARK_FALLBACK` location + shape (new)
+- `tests/unit/test_progress_callback.py` — progress callback forwarding (new)
+- `tests/unit/test_chat_log_styles.py` — bubble colours in light/dark palette (new)
+- `tests/unit/mcp/test_entry_default_roots.py` — default home-dir restriction (new)
+- `tests/unit/ai/test_content_helpers.py` — `FileContent` / `ImageContent` helpers (new)
+- `tests/integration/test_dnd_utils.py` — `make_path_mime` from shared module (new)
+- `tests/integration/test_panel_buttons.py` — `add_panel_buttons` factory (new)
+- `tests/integration/test_main_window_close.py` — window close lifecycle (new)
+- `tests/integration/test_main_window_ui.py` — main window UI invariants (new)
+- Existing suites extended: `test_stream_parse`, `test_ai_providers`, `test_bookmark_store`,
+  `test_bookmark_store_tree`, `test_glass_theme`, `test_pane_refresh_cursor`, `test_config`,
+  `test_tabs_title_update`, `test_preview_presenter`
+
 ## [v0.17.3] — 2026-07-16
 
 ### Fixed

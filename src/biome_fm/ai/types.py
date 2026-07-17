@@ -18,3 +18,8 @@ class FileContent:
 
 
 type ContentPart = str | ImageContent | FileContent
+
+
+def _file_text(part: FileContent) -> str:
+    """Serialize FileContent to inline text block."""
+    return f"[{part.path.name}]\n{part.content}"

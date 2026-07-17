@@ -149,6 +149,15 @@ class TabsPresenter:
     def current_item(self) -> FileItem | None:
         return self.active.current_item()
 
+    def toggle_mark_up(self) -> None:
+        self.active.toggle_mark_up()
+
+    def toggle_mark_at(self, item: FileItem) -> None:
+        self.active.toggle_mark_at(item)
+
+    def go_root(self) -> None:
+        self.active.go_root()
+
     def on_item_activated(self, item: FileItem) -> None:
         self.active.on_item_activated(item)
         p = self.active.current_path

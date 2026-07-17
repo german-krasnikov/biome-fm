@@ -11,7 +11,7 @@ except ImportError:
     anthropic = None  # type: ignore
     _HAS_ANTHROPIC = False
 
-from biome_fm.ai.types import FileContent, ImageContent
+from biome_fm.ai.types import FileContent, ImageContent, _file_text
 
 
 class ClaudeProvider:
@@ -32,6 +32,10 @@ class ClaudeProvider:
     @property
     def available(self) -> bool:
         return True
+
+    @property
+    def supports_events(self) -> bool:
+        return False
 
     def set_model(self, model: str) -> None:
         self._model = model
@@ -79,8 +83,7 @@ class ClaudeProvider:
                             },
                         })
                     elif isinstance(part, FileContent):
-                        text = f"[{part.path.name}]\n{part.content}"
-                        parts.append({"type": "text", "text": text})
+                        parts.append({"type": "text", "text": _file_text(part)})
                 out.append({"role": msg["role"], "content": parts})
             else:
                 out.append({"role": msg["role"], "content": str(content)})

@@ -8,6 +8,11 @@ src/biome_fm/
 │                       #   via mcp/cli.dispatch() before importing Qt; falls through to QApplication bootstrap
 ├── app.py              # create_app() factory — full DI wiring (VFSRouter, Config,
 │                       #   Session, Plugins, AI, CommandPalette, PaneSideViews);
+│                       #   _AppContext dataclass keeps all long-lived objects alive (replaces window._refs tuple);
+│                       #   _AI_MODEL_FIELDS dict maps 6 provider keys → config field names;
+│                       #   Sub-initializers extracted: _build_plugins(cfg), _build_panes(vfs),
+│                       #     _build_preview(cfg) — construction only, no signal wiring;
+│                       #   SearchCoordinator wired to Ctrl+Shift+F, owns dialog/thread/queue/drain;
 │                       #   nav/DnD/context-menu signal wiring; focus tracking → active pane bus;
 │                       #   _op_items(): marked items → cursor item fallback (TC behavior);
 │                       #   refresh_timer: 5-second QTimer calls manager._refresh_both(),
@@ -35,7 +40,9 @@ src/biome_fm/
 │   ├── vfs.py              # VFSProtocol + LocalVFS
 │   ├── vfs_router.py       # VFSRouter: path ancestry walk → archive root detection;
 │   │                       #   dispatches local/archive; caches ArchiveVFS per archive file
-│   ├── archive_vfs.py      # ZIP/TAR.GZ VFS via fsspec
+│   ├── archive_vfs.py      # ZIP/TAR VFS (stdlib zipfile + tarfile, no fsspec);
+│   │                       #   _child_of(raw, prefix, *, skip_dot) free fn — shared by ZIP
+│   │                       #   and TAR listing; returns (child_name, is_nested) | None
 │   ├── directory_model.py  # QAbstractTableModel (4 cols: Name/Size/Modified/Ext);
 │   │                       #   flags() adds ItemIsDragEnabled (DnD root-cause fix);
 │   │                       #   ForegroundRole: file-type coloring via _EXT_COLORS dict
@@ -54,12 +61,8 @@ src/biome_fm/
 │   │                       #   migration: old paths/names arrays → tree nodes on first load
 │   ├── icon_provider.py    # icon_for_extension(ext) — @lru_cache(256), QFileIconProvider;
 │   │                       #   icon_for_dir() — SP_DirIcon; fallback to SP_FileIcon
-│   └── markdown_renderer.py # render(md, dark, code_alpha=140) → HTML for QTextBrowser.setHtml();
-│                            #   QTextDocument.setMarkdown(GFM) → toHtml(); Pygments replaces
-│                            #   <pre> blocks with highlighted HTML (monokai dark / default light);
-│                            #   dark/light-aware CSS injected into <head>; PRE_GROUP_RE regex fixed
-│                            #   (no `+` grouping); @lru_cache(maxsize=2) on HtmlFormatter;
-│                            #   100KB truncation limit; must run on Qt main thread
+│   └── markdown_renderer.py # Backward-compat shim — re-exports render/FENCE_RE/PRE_RE from
+│                            #   preview/markdown_renderer.py; real implementation lives there
 │
 ├── presenters/
 │   ├── pane_presenter.py     # Drives one pane (cd, select, sort, current_item);
@@ -85,12 +88,20 @@ src/biome_fm/
 │   │                         #   drop_files(paths, target_pane_id, move, target_folder) — DnD;
 │   │                         #   async path: ProgressCopyCmd/ProgressMoveCmd submitted to OpQueue,
 │   │                         #   publishes AsyncOpSubmitted(task_id, desc, cancel);
+│   │                         #   accepts plugins: PluginManager | None — calls before_file_operation
+│   │                         #   hook (veto guard) and on_file_operation hook (post-op notification)
+│   │                         #   for all sync + async file ops;
 │   │                         #   toggle_mirror() / navigate_active() for Sync Browsing;
 │   │                         #   toggle_hidden() — flips Config.show_hidden, publishes ShowHiddenToggled;
 │   │                         #   undo/redo via CommandHistory → refresh_both()
 │   ├── ai_presenter.py       # AI chat bridge (AIProvider ↔ AIChatViewProtocol)
 │   ├── compare_presenter.py  # Directory diff (left vs right pane)
 │   ├── rename_presenter.py   # Multi-rename (pattern, counter, ext substitution)
+│   ├── search_coordinator.py # SearchCoordinator (no Qt): concurrent search state machine;
+│   │                         #   owns dialog, thread, queue.SimpleQueue, drain; cancel any
+│   │                         #   in-progress on new request_search(); drain() called by 50ms QTimer;
+│   │                         #   wired in app.py, coordinates SearchPresenter + SearchResultsPanel +
+│   │                         #   PanelCoordinator.toggle("search", ...)
 │   ├── search_presenter.py   # File search (name glob + content grep)
 │   └── settings_presenter.py # SettingsPresenter (no Qt) + SettingsViewProtocol;
 │                               #   load/save Config fields via protocol methods;
@@ -141,6 +152,12 @@ src/biome_fm/
 │   │                     #   context_action_requested;
 │   │                     #   files_dropped = Signal(list, bool, object)
 │   │                     #     → (paths: list[Path], move: bool, target_folder: Path | None)
+│   ├── dnd_utils.py      # make_path_mime(paths, *, urls=True) → QMimeData; builds
+│   │                     #   biome-fm-paths + uri-list + text/plain; urls=False omits uri-list
+│   │                     #   (Alt-drag text-only); _MIME constant owned here; used by
+│   │                     #   _PaneTableView.mimeData() and _SegmentButton drag
+│   ├── _panel_buttons.py # add_panel_buttons(header_layout, detach, close): shared ⬒/✕
+│   │                     #   chrome for overlay panels (24×24 buttons with tooltips)
 │   ├── filter_bar.py     # FilterBar: QLineEdit-based quick filter; hidden by default;
 │   │                     #   activate() shows + focuses; Escape → deactivate + closed signal;
 │   │                     #   filter_changed(str) signal → DirSortFilterProxy.set_filter()
@@ -230,7 +247,7 @@ src/biome_fm/
 │   └── providers/
 │       ├── image.py      # ImagePreviewProvider (priority=0); jpg/png/gif/webp/svg etc; 50MB limit
 │       ├── markdown.py   # MarkdownPreviewProvider (priority=5); .md/.markdown/.mdx; 200KB limit;
-│       │                 #   calls markdown_renderer.render(md, dark, code_alpha) → HTML;
+│       │                 #   calls preview/markdown_renderer.render(md, dark, code_alpha) → HTML;
 │       │                 #   rendering runs on main thread (Qt requirement); returns ContentKind.HTML
 │       ├── code.py       # CodePreviewProvider (priority=8); Pygments syntax highlighting;
 │       │                 #   get_lexer_for_filename() to detect language; skips TextLexer (falls
@@ -246,9 +263,12 @@ src/biome_fm/
 │   └── catppuccin-mocha.toml  # third-party palette example
 │
 ├── plugins/
-│   ├── types.py          # ThemeTokens (TypedDict, 10 keys); ActionSpec dataclass
-│   │                     #   (label, callback, shortcut, icon_name, separator_before);
-│   │                     #   ColumnDef dataclass (id, title, width, alignment)
+│   ├── types.py          # ThemeTokens (TypedDict, 14 keys — 10 base + 4 glass extras:
+│   │                     #   base_bg, surface_opaque, surface2_opaque, selection_bg);
+│   │                     #   _DARK_FALLBACK: ThemeTokens — canonical dark fallback, no Qt dep
+│   │                     #   (moved here from views/theme.py so plugins/ stays view-free);
+│   │                     #   ActionSpec dataclass (label, callback, shortcut, icon_name,
+│   │                     #   separator_before); ColumnDef dataclass (id, title, width, alignment)
 │   ├── hookspecs.py      # pluggy @hookspec: register_commands (historic=True),
 │   │                     #   on_navigate(path), on_file_operation(op,src,dst),
 │   │                     #   provide_theme(name) firstresult → ThemeTokens | None,
@@ -259,15 +279,18 @@ src/biome_fm/
 │   ├── manager.py        # PluginManager: API_VERSION=(1,0); register_plugin() checks
 │   │                     #   BIOME_FM_API_VERSION major; load_entry_points() via
 │   │                     #   importlib.metadata group='biome_fm.plugins';
-│   │                     #   load_local_plugins(plugin_dir) loads .py files + dirs with
-│   │                     #   __init__.py from ~/.config/biome-fm/plugins/, each must have
-│   │                     #   top-level Plugin class; get_installed_plugins() → list[dict]
-│   ├── theme_registry.py # ThemeRegistry(pm): resolve(name) → _DARK_FALLBACK merged with
-│   │                     #   plugin hook result (provide_theme firstresult)
+│   │                     #   load_local_plugins(plugin_dir) — if None returns [] (caller
+│   │                     #   must resolve path, avoids Qt import in plugins/); app.py passes
+│   │                     #   QStandardPaths result; each .py must have top-level Plugin class;
+│   │                     #   get_installed_plugins() → list[dict]; no Qt imports
+│   ├── theme_registry.py # ThemeRegistry(pm): resolve(name) → _DARK_FALLBACK (from
+│   │                     #   plugins/types.py) merged with plugin hook result (provide_theme
+│   │                     #   firstresult); no Qt imports
 │   └── builtin/
 │       ├── __init__.py
 │       └── dark_theme.py # BuiltinDarkTheme: BIOME_FM_API_VERSION=(1,0);
-│                         #   provide_theme("dark") → _DARK_FALLBACK copy; None for other names
+│                         #   provide_theme("dark") → _DARK_FALLBACK copy (imported from
+│                         #   plugins/types.py); None for other names
 │
 ├── ai/
 │   ├── __init__.py       # Package init
@@ -334,7 +357,7 @@ ManagerPresenter wires undo/redo to CommandHistory + refresh_both().
 
 ### VFS Host Chaining
 VFSRouter walks path ancestry to detect archive roots (`.zip`, `.tar`, `.tar.gz`, `.tar.bz2`, `.tgz`). `.7z` is explicitly excluded — unsupported by fsspec backend.
-Matching paths → ArchiveVFS (fsspec); plain paths → LocalVFS.
+Matching paths → ArchiveVFS (stdlib `zipfile`/`tarfile`); plain paths → LocalVFS.
 Nested archives supported via chained VFS instances; ArchiveVFS instances cached per root file.
 `PanePresenter._is_archive()` triggers in-pane browsing on item activation.
 
@@ -518,8 +541,9 @@ Provider priority (ascending = higher wins; first `can_handle` match used):
 
 Cache: 64 entries, key `(path, mtime)`. FIFO eviction (oldest dropped when full).
 `ThemeChanged` event → `PreviewPresenter.set_dark()` so next render picks correct palette.
-`models/markdown_renderer.render(md, dark, code_alpha=140)` is a Pygments-enhanced HTML path separate
-from `MarkdownPreviewProvider` (which returns raw Markdown for `QTextBrowser.setMarkdown`).
+`preview/markdown_renderer.render(md, dark, code_alpha=140)` is a Pygments-enhanced HTML path
+(canonical location since architecture-review-fixes refactor; `models/markdown_renderer.py` is
+now a backward-compat shim that re-exports from there).
 
 ### Plugin System Enhancements (v0.7.0)
 

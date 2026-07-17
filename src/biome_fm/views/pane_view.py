@@ -29,28 +29,16 @@ from biome_fm.qt import (
     QStyledItemDelegate,
     Qt,
     QTableView,
-    QUrl,
     QVBoxLayout,
     QWidget,
     Signal,
 )
 from biome_fm.views.bookmark_menu import BookmarkMenu
+from biome_fm.views.dnd_utils import _MIME, make_path_mime
 from biome_fm.views.filter_bar import FilterBar
 from biome_fm.views.jump_bar import JumpBar
 
-_MIME = "application/x-biome-fm-paths"
 _MOVE_MODS = Qt.KeyboardModifier.ShiftModifier | Qt.KeyboardModifier.AltModifier
-
-
-def make_path_mime(paths: list[str], *, urls: bool = True) -> QMimeData:
-    """Build QMimeData with biome-fm-paths + uri-list + text/plain."""
-    mime = QMimeData()
-    mime.setData(_MIME, "\n".join(paths).encode())
-    if paths:
-        if urls:
-            mime.setUrls([QUrl.fromLocalFile(p) for p in paths])
-        mime.setText("\n".join(paths))
-    return mime
 
 
 class _DropHintDelegate(QStyledItemDelegate):
@@ -77,8 +65,7 @@ class _DropHintDelegate(QStyledItemDelegate):
             painter.drawRect(option.rect.adjusted(1, 1, -1, -1))
             painter.restore()
         # Cursor row border (TC-style: border around entire row, no fill)
-        current = self._table.currentIndex()
-        if current.isValid() and current.row() == index.row():
+        if self._table._cursor_row == index.row() >= 0:
             painter.save()
             pen = painter.pen()
             pen.setColor(option.palette.highlight().color())
@@ -100,6 +87,7 @@ class _PaneTableView(QTableView):
 
     _uniform_row_heights: bool = False
     _drop_hint_row: int = -1
+    _cursor_row: int = -1
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -116,6 +104,10 @@ class _PaneTableView(QTableView):
 
     def uniformRowHeights(self) -> bool:
         return self._uniform_row_heights
+
+    def _on_cursor_row_changed(self, current: QModelIndex, _: QModelIndex) -> None:
+        self._cursor_row = current.row() if current.isValid() else -1
+        self.viewport().update()
 
     def scrollContentsBy(self, dx: int, dy: int) -> None:
         super().scrollContentsBy(dx, dy)  # must run: updates header offset + selection dirty region
@@ -410,6 +402,7 @@ class PaneView(QWidget):
         self._table.setSortingEnabled(True)
         self._table.activated.connect(self._on_activated)
         self._table.selectionModel().currentChanged.connect(self._on_cursor_changed)
+        self._table.selectionModel().currentChanged.connect(self._table._on_cursor_row_changed)
         layout.addWidget(self._table)
 
         self._proxy.sort(COL_NAME, Qt.SortOrder.AscendingOrder)

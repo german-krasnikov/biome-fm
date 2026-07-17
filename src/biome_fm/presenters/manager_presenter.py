@@ -25,11 +25,23 @@ from biome_fm.models.file_item import FileItem
 from biome_fm.models.vfs import VFSProtocol
 from biome_fm.presenters.pane_presenter import PanePresenter
 
+from biome_fm.operations.task import OpProgress
+
 if TYPE_CHECKING:
     from biome_fm.operations.queue import OpQueue
+    from biome_fm.plugins.manager import PluginManager
 
 PaneId = Literal["left", "right"]
 _OTHER: dict[PaneId, PaneId] = {"left": "right", "right": "left"}
+
+
+@dataclass
+class _OpSpec:
+    """Op metadata for plugin hook calls."""
+    op: str  # "copy" | "move" | "delete" | "mkdir" | "rename"
+    src: Path | None = None
+    dst: Path | None = None
+    sources: list[Path] = field(default_factory=list)  # multi-source ops (copy/move/delete)
 
 
 @dataclass
@@ -52,6 +64,7 @@ class ManagerPresenter:
         config: Config | None = None,
         op_queue: OpQueue | None = None,
         confirm: Callable[[ConfirmSpec], bool] | None = None,
+        plugins: PluginManager | None = None,
     ) -> None:
         self._panes: dict[PaneId, PanePresenter] = {"left": left, "right": right}
         self._active: PaneId = "left"
@@ -61,9 +74,11 @@ class ManagerPresenter:
         self._config = config
         self._op_queue = op_queue
         self._confirm = confirm or (lambda _: True)
+        self._plugins = plugins
         self._mirror = False
         self._mirroring = False
         self._pending_cmds: dict[int, Command] = {}
+        self._pending_specs: dict[int, _OpSpec] = {}
 
     @property
     def active_pane_id(self) -> PaneId:
@@ -129,14 +144,19 @@ class ManagerPresenter:
         paths = [i.path for i in items]
         if not self._confirm(ConfirmSpec("delete", paths)):
             return
-        self._run(DeleteCmd(paths, self._vfs), "Delete")
+        self._run(DeleteCmd(paths, self._vfs), "Delete", _OpSpec("delete", paths[0], sources=paths))
 
     def mkdir(self, name: str) -> None:
         path = self._source().current_path / name
-        self._run(MkdirCmd(path, self._vfs), f"mkdir {name}")
+        self._run(MkdirCmd(path, self._vfs), f"mkdir {name}", _OpSpec("mkdir", dst=path))
 
     def rename(self, item: FileItem, new_name: str) -> None:
-        self._run(RenameCmd(item.path, new_name, self._vfs), f"Rename -> {new_name}")
+        new_path = item.path.parent / new_name
+        self._run(
+            RenameCmd(item.path, new_name, self._vfs),
+            f"Rename -> {new_name}",
+            _OpSpec("rename", item.path, new_path),
+        )
 
     def drop_files(
         self,
@@ -162,6 +182,13 @@ class ManagerPresenter:
     def pop_pending_cmd(self, task_id: int) -> Command | None:
         return self._pending_cmds.pop(task_id, None)
 
+    def fire_op_done(self, task_id: int) -> None:
+        """Fire on_file_operation hook for each source of a completed async op."""
+        spec = self._pending_specs.pop(task_id, None)
+        if spec and self._plugins:
+            for src in spec.sources if spec.sources else [spec.src]:
+                self._plugins.hook.on_file_operation(op=spec.op, src=src, dst=spec.dst)
+
     def undo(self) -> None:
         self._history.undo()
         self._refresh_both()
@@ -174,21 +201,32 @@ class ManagerPresenter:
         op = "move" if move else "copy"
         if not self._confirm(ConfirmSpec(op, sources, dst)):
             return
+        if self._plugins:
+            for src in sources:
+                if self._plugins.hook.before_file_operation(op=op, src=src, dst=dst) is False:
+                    return  # vetoed
         desc = "Move" if move else "Copy"
         if self._op_queue is None:
             cmd_cls = MoveCmd if move else CopyCmd
-            self._run(cmd_cls(sources, dst, self._vfs), desc)
+            self._run(cmd_cls(sources, dst, self._vfs), desc, _OpSpec(op, dst=dst, sources=sources))
             return
         cancel = threading.Event()
         task_id = self._op_queue.next_task_id()
+        self._pending_specs[task_id] = _OpSpec(op, dst=dst, sources=sources)
 
-        def _noop(*_args: object) -> None:
-            pass  # progress events are pushed via OpProgress by ProgressCopyCmd itself
+        def _progress(
+            files_done: int, files_total: int,
+            bytes_done: int, bytes_total: int,
+            current_file: str,
+        ) -> None:
+            self._op_queue.put_event(
+                OpProgress(task_id, files_done, files_total, bytes_done, bytes_total, current_file)
+            )
 
         if move:
-            cmd: Command = ProgressMoveCmd(sources, dst, self._vfs, cancel, _noop)
+            cmd: Command = ProgressMoveCmd(sources, dst, self._vfs, cancel, _progress)
         else:
-            cmd = ProgressCopyCmd(sources, dst, self._vfs, cancel, _noop)
+            cmd = ProgressCopyCmd(sources, dst, self._vfs, cancel, _progress)
 
         self._pending_cmds[task_id] = cmd
         self._op_queue.submit(cmd, cancel=cancel, task_id=task_id)
@@ -208,12 +246,18 @@ class ManagerPresenter:
         if self._bus is not None:
             self._bus.publish(event)
 
-    def _run(self, cmd: Command, desc: str) -> None:
+    def _run(self, cmd: Command, desc: str, spec: _OpSpec | None = None) -> None:
+        if self._plugins and spec and spec.src:
+            if self._plugins.hook.before_file_operation(op=spec.op, src=spec.src, dst=spec.dst) is False:
+                return  # vetoed
         self._publish(OperationStarted(desc))
         try:
             self._history.execute(cmd)
             self._refresh_both()
             self._publish(OperationFinished(desc, True))
+            if self._plugins and spec:
+                for src in spec.sources if spec.sources else [spec.src]:
+                    self._plugins.hook.on_file_operation(op=spec.op, src=src, dst=spec.dst)
         except OSError as e:
             self._publish(OperationFinished(desc, False, str(e)))
             raise

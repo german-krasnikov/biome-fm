@@ -11,7 +11,7 @@ except ImportError:
     _openai = None  # type: ignore
     _HAS_OPENAI = False
 
-from biome_fm.ai.types import FileContent, ImageContent
+from biome_fm.ai.types import FileContent, ImageContent, _file_text
 
 
 class OpenAIProvider:
@@ -28,6 +28,10 @@ class OpenAIProvider:
     @property
     def available(self) -> bool:
         return True
+
+    @property
+    def supports_events(self) -> bool:
+        return False
 
     def set_model(self, model: str) -> None:
         self._model = model
@@ -66,8 +70,7 @@ class OpenAIProvider:
                             "image_url": {"url": f"data:{part.media_type};base64,{part.data}"},
                         })
                     elif isinstance(part, FileContent):
-                        text = f"[{part.path.name}]\n{part.content}"
-                        parts.append({"type": "text", "text": text})
+                        parts.append({"type": "text", "text": _file_text(part)})
                 wire.append({"role": msg["role"], "content": parts})
             else:
                 wire.append({"role": msg["role"], "content": str(content)})

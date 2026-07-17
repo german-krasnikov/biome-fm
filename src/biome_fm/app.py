@@ -1,10 +1,9 @@
 """Application bootstrap and DI wiring."""
 from __future__ import annotations
 
-import queue
 import shlex
 import subprocess
-import threading
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from biome_fm.ai.provider import make_providers
@@ -15,9 +14,9 @@ from biome_fm.event_bus import (
     ActivePaneChanged,
     AsyncOpSubmitted,
     BookmarkChanged,
-    EventBus,
     ShowHiddenToggled,
     ThemeChanged,
+    bus,
 )
 from biome_fm.models.bookmark_store import BookmarkStore
 from biome_fm.models.vfs_router import VFSRouter
@@ -29,7 +28,7 @@ from biome_fm.plugins.manager import PluginManager
 from biome_fm.presenters.ai_presenter import AIPresenter
 from biome_fm.presenters.manager_presenter import ManagerPresenter
 from biome_fm.presenters.pane_presenter import PanePresenter, PaneViewProtocol
-from biome_fm.presenters.search_presenter import SearchPresenter, SearchResult
+from biome_fm.presenters.search_coordinator import SearchCoordinator
 from biome_fm.presenters.settings_presenter import SettingsPresenter
 from biome_fm.presenters.tabs_presenter import TabsPresenter
 from biome_fm.preview.presenter import PreviewPresenter
@@ -58,15 +57,105 @@ from biome_fm.views.pane_side_view import PaneSideView
 from biome_fm.views.panel_coordinator import PanelCoordinator
 from biome_fm.views.preview_panel import PreviewPanel
 from biome_fm.views.progress_dialog import ProgressDialog
-from biome_fm.views.search_dialog import SearchDialog
 from biome_fm.views.search_panel import SearchResultsPanel
 from biome_fm.views.confirm_dialog import ConfirmDialog
 from biome_fm.views.settings_dialog import SettingsDialog
 
 
+# ── Module-level constants ────────────────────────────────────────────────────
+
+_AI_MODEL_FIELDS: dict[str, str] = {
+    "claude":       "ai_claude_model",
+    "openai":       "ai_openai_model",
+    "ollama":       "ai_ollama_model",
+    "claude-code":  "ai_cli_claude_code_model",
+    "codex":        "ai_cli_codex_model",
+    "opencode":     "ai_cli_opencode_model",
+}
+
+
+@dataclass
+class _AppContext:
+    """Keeps references alive for the lifetime of the window."""
+    manager: object
+    left_tabs: object
+    right_tabs: object
+    ai_presenter: object
+    preview_presenter: object
+    coord: object
+    panel_mgr: object
+    op_queue: object
+    plugins: object
+    timers: list = field(default_factory=list)
+
+
+# ── Module-level build functions (construction only, no signal wiring) ────────
+
 def _config_dir() -> Path:
     loc = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppConfigLocation)
     return Path(loc) / "biome-fm" if loc else Path.home() / ".config" / "biome-fm"
+
+
+def _build_plugins(cfg):
+    """Construct and configure PluginManager, apply initial theme."""
+    from biome_fm.views.theme import apply_theme
+    plugins = PluginManager()
+    plugins.register_plugin(BuiltinDarkTheme())
+    plugins.load_entry_points()
+    _loc = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppConfigLocation)
+    plugins.load_local_plugins(Path(_loc) / "biome-fm" / "plugins" if _loc else None)
+    apply_theme(
+        QApplication.instance(), cfg.theme,
+        plugin_manager=plugins, glass=cfg.glass, glass_opacity=cfg.glass_opacity,
+    )  # type: ignore[arg-type]
+    return plugins
+
+
+def _build_panes(vfs):
+    """Construct left/right PaneSideViews and TabsPresenters."""
+    left_side = PaneSideView()
+    right_side = PaneSideView()
+    left_tabs = TabsPresenter(vfs, left_side, left_side.new_pane, opener=open_file)
+    right_tabs = TabsPresenter(vfs, right_side, right_side.new_pane, opener=open_file)
+    return left_side, right_side, left_tabs, right_tabs
+
+
+def _build_preview(cfg):
+    """Construct PreviewRegistry, PreviewPanel, PreviewPresenter."""
+    preview_registry = PreviewRegistry()
+    for _p in [
+        ImagePreviewProvider(), MarkdownPreviewProvider(),
+        CodePreviewProvider(), TextPreviewProvider(), FallbackProvider(),
+    ]:
+        preview_registry.register(_p)
+    preview_panel = PreviewPanel()
+    preview_presenter = PreviewPresenter(view=preview_panel, registry=preview_registry)
+    preview_presenter.set_dark("dark" in cfg.theme.lower())
+    if cfg.glass:
+        from biome_fm.views.theme import _glass_alphas
+        _, _sel = _glass_alphas(cfg.glass_opacity)
+        preview_panel.set_code_alpha(_sel)
+    return preview_registry, preview_panel, preview_presenter
+
+
+def _build_ai(cfg, cfg_dir: Path):
+    """Construct AI providers, AIChatPanel, AIPresenter. No signal wiring."""
+    providers = make_providers(cfg)
+    for pname, p in providers.items():
+        field_name = _AI_MODEL_FIELDS.get(pname)
+        if field_name:
+            saved = getattr(cfg, field_name, "")
+            if saved and saved in p.models:
+                p.set_model(saved)
+    ai_panel = AIChatPanel()
+    ai_presenter = AIPresenter(view=ai_panel, providers=providers,
+                               default_provider=cfg.ai_default_provider)
+    if providers:
+        default = cfg.ai_default_provider
+        key = default if default in providers else next(iter(providers))
+        p = providers[key]
+        ai_panel.set_provider_list(list(providers), key, p.models, p.active_model)
+    return providers, ai_panel, ai_presenter
 
 
 def _pad_sizes(sizes: list[int], count: int) -> list[int]:
@@ -98,41 +187,14 @@ def create_app() -> MainWindow:
     cfg = load_config(cfg_dir / "config.toml")
     session = load_session(cfg_dir / "session.json")
 
-    # ── Plugins (before VFSRouter — passes plugin_manager in) ────────────────
-    plugins = PluginManager()
-    plugins.register_plugin(BuiltinDarkTheme())
-    plugins.load_entry_points()
-    plugins.load_local_plugins()
-
-    from biome_fm.views.theme import apply_theme
-    apply_theme(QApplication.instance(), cfg.theme, plugin_manager=plugins, glass=cfg.glass, glass_opacity=cfg.glass_opacity)  # type: ignore[arg-type]
-
-    # ── Core services ─────────────────────────────────────────────
+    # ── Construction phase ────────────────────────────────────────
+    plugins = _build_plugins(cfg)
     vfs = VFSRouter(plugin_manager=plugins)
-    bus = EventBus()
     history = CommandHistory()
     store = BookmarkStore(cfg_dir / "bookmarks.toml")
     op_queue = OpQueue(max_workers=2)
-
-    # ── Tabs + Panes ──────────────────────────────────────────────
-    left_side = PaneSideView()
-    right_side = PaneSideView()
-    left_tabs = TabsPresenter(vfs, left_side, left_side.new_pane, opener=open_file)
-    right_tabs = TabsPresenter(vfs, right_side, right_side.new_pane, opener=open_file)
-
-    # ── Preview (early — needed by _wire_preview, called during restore) ──
-    preview_registry = PreviewRegistry()
-    for _p in [
-        ImagePreviewProvider(), MarkdownPreviewProvider(),
-        CodePreviewProvider(), TextPreviewProvider(), FallbackProvider(),
-    ]:
-        preview_registry.register(_p)
-    preview_panel = PreviewPanel()
-    preview_presenter = PreviewPresenter(view=preview_panel, registry=preview_registry)
-    preview_presenter.set_dark("dark" in cfg.theme.lower())
-    if cfg.glass:
-        from biome_fm.views.theme import _opacity_to_alpha, _SELECTION_BUMP
-        preview_panel.set_code_alpha(min(_opacity_to_alpha(cfg.glass_opacity) + _SELECTION_BUMP, 255))
+    left_side, right_side, left_tabs, right_tabs = _build_panes(vfs)
+    _, preview_panel, preview_presenter = _build_preview(cfg)
 
     coord: PanelCoordinator | None = None  # late-bound; set after window creation
 
@@ -178,13 +240,14 @@ def create_app() -> MainWindow:
     manager = ManagerPresenter(
         left=left_tabs, right=right_tabs, vfs=vfs,  # type: ignore[arg-type]
         history=history, bus=bus, config=cfg, op_queue=op_queue,
+        plugins=plugins,
         confirm=lambda spec: ConfirmDialog.confirm(
             spec.op, spec.sources, spec.dest, parent=_confirm_parent[0]
         ),
     )
     _progress_dialogs: dict[int, ProgressDialog] = {}
 
-    # ── Wire DnD for existing tabs ────────────────────────────────────────────
+    # ── Per-view wire helpers (defined here; applied in single loop below) ────
     def _wire_dnd(view: object, pane_id: str) -> None:
         sig = getattr(view, "files_dropped", None)
         if sig is not None:
@@ -196,34 +259,16 @@ def create_app() -> MainWindow:
         if sig is not None:
             sig.connect(lambda _tabs=tabs: _new_tab(_tabs))
 
-    for _pid, _tabs in [("left", left_tabs), ("right", right_tabs)]:
-        for _i in range(_tabs.tab_count):
-            _wire_dnd(_tabs.view_at(_i), _pid)
-            _wire_new_tab(_tabs.view_at(_i), _tabs)
+    providers, ai_panel, ai_presenter = _build_ai(cfg, cfg_dir)
 
-    providers = make_providers(cfg)
-    _model_fields = {
-        "claude":       "ai_claude_model",
-        "openai":       "ai_openai_model",
-        "ollama":       "ai_ollama_model",
-        "claude-code":  "ai_cli_claude_code_model",
-        "codex":        "ai_cli_codex_model",
-        "opencode":     "ai_cli_opencode_model",
-    }
-    for _pname, _p in providers.items():
-        _field = _model_fields.get(_pname)
-        if _field:
-            _saved = getattr(cfg, _field, "")
-            if _saved and _saved in _p.models:
-                _p.set_model(_saved)
-    ai_panel = AIChatPanel()
-    ai_presenter = AIPresenter(view=ai_panel, providers=providers,
-                               default_provider=cfg.ai_default_provider)
+    # ── AI signal wiring ──────────────────────────────────────────
     ai_panel.message_submitted.connect(ai_presenter.send)
     ai_panel.provider_changed.connect(ai_presenter.switch_provider)
+
     def _on_provider_changed(name: str) -> None:
         cfg.ai_default_provider = name
         save_config(cfg, cfg_dir / "config.toml")
+
     ai_panel.provider_changed.connect(_on_provider_changed)
     ai_panel.model_changed.connect(ai_presenter.switch_model)
     ai_panel.cancel_requested.connect(ai_presenter.cancel)
@@ -231,9 +276,9 @@ def create_app() -> MainWindow:
     ai_panel._context_bar.chip_removed.connect(ai_presenter.remove_attachment)
 
     def _on_ai_model_changed(model: str) -> None:
-        field = _model_fields.get(ai_presenter._active_key)
-        if field:
-            setattr(cfg, field, model)
+        field_name = _AI_MODEL_FIELDS.get(ai_presenter._active_key)
+        if field_name:
+            setattr(cfg, field_name, model)
             save_config(cfg, cfg_dir / "config.toml")
 
     ai_panel.model_changed.connect(_on_ai_model_changed)
@@ -254,12 +299,6 @@ def create_app() -> MainWindow:
                 v.select_item(path.name)
 
     ai_panel.file_link_clicked.connect(_on_ai_navigate)
-    # Init provider list in UI
-    if providers:
-        default = cfg.ai_default_provider
-        key = default if default in providers else next(iter(providers))
-        p = providers[key]
-        ai_panel.set_provider_list(list(providers), key, p.models, p.active_model)
 
     search_panel = SearchResultsPanel()
 
@@ -339,6 +378,7 @@ def create_app() -> MainWindow:
                 cmd = manager.pop_pending_cmd(event.task_id)
                 if cmd is not None:
                     history.push(cmd)
+                manager.fire_op_done(event.task_id)
                 manager._refresh_both()
                 if dlg:
                     dlg.mark_done()
@@ -384,79 +424,17 @@ def create_app() -> MainWindow:
     window.command_submitted.connect(_run_cmd)
 
     # ── Search ────────────────────────────────────────────────────
-    _search_presenter: SearchPresenter | None = None
-    _search_queue: queue.SimpleQueue[SearchResult | None] = queue.SimpleQueue()
-    _CANCELLED = object()
-
-    def _on_search_requested() -> None:
-        nonlocal _search_presenter, _search_queue
-        if _search_presenter is not None:
-            _search_presenter.cancel()
-        _search_queue = queue.SimpleQueue()
-        params = SearchDialog.get_params(_active().current_path, window)
-        if params is None:
-            return
-        query, mode, max_results = params
-        _search_presenter = SearchPresenter(vfs, _active().current_path)
-        search_panel.on_search_started(query)
-        coord.toggle("search", manager.active_pane_id)
-        q = _search_queue
-
-        def _run() -> None:
-            _search_presenter.search(  # type: ignore[union-attr]
-                query, mode=mode, max_results=max_results,
-                on_match=q.put,
-            )
-            sentinel = _CANCELLED if _search_presenter._cancel.is_set() else None  # type: ignore[union-attr]
-            q.put(sentinel)
-
-        threading.Thread(target=_run, daemon=True).start()
-
-    def _drain_search() -> None:
-        batch: list[SearchResult] = []
-        done = False
-        cancelled = False
-        try:
-            while True:
-                item = _search_queue.get_nowait()
-                if item is None:
-                    done = True
-                    break
-                if item is _CANCELLED:
-                    done = True
-                    cancelled = True
-                    break
-                batch.append(item)
-        except queue.Empty:
-            pass
-        if batch:
-            search_panel.add_results(batch)
-        if done:
-            if cancelled:
-                search_panel.on_cancelled()
-            else:
-                search_panel.on_finished(search_panel.result_count)
+    sc = SearchCoordinator(vfs, coord, manager, search_panel, _active, window=window)
+    window.search_requested.connect(sc.request_search)
+    search_panel.stop_requested.connect(sc.cancel)
+    search_panel.navigate_to_file.connect(sc.navigate_to)
+    search_panel.close_requested.connect(lambda: coord.toggle("search", manager.active_pane_id))
+    search_panel.detach_requested.connect(lambda: coord.detach("search"))
 
     search_timer = QTimer(window)
     search_timer.setInterval(50)
-    search_timer.timeout.connect(_drain_search)
+    search_timer.timeout.connect(sc.drain)
     search_timer.start()
-
-    window.search_requested.connect(_on_search_requested)
-    search_panel.close_requested.connect(lambda: coord.toggle("search", manager.active_pane_id))
-    search_panel.stop_requested.connect(
-        lambda: _search_presenter.cancel() if _search_presenter else None
-    )
-    search_panel.detach_requested.connect(lambda: coord.detach("search"))
-
-    def _on_navigate_to_file(parent_dir: object, filename: str) -> None:
-        tabs = _active()
-        tabs.navigate_to(parent_dir)  # type: ignore[arg-type]
-        v = tabs.view_at(tabs.active_idx)
-        if hasattr(v, "select_item"):
-            v.select_item(filename)  # type: ignore[union-attr]
-
-    search_panel.navigate_to_file.connect(_on_navigate_to_file)
 
     # ── New tab ───────────────────────────────────────────────────
     def _new_tab(tabs=None) -> None:
@@ -540,13 +518,6 @@ def create_app() -> MainWindow:
         if sig is not None:
             sig.connect(_dispatch)
 
-    # Wire ctx for existing tabs
-    for _pid2, _tabs2 in [("left", left_tabs), ("right", right_tabs)]:
-        for _i2 in range(_tabs2.tab_count):
-            _v2 = _tabs2.view_at(_i2)
-            _wire_ctx(_v2)
-            _wire_plugin_ctx(_v2, _pid2)
-
     # ── Bookmarks ──────────────────────────────────────────────────
     _bm_dialog: BookmarkDialog | None = None
 
@@ -584,9 +555,15 @@ def create_app() -> MainWindow:
         if sig2 is not None:
             sig2.connect(_open_bm_dialog)
 
-    for _tabs_bm in (left_tabs, right_tabs):
-        for _i_bm in range(_tabs_bm.tab_count):
-            _wire_bm(_tabs_bm.view_at(_i_bm), _tabs_bm)
+    # ── Single post-restore wire loop (DnD + new-tab + ctx + bm) ────────────
+    for _pid_w, _tabs_w in [("left", left_tabs), ("right", right_tabs)]:
+        for _i_w in range(_tabs_w.tab_count):
+            _v_w = _tabs_w.view_at(_i_w)
+            _wire_dnd(_v_w, _pid_w)
+            _wire_new_tab(_v_w, _tabs_w)
+            _wire_ctx(_v_w)
+            _wire_plugin_ctx(_v_w, _pid_w)
+            _wire_bm(_v_w, _tabs_w)
 
     def _bookmark_toggle() -> None:
         path = _active().current_path
@@ -602,7 +579,7 @@ def create_app() -> MainWindow:
     QShortcut(QKeySequence("Ctrl+I"), window).activated.connect(
         lambda: coord.toggle("ai", manager.active_pane_id)
     )
-    QShortcut(QKeySequence("Ctrl+Shift+F"), window).activated.connect(_on_search_requested)
+    QShortcut(QKeySequence("Ctrl+Shift+F"), window).activated.connect(sc.request_search)
 
     # ── Shortcuts ─────────────────────────────────────────────────
     QShortcut(QKeySequence("Ctrl+T"), window).activated.connect(_new_tab)
@@ -710,11 +687,12 @@ def create_app() -> MainWindow:
         for side in (left_side, right_side):
             side.style().unpolish(side)
             side.style().polish(side)
+        dark = "dark" in ev.name.lower()
         # Update preview dark flag based on theme name
-        preview_presenter.set_dark("dark" in ev.name.lower())
+        preview_presenter.set_dark(dark)
+        ai_panel._log.set_dark(dark)
 
-    from biome_fm.event_bus import bus as global_bus  # theme events use module-level bus
-    global_bus.subscribe(ThemeChanged, _on_theme_changed)
+    bus.subscribe(ThemeChanged, _on_theme_changed)
 
     # ── Focus tracking → active pane ─────────────────────────────
     def _on_focus_changed(old: object, new: object) -> None:
@@ -733,7 +711,6 @@ def create_app() -> MainWindow:
         available_themes = sorted(p.stem for p in themes_dir.glob("*.toml"))
         plugin_names = [p["name"] for p in plugins.get_installed_plugins()]
         dlg = SettingsDialog(window)
-        old_theme = cfg.theme
         presenter = SettingsPresenter(
             cfg, dlg,
             available_themes=available_themes,
@@ -760,8 +737,9 @@ def create_app() -> MainWindow:
                 QApplication.instance().setStyle("Fusion")
                 _glass_active = False
             if cfg.glass:
-                from biome_fm.views.theme import _opacity_to_alpha, _SELECTION_BUMP
-                preview_panel.set_code_alpha(min(_opacity_to_alpha(cfg.glass_opacity) + _SELECTION_BUMP, 255))
+                from biome_fm.views.theme import _glass_alphas
+                _, _sel = _glass_alphas(cfg.glass_opacity)
+                preview_panel.set_code_alpha(_sel)
             else:
                 preview_panel.set_code_alpha(255)
             bus.publish(ShowHiddenToggled(enabled=cfg.show_hidden))
@@ -794,7 +772,7 @@ def create_app() -> MainWindow:
         CommandEntry("Up",             "Alt+Up",       lambda: _active().go_up()),
         CommandEntry("Home",           "Alt+Home",     lambda: _active().go_home()),
         CommandEntry("Settings",         "Ctrl+,",       _open_settings),
-        CommandEntry("Find Files",       "Ctrl+Shift+F", _on_search_requested),
+        CommandEntry("Find Files",       "Ctrl+Shift+F", sc.request_search),
     ]:
         registry.register(entry)
 
@@ -822,7 +800,7 @@ def create_app() -> MainWindow:
             cfg_dir / "session.json",
         )
         cfg.splitter_sizes = coord.pane_sizes()
-        _close_field = _model_fields.get(ai_presenter._active_key)
+        _close_field = _AI_MODEL_FIELDS.get(ai_presenter._active_key)
         if _close_field:
             setattr(cfg, _close_field, ai_presenter._provider.active_model)
         save_config(cfg, cfg_dir / "config.toml")
@@ -836,8 +814,17 @@ def create_app() -> MainWindow:
         op_queue.shutdown(wait=False)
 
     window.about_to_close.connect(_on_close)
-    window._refs = (manager, left_tabs, right_tabs, ai_presenter, drain_timer, plugins,  # type: ignore[attr-defined]
-                    preview_presenter, preview_timer, coord, panel_mgr,
-                    op_queue, op_timer, search_timer, refresh_timer)
+    window._ctx = _AppContext(  # type: ignore[attr-defined]
+        manager=manager,
+        left_tabs=left_tabs,
+        right_tabs=right_tabs,
+        ai_presenter=ai_presenter,
+        preview_presenter=preview_presenter,
+        coord=coord,
+        panel_mgr=panel_mgr,
+        op_queue=op_queue,
+        plugins=plugins,
+        timers=[drain_timer, preview_timer, op_timer, search_timer, refresh_timer],
+    )
 
     return window

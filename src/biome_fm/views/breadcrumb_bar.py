@@ -24,6 +24,7 @@ from biome_fm.qt import (
 )
 from biome_fm.utils.opener import open_file
 from biome_fm.utils.platform import IS_MAC, open_terminal, reveal_in_finder
+from biome_fm.views.dnd_utils import make_path_mime
 
 # ---------------------------------------------------------------------------
 # Pure helper — no Qt
@@ -88,7 +89,6 @@ class _SegmentButton(QToolButton):
         if (self._drag_start is not None
                 and (event.pos() - self._drag_start).manhattanLength()
                 >= QApplication.startDragDistance()):
-            from biome_fm.views.pane_view import make_path_mime
             drag = QDrag(self)
             drag.setMimeData(make_path_mime([str(self._path)]))
             self._drag_start = None

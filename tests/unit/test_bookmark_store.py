@@ -121,3 +121,15 @@ def test_corrupt_toml_does_not_crash(tmp_path):
     p.write_text("invalid toml {{{{")
     s = BookmarkStore(p)
     assert s.all() == []
+
+
+def test_bookmark_save_atomic(tmp_path):
+    """Save must use atomic rename — no leftover .tmp, main file valid after save."""
+    p = tmp_path / "bm.toml"
+    store = BookmarkStore(p)
+    store.add(tmp_path)
+    # Main file valid after save
+    store2 = BookmarkStore(p)
+    assert tmp_path in store2
+    # No leftover .tmp file
+    assert not p.with_suffix(".tmp").exists()

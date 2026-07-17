@@ -65,3 +65,62 @@ def test_refresh_preserves_cursor(tmp_path):
     selected.clear()
     p.refresh()
     assert selected[-1] == "b.txt"
+
+
+# ── Fix B1: preserve_scroll correctness ──────────────────────────────────────
+
+def _make_tracking_view(tmp_path):
+    """FakeView that records set_items kwargs."""
+    from biome_fm.models.file_item import FileItem
+
+    calls = []
+
+    class TrackingView:
+        set_items_calls = calls
+
+        def set_items(self, items, **kwargs):
+            calls.append((items, kwargs))
+
+        def set_path(self, p): pass
+        def show_error(self, m): pass
+        def set_status(self, t): pass
+        def set_marked(self, p): pass
+        def current_cursor_item(self):
+            return FileItem("..", tmp_path, True, 0, 0.0)
+        def advance_cursor(self): pass
+        def retreat_cursor(self): pass
+        def set_filter_visible(self, v): pass
+        def set_nav_history(self, p): pass
+        def select_item(self, name): pass
+
+    return TrackingView()
+
+
+def test_preserve_scroll_false_on_navigate(tmp_path):
+    """Navigating to a new dir must pass preserve_scroll=False."""
+    from biome_fm.models.vfs import LocalVFS
+    from biome_fm.presenters.pane_presenter import PanePresenter
+
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    view = _make_tracking_view(tmp_path)
+    p = PanePresenter(view, LocalVFS())
+    p.navigate_to(tmp_path)
+    view.set_items_calls.clear()
+    p.navigate_to(sub)
+    _, kwargs = view.set_items_calls[-1]
+    assert kwargs.get("preserve_scroll") is False
+
+
+def test_preserve_scroll_true_on_refresh(tmp_path):
+    """Refresh (same dir) must pass preserve_scroll=True."""
+    from biome_fm.models.vfs import LocalVFS
+    from biome_fm.presenters.pane_presenter import PanePresenter
+
+    view = _make_tracking_view(tmp_path)
+    p = PanePresenter(view, LocalVFS())
+    p.navigate_to(tmp_path)
+    view.set_items_calls.clear()
+    p.refresh()
+    _, kwargs = view.set_items_calls[-1]
+    assert kwargs.get("preserve_scroll") is True

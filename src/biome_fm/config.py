@@ -9,12 +9,9 @@ from pathlib import Path
 @dataclass
 class Config:
     theme: str = "dark"
-    left_path: str = ""
-    right_path: str = ""
     splitter_sizes: list[int] = field(default_factory=lambda: [600, 600])
     window_geometry: str = ""
     recent_dirs: list[str] = field(default_factory=list)
-    ai_api_key: str = ""
     ai_default_provider: str = "claude"
     ai_claude_key: str = ""
     ai_claude_model: str = "claude-sonnet-4-20250514"
@@ -25,7 +22,6 @@ class Config:
     ai_cli_claude_code_model: str = ""
     ai_cli_codex_model: str = ""
     ai_cli_opencode_model: str = ""
-    bookmarks: list[str] = field(default_factory=list)
     sync_browsing: bool = False
     file_type_colors: bool = True
     show_hidden: bool = False
@@ -39,6 +35,9 @@ def load_config(path: Path) -> Config:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, tomllib.TOMLDecodeError):
         return Config()
+    # Migrate legacy ai_api_key → ai_claude_key
+    if data.get("ai_api_key") and not data.get("ai_claude_key"):
+        data["ai_claude_key"] = data["ai_api_key"]
     valid = {f.name for f in fields(Config)}
     return Config(**{k: v for k, v in data.items() if k in valid})
 

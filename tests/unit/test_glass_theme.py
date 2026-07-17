@@ -46,6 +46,24 @@ def test_config_glass_default_false():
     assert Config().glass is False
 
 
+def test_glass_alphas_returns_pair():
+    from biome_fm.views.theme import _glass_alphas
+    alpha, sel = _glass_alphas(47)
+    assert alpha == int(2.55 * 47)
+    assert sel == min(alpha + 20, 255)
+
+
+def test_glass_alphas_zero():
+    from biome_fm.views.theme import _glass_alphas
+    assert _glass_alphas(0) == (0, 20)
+
+
+def test_glass_alphas_max():
+    from biome_fm.views.theme import _glass_alphas
+    _, sel = _glass_alphas(100)
+    assert sel == 255
+
+
 def test_config_glass_roundtrip(tmp_path):
     from biome_fm.config import Config, load_config, save_config
     cfg = Config(glass=True)

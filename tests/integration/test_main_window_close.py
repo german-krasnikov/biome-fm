@@ -16,7 +16,7 @@ def test_close_emits_about_to_close(win, qtbot):
         win.close()
 
 
-def test_toggle_ai_panel_emits_signal(qtbot):
+def test_ai_toggle_requested_signal_exists(qtbot):
     from biome_fm.views.ai_chat_panel import AIChatPanel
 
     panel = AIChatPanel()
@@ -24,7 +24,7 @@ def test_toggle_ai_panel_emits_signal(qtbot):
     qtbot.addWidget(w)
     w.show()
     with qtbot.waitSignal(w.ai_toggle_requested, timeout=1000):
-        w.toggle_ai_panel()
+        w.ai_toggle_requested.emit()
 
 
 def test_splitter_sizes_returns_list(win):

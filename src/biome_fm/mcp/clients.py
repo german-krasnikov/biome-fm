@@ -24,10 +24,6 @@ class ClientInfo:
     binary: str | None = None  # executable name for shutil.which detection
 
 
-def _home() -> Path:
-    return Path.home()
-
-
 def _vscode_transformer(entry: dict[str, object]) -> dict[str, object]:
     return {**entry, "type": "stdio"}
 
@@ -39,7 +35,7 @@ def _opencode_transformer(entry: dict[str, object]) -> dict[str, object]:
 
 
 def _build_registry() -> dict[str, ClientInfo]:
-    h = _home()
+    h = Path.home()
     reg: dict[str, ClientInfo] = {}
 
     reg["claude-code"] = ClientInfo(

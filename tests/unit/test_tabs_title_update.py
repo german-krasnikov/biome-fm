@@ -52,3 +52,27 @@ def test_on_item_activated_file_no_path_change():
     mock_pane.on_item_activated.assert_called_once_with(item)
     # title updated to current_path.name (same value, but called)
     tabs_view.set_tab_title.assert_called_once_with(0, "foo")
+
+
+# ── Fix B8: missing delegation methods ───────────────────────────────────────
+
+def test_tabs_delegates_toggle_mark_up():
+    """TabsPresenter.toggle_mark_up must delegate to active pane."""
+    tabs, _, mock_pane = _make_tabs(Path("/foo"))
+    tabs.toggle_mark_up()
+    mock_pane.toggle_mark_up.assert_called_once()
+
+
+def test_tabs_delegates_toggle_mark_at():
+    """TabsPresenter.toggle_mark_at must delegate to active pane."""
+    tabs, _, mock_pane = _make_tabs(Path("/foo"))
+    item = FileItem("x.txt", Path("/foo/x.txt"), is_dir=False, size=0, modified=0.0)
+    tabs.toggle_mark_at(item)
+    mock_pane.toggle_mark_at.assert_called_once_with(item)
+
+
+def test_tabs_delegates_go_root():
+    """TabsPresenter.go_root must delegate to active pane."""
+    tabs, _, mock_pane = _make_tabs(Path("/foo"))
+    tabs.go_root()
+    mock_pane.go_root.assert_called_once()

@@ -118,8 +118,6 @@ class MainWindow(QMainWindow):
                 self._splitter.setCollapsible(i, False)
         handle = self._splitter.handle(1)
         if handle is not None:
-            handle.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-            handle.customContextMenuRequested.connect(self._show_ratio_menu)
             handle.installEventFilter(self)
         layout.addWidget(self._splitter, 1)
 
@@ -284,12 +282,6 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event: object) -> None:
         self.about_to_close.emit()
         super().closeEvent(event)  # type: ignore[arg-type]
-
-    def toggle_ai_panel(self) -> None:
-        self.ai_toggle_requested.emit()
-
-    def toggle_preview_panel(self) -> None:
-        self.preview_toggle_requested.emit()
 
     @property
     def splitter(self) -> QSplitter:

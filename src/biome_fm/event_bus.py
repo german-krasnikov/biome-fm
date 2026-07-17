@@ -1,11 +1,15 @@
 """Thread-safe publish/subscribe event bus. No Qt dependency."""
 from __future__ import annotations
 
+import contextlib
+import logging
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+_log = logging.getLogger(__name__)
 
 
 class EventBus:
@@ -20,8 +24,6 @@ class EventBus:
             self._handlers.setdefault(event_type, []).append(handler)
 
     def unsubscribe(self, event_type: type, handler: Callable[..., None]) -> None:
-        import contextlib
-
         with self._lock:
             lst = self._handlers.get(event_type, [])
             with contextlib.suppress(ValueError):
@@ -31,7 +33,10 @@ class EventBus:
         with self._lock:
             handlers = list(self._handlers.get(type(event), []))
         for h in handlers:
-            h(event)
+            try:
+                h(event)
+            except Exception:
+                _log.exception("EventBus handler %r raised for %r", h, event)
 
 
 # Module-level singleton

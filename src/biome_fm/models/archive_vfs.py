@@ -54,23 +54,12 @@ class ArchiveVFS:
         items: list[FileItem] = []
         with zipfile.ZipFile(self._archive) as zf:
             for info in zf.infolist():
-                raw = info.filename.rstrip("/")
-                if not raw or ".." in raw.split("/"):
+                result = _child_of(info.filename, prefix)
+                if result is None or result[0] in seen:
                     continue
-                if prefix:
-                    if not raw.startswith(prefix + "/"):
-                        continue
-                    rel = raw[len(prefix) + 1:]
-                else:
-                    rel = raw
-                if not rel:
-                    continue
-                child = rel.split("/")[0]
-                if child in seen:
-                    continue
+                child, is_nested = result
                 seen.add(child)
-                parts = rel.split("/")
-                is_dir = len(parts) > 1 or info.filename.endswith("/")
+                is_dir = is_nested or info.filename.endswith("/")
                 vpath = self._archive / (f"{prefix}/{child}" if prefix else child)
                 ts = datetime(*info.date_time).timestamp()
                 items.append(FileItem(
@@ -110,23 +99,12 @@ class ArchiveVFS:
         items: list[FileItem] = []
         with tarfile.open(self._archive) as tf:
             for member in tf.getmembers():
-                raw = member.name.rstrip("/")
-                if not raw or raw == "." or ".." in raw.split("/"):
+                result = _child_of(member.name, prefix, skip_dot=True)
+                if result is None or result[0] in seen:
                     continue
-                if prefix:
-                    if not raw.startswith(prefix + "/"):
-                        continue
-                    rel = raw[len(prefix) + 1:]
-                else:
-                    rel = raw
-                if not rel:
-                    continue
-                child = rel.split("/")[0]
-                if child in seen:
-                    continue
+                child, is_nested = result
                 seen.add(child)
-                parts = rel.split("/")
-                is_dir = len(parts) > 1 or member.isdir()
+                is_dir = is_nested or member.isdir()
                 vpath = self._archive / (f"{prefix}/{child}" if prefix else child)
                 items.append(FileItem(
                     name=child, path=vpath, is_dir=is_dir,
@@ -155,6 +133,29 @@ class ArchiveVFS:
         raise KeyError(internal)
 
 
+def _child_of(raw: str, prefix: str, *, skip_dot: bool = False) -> tuple[str, bool] | None:
+    """Return (child_name, is_nested) for first path component under prefix.
+
+    Returns None if the entry should be skipped (outside prefix, traversal, empty).
+    is_nested=True means the entry is more than one level deep (virtual directory).
+    """
+    raw = raw.rstrip("/")
+    if not raw or (skip_dot and raw == ".") or ".." in raw.split("/"):
+        return None
+    if prefix:
+        if not raw.startswith(prefix + "/"):
+            return None
+        rel = raw[len(prefix) + 1:]
+    else:
+        rel = raw
+    if not rel:
+        return None
+    parts = rel.split("/")
+    return parts[0], len(parts) > 1
+
+
 def _is_tar(path: Path) -> bool:
     s = path.suffixes
-    return s[-1:] == [".tar"] or s[-2:] == [".tar", ".gz"]
+    return s[-1:] == [".tar"] or (
+        len(s) >= 2 and s[-2] == ".tar" and s[-1] in {".gz", ".bz2", ".xz"}
+    )

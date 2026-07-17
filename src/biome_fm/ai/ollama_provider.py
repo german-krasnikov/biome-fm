@@ -12,7 +12,7 @@ except ImportError:
     httpx = None  # type: ignore
     _HAS_HTTPX = False
 
-from biome_fm.ai.types import FileContent, ImageContent
+from biome_fm.ai.types import FileContent, ImageContent, _file_text
 
 
 class OllamaProvider:
@@ -28,6 +28,10 @@ class OllamaProvider:
         self._model = model
         self.active_model = model
         self._available: bool | None = None
+
+    @property
+    def supports_events(self) -> bool:
+        return False
 
     @property
     def available(self) -> bool:
@@ -79,7 +83,7 @@ class OllamaProvider:
                     elif isinstance(part, dict) and part.get("type") == "text":
                         texts.append(part.get("text", ""))
                     elif isinstance(part, FileContent):
-                        texts.append(f"[{part.path.name}]\n{part.content}")
+                        texts.append(_file_text(part))
                     elif isinstance(part, ImageContent):
                         images.append(part.data)
                 entry: dict = {"role": msg["role"], "content": "\n".join(texts)}
