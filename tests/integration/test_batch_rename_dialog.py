@@ -81,3 +81,20 @@ def test_regex_mode(qtbot, tmp_path: Path) -> None:
     assert dlg._table.item(0, 1).text() == "file_v001.txt"
     assert dlg._table.item(1, 1).text() == "file_v002.txt"
     assert len(dlg.renames) == 2
+
+
+def test_case_sensitive_checkbox_exists(qtbot, tmp_path: Path) -> None:
+    dlg = BatchRenameDialog(_items(tmp_path, ["Foo.txt", "foo.txt"]))
+    qtbot.addWidget(dlg)
+    assert hasattr(dlg, "_case")
+    assert dlg._case.isChecked()  # default: case-sensitive
+
+
+def test_case_insensitive_renames_both(qtbot, tmp_path: Path) -> None:
+    dlg = BatchRenameDialog(_items(tmp_path, ["Foo.txt", "foo.txt"]))
+    qtbot.addWidget(dlg)
+    dlg._case.setChecked(False)  # case-insensitive
+    dlg._find.setText("foo")
+    dlg._replace.setText("bar")
+    assert dlg._table.item(0, 1).text() == "bar.txt"
+    assert dlg._table.item(1, 1).text() == "bar.txt"

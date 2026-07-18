@@ -45,3 +45,13 @@ class UserActionsStore:
             return
         data = json.loads(self._path.read_text(encoding="utf-8"))
         self._actions = [UserAction(**d) for d in data]
+
+    @classmethod
+    def load_project(cls, project_root: Path) -> list[UserAction]:
+        """Load actions from <project_root>/.biome-fm/actions.json, or [] if absent."""
+        candidate = project_root / ".biome-fm" / "actions.json"
+        if not candidate.exists():
+            return []
+        s = cls(candidate)
+        s.load()
+        return s.all()

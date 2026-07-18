@@ -40,6 +40,34 @@ def _hash_file(path: Path, algorithm: str) -> str:
     return h2.hexdigest()
 
 
+_SIDECAR_EXTS: dict[str, str] = {
+    ".md5": "md5",
+    ".sha256": "sha256",
+    ".sha1": "sha1",
+    ".sha512": "sha512",
+}
+
+
+def find_sidecar(path: Path) -> tuple[Path, str] | None:
+    """Return (sidecar_path, algorithm) or None if no sidecar exists."""
+    for ext, alg in _SIDECAR_EXTS.items():
+        candidate = path.with_suffix(path.suffix + ext)
+        if candidate.exists():
+            return candidate, alg
+    return None
+
+
+def verify_sidecar(path: Path) -> tuple[bool, str]:
+    """Compare file hash against its sidecar. Raises FileNotFoundError if no sidecar."""
+    result = find_sidecar(path)
+    if result is None:
+        raise FileNotFoundError(f"No sidecar found for {path.name}")
+    sidecar, alg = result
+    expected = sidecar.read_text().split()[0].lower()
+    actual = _hash_file(path, alg)
+    return (actual == expected), f"{alg}:{actual[:12]}… expected {expected[:12]}…"
+
+
 class ChecksumCmd(Command):
     """Compute checksums for file(s). Not undoable."""
 

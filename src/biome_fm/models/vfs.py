@@ -5,6 +5,17 @@ from __future__ import annotations
 import os
 import shutil
 from pathlib import Path
+
+try:
+    import pwd as _pwd
+    def _owner(uid: int) -> str:
+        try:
+            return _pwd.getpwuid(uid).pw_name
+        except KeyError:
+            return str(uid)
+except ImportError:
+    def _owner(uid: int) -> str:  # type: ignore[misc]
+        return str(uid)
 from typing import Protocol
 
 from biome_fm.models.file_item import FileItem
@@ -34,6 +45,9 @@ class LocalVFS:
                     size=st.st_size if not entry.is_dir() else 0,
                     modified=st.st_mtime,
                     is_symlink=entry.is_symlink(),
+                    atime=st.st_atime,
+                    ctime=st.st_ctime,
+                    owner=_owner(st.st_uid),
                 ))
             except OSError:
                 continue

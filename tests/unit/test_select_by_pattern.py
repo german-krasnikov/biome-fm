@@ -24,7 +24,7 @@ def test_select_glob_star_py():
     items = [_item("a.py"), _item("b.txt"), _item("c.py")]
     p = _make_presenter(items)
     p.select_by_pattern("*.py")
-    assert p._marks == {Path("/tmp/a.py"), Path("/tmp/c.py")}
+    assert p.marks == {Path("/tmp/a.py"), Path("/tmp/c.py")}
 
 
 def test_deselect_glob():
@@ -32,9 +32,9 @@ def test_deselect_glob():
     p = _make_presenter(items)
     # mark all first
     for i in items:
-        p._marks.add(i.path)
+        p._marks.add(str(i.path))
     p.deselect_by_pattern("*.py")
-    assert p._marks == {Path("/tmp/b.txt")}
+    assert p.marks == {Path("/tmp/b.txt")}
 
 
 def test_dotdot_excluded():
@@ -42,7 +42,7 @@ def test_dotdot_excluded():
     items = [dotdot, _item("a.py")]
     p = _make_presenter(items)
     p.select_by_pattern("*")
-    assert Path("/tmp") not in p._marks  # dotdot path must never be marked
+    assert Path("/tmp") not in p.marks  # dotdot path must never be marked
 
 
 def test_pattern_empty_nochange():
@@ -57,4 +57,4 @@ def test_multiple_patterns_additive():
     p = _make_presenter(items)
     p.select_by_pattern("*.py")
     p.select_by_pattern("*.txt")
-    assert p._marks == {Path("/tmp/a.py"), Path("/tmp/b.txt")}
+    assert p.marks == {Path("/tmp/a.py"), Path("/tmp/b.txt")}

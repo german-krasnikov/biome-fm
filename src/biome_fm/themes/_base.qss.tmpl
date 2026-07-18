@@ -235,6 +235,19 @@ QPushButton#danger:hover {
     border-color: $accent2;
 }
 
+/* Focus rings (F311) */
+QPushButton:focus {
+    outline: 2px solid $accent;
+    outline-offset: 1px;
+}
+QTableView:focus {
+    outline: 2px solid $accent;
+}
+QComboBox:focus {
+    outline: 2px solid $accent;
+    outline-offset: 1px;
+}
+
 /* Breadcrumb bar */
 QToolButton[crumb="true"] {
     background: transparent;

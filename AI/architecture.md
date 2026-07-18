@@ -42,7 +42,10 @@ src/biome_fm/
 │                       #   OperationFinished, PaneNavigated, SyncBrowsingToggled,
 │                       #   BookmarkChanged, ThemeChanged(name, tokens),
 │                       #   ShowHiddenToggled(enabled: bool),
-│                       #   AsyncOpSubmitted(task_id, description, cancel)
+│                       #   AsyncOpSubmitted(task_id, description, cancel);
+│                       #   RemoteConnected(scheme, host) — remote VFS connected;
+│                       #   RemoteDisconnected(scheme, host) — remote VFS closed;
+│                       #   RemoteSyncing(scheme, host, active) — remote I/O in progress
 │
 ├── models/
 │   ├── file_item.py        # FileItem frozen dataclass (slots=True); size_str property
@@ -134,9 +137,35 @@ src/biome_fm/
 │   │                       #   SSHProfileStore: TOML-backed add/get/delete/list_all/save/load;
 │   │                       #   import_ssh_config(path) parses OpenSSH config Host entries
 │   │                       #   (skips wildcard hosts); TOML: [profiles.<name>] sections
-│   └── sync_profiles.py    # SyncProfile(name, src, dst, exclude, mirror) dataclass;
-│                            #   SyncProfileStore: TOML-backed add/get/delete/list_all/save/load;
-│                            #   TOML: [profiles.<name>] sections; _esc() escapes TOML strings
+│   ├── sync_profiles.py    # SyncProfile(name, src, dst, exclude, mirror) dataclass;
+│   │                        #   SyncProfileStore: TOML-backed add/get/delete/list_all/save/load;
+│   │                        #   TOML: [profiles.<name>] sections; _esc() escapes TOML strings
+│   ├── select_criteria.py  # SelectCriteria dataclass (name_glob, extensions, min/max_size,
+│   │                        #   min/max_age_days); matches(item) → bool; pure-Python predicate
+│   │                        #   for multi-criteria file selection (F221)
+│   ├── user_menu.py        # UserMenuItem(name, command, shortcut) dataclass;
+│   │                        #   load_user_menu(cwd, global_config) → list[UserMenuItem];
+│   │                        #   walks up from cwd for .biome-menu.toml; falls back to global config
+│   ├── credential_store.py # get_credential/set_credential/delete_credential — keyring when
+│   │                        #   available, in-process dict fallback; logs warning once if keyring absent
+│   ├── cloud_profile_store.py # CloudProfile(name, scheme, host, port, user, bucket, extra);
+│   │                           #   CloudProfileStore: TOML-backed CRUD;
+│   │                           #   schemes: s3/sftp/ssh/ftp/ftps/webdav/rclone;
+│   │                           #   path: ~/.config/biome-fm/cloud_profiles.toml
+│   ├── remote_cache.py     # RemoteListCache — thread-safe (RLock) TTL=30s cache for remote
+│   │                        #   directory listings; get/set/invalidate; key = str(path)
+│   ├── rclone_vfs.py       # RcloneVFS — VFS backed by `rclone lsjson` subprocess;
+│   │                        #   listdir/stat/copy/move/delete/mkdir via JSON API;
+│   │                        #   _parse_modtime handles nanosecond suffixes in rclone timestamps;
+│   │                        #   ponytail: subprocess-per-call — replace with rclone serve for throughput
+│   ├── preview_file_cache.py # PreviewFileCache — SHA1-keyed local temp files for remote preview;
+│   │                          #   50 MB max (configurable); LRU eviction; thread-safe (Lock);
+│   │                          #   get(path, mtime) → local Path | None; set/evict
+│   ├── cloud_connection_store.py # CloudConnectionStore — JSON-backed list of cloud URLs
+│   │                              #   (s3://, ftp://, etc.); add/remove/list/load/save
+│   └── session_store.py    # SessionStore — JSON-backed named sessions;
+│                            #   save(name, state) / load(name) → SessionState | None;
+│                            #   list() / delete(name); wraps session.py SessionState dataclasses
 │
 ├── presenters/
 │   ├── pane_presenter.py     # Drives one pane (cd, select, sort, current_item);
@@ -243,6 +272,13 @@ src/biome_fm/
 │   │                         #   Direction = "left_to_right" | "right_to_left" | "newer_wins";
 │   │                         #   preview_sync(entries, direction, left_root, right_root, exclude, mirror)
 │   │                         #   → list[SyncOp] (no filesystem access); build_sync_commands() → SyncPair list
+│   ├── file_collector.py   # FileCollector — deduplicated multi-dir virtual panel builder;
+│   │                        #   add(items)/remove(paths)/items()/count()/clear();
+│   │                        #   keyed by Path; show via navigate_virtual
+│   ├── treemap_presenter.py # TreemapPresenter (Qt-free) — background os.walk size scanner;
+│   │                         #   squarify(nodes, x, y, w, h) → list[(node, rect)] layout;
+│   │                         #   TreemapNode(path, size, color); _PALETTE 8-color list;
+│   │                         #   TreemapViewProtocol.set_nodes(nodes); threading + queue drain
 │   └── uri_parser.py         # ParsedURI(scheme, host, port, path, username) dataclass;
 │                              #   detect_scheme(text) → scheme | None; known: sftp/ssh/s3/ftp/ftps/webdav;
 │                              #   parse_uri(text) → ParsedURI via urllib.parse.urlparse
@@ -375,6 +411,37 @@ src/biome_fm/
 │   │                           #   connect_requested Signal(host, port, user, password)
 │   ├── shortcut_help_dialog.py # ShortcutHelpDialog — static cheatsheet QTextBrowser (? or F1);
 │   │                            #   SHORTCUTS dict: 28 bindings rendered as HTML table
+│   ├── copy_move_dialog.py # CopyMoveDialog(op, sources, default_dest, history) — TC-style
+│   │                        #   copy/move destination with editable QComboBox path + browse button
+│   ├── select_criteria_dialog.py # SelectByAttrDialog — builds SelectCriteria from user input;
+│   │                               #   fields: name glob, extensions, min/max size, age days
+│   ├── quick_cd_dialog.py  # QuickCDDialog — frecency + live path-completion quick-CD (Alt+C);
+│   │                        #   path_selected Signal(Path)
+│   ├── permissions_editor_dialog.py # Bulk chmod dialog — 9 QCheckBox bits (rwxrwxrwx);
+│   │                                 #   common mode for mixed selections; POSIX-only
+│   ├── which_key_popup.py  # WhichKeyPopup — floating monospace hint overlay (ToolTip window);
+│   │                        #   show_hints(hints, parent) displays key→sequence pairs
+│   ├── leader_filter.py    # LeaderFilter (QObject) — QApplication event filter for leader sequences;
+│   │                        #   ignores QLineEdit/QTextEdit; 300ms timeout; action_triggered Signal(str)
+│   ├── cloud_profile_dialog.py # CloudProfileDialog — CRUD dialog for CloudProfileStore;
+│   │                            #   list pane (left) + edit form (right); scheme QComboBox
+│   ├── quick_connect_bar.py # QuickConnectBar — QComboBox + Connect button;
+│   │                         #   connect_requested Signal(uri: str)
+│   ├── upload_queue_panel.py # UploadQueuePanel — passive view for upload queue;
+│   │                          #   add_upload/on_progress/on_complete/on_error per task_id
+│   ├── editor_highlighter.py # PygmentsHighlighter (QSyntaxHighlighter) — Pygments-backed
+│   │                          #   syntax highlighting for EditorDialog; theme-aware; 512 KB guard
+│   ├── group_delegate.py   # GroupDelegate (QStyledItemDelegate) — accent separator + group label
+│   │                        #   above first row of each group; reads GROUP_ROLE from proxy
+│   ├── large_file_dialog.py # LargeFileDialog — scan_large_files() os.walk; configurable min-size;
+│   │                         #   sortable QTableView; top-100 results
+│   ├── treemap_panel.py    # TreemapPanel (QWidget) — QPainter squarify storage treemap;
+│   │                        #   hover tooltip; path_clicked Signal(Path); wired to TreemapPresenter
+│   ├── session_picker_dialog.py # SessionPickerDialog — browse, save, delete named sessions;
+│   │                             #   wraps SessionStore; selected_name attr on Load
+│   ├── task_runner_dialog.py # TaskRunnerDialog — Makefile/Justfile target runner;
+│   │                          #   _collect_targets() finds make/just targets in directory;
+│   │                          #   QProcess output in QPlainTextEdit; split list + output view
 │   └── theme.py          # TOML-based theme system; load_theme(name) resolves plugin hook
 │                          #   → TOML inheritance (meta.inherits) → _DARK_FALLBACK;
 │                          #   _find_theme(): user AppConfig/biome-fm/themes/ first, then
@@ -409,6 +476,13 @@ src/biome_fm/
 │   │                        #   HardlinkCmd(target, link) — os.link; undo=unlink; undoable
 │   ├── trash_cmd.py        # TrashCmd(paths) — send2trash per path; not undoable;
 │   │                       #   graceful degradation: warns + unlink if send2trash unavailable
+│   ├── chmod_cmd.py        # ChmodCmd(paths, mode, recursive, vfs) — batch os.chmod with undo;
+│   │                        #   saves previous mode per path; delegates to vfs.chmod if available;
+│   │                        #   POSIX-only; undoable
+│   ├── remote_edit_cmd.py  # RemoteEditCmd(path, vfs, editor_cmd) — download→edit→re-upload;
+│   │                        #   tempfile per suffix; re-uploads only if mtime changed; not undoable
+│   ├── tag_cmd.py          # TagCmd(paths, add_tags, remove_tags, store) — batch tag assignment;
+│   │                        #   saves previous tag list per path for undo; undoable
 │   └── replace_cmd.py      # ReplaceCmd(path, query, replacement, regex=False) — in-place text replace;
 │                            #   atomic write: .bak backup → .tmp write → rename; undoable via .bak restore;
 │                            #   execute() → ReplaceResult(path, count, preview); uses _decode_content;
@@ -430,6 +504,10 @@ src/biome_fm/
 │   │                       #   stage_files/unstage_files(repo, paths); staged_files(repo) → list[str];
 │   │                       #   commit(repo, message) → short hash; raises ValueError (empty msg)
 │   │                       #   or RuntimeError on git failure
+│   ├── virtual_pane.py     # git_changed_files(repo, cache) → list[FileItem];
+│   │                        #   builds virtual pane from all dirty paths in repo via GitStatusCache
+│   ├── worktree_ops.py     # list_worktrees(repo) → list[dict{path,head,branch}];
+│   │                        #   parses `git worktree list --porcelain`; timeout-safe
 │   └── conflict_ops.py     # ConflictMarker(line, marker, label) frozen dataclass;
 │                            #   ConflictRegion(start, separator, end, ours, theirs) dataclass;
 │                            #   conflicted_files(repo) → list[str] (git diff --diff-filter=U);
@@ -499,7 +577,9 @@ src/biome_fm/
 │   ├── _base.qss.tmpl    # string.Template QSS; uses $base $surface $accent etc (10 tokens)
 │   ├── dark.toml         # [meta] name=Dark; [tokens] 10 macOS system-color values
 │   ├── light.toml        # [meta] name=Light; [tokens] 10 light-mode values
-│   └── catppuccin-mocha.toml  # third-party palette example
+│   ├── catppuccin-mocha.toml  # third-party palette example
+│   └── high-contrast.toml    # [meta] inherits=dark; accent=#FFFF00, accent2=#00FFFF,
+│                              #   border=#FFFFFF, text=#FFFFFF on base=#000000
 │
 ├── plugins/
 │   ├── types.py          # ThemeTokens (TypedDict, 14 keys — 10 base + 4 glass extras:
@@ -514,7 +594,8 @@ src/biome_fm/
 │   │                     #   before_file_operation(op,src,dst) firstresult → bool | None,
 │   │                     #   context_menu_actions(items,pane_id) → list[ActionSpec],
 │   │                     #   extra_columns() → list[ColumnDef],
-│   │                     #   extra_archive_extensions() → list[str]
+│   │                     #   extra_archive_extensions() → list[str],
+│   │                     #   provide_vfs(path) firstresult → VFS | None
 │   ├── manager.py        # PluginManager: API_VERSION=(1,0); register_plugin() checks
 │   │                     #   BIOME_FM_API_VERSION major; load_entry_points() via
 │   │                     #   importlib.metadata group='biome_fm.plugins';
@@ -559,8 +640,11 @@ src/biome_fm/
 │   ├── merger.py         # merge_config/remove_entry for JSON clients;
 │   │                     #   merge_toml_config/remove_toml_entry for TOML clients;
 │   │                     #   atomic writes via temp file + rename
-│   └── resolver.py       # find_server_command() → list[str] (uvx > venv > python -m);
-│                         #   build_server_entry() → dict ready for client config injection
+│   ├── resolver.py       # find_server_command() → list[str] (uvx > venv > python -m);
+│   │                     #   build_server_entry() → dict ready for client config injection
+│   └── automator.py      # generate_quick_action() → shell script str;
+│                          #   install_quick_action() → ~/Library/Services/Open in Biome FM.workflow;
+│                          #   no-op on non-macOS; biome-fm install-service CLI subcommand
 │
 └── utils/
     ├── platform.py       # IS_MAC / IS_WIN / IS_LINUX; quick_look(path), quick_look_item(item),
@@ -573,6 +657,10 @@ src/biome_fm/
     │                     #   decode_smart(data) → (text, enc_name); never raises
     ├── panelize.py       # parse_shell_output(stdout, cwd) → list[FileItem];
     │                     #   parses stdout lines as paths; resolves relative to cwd; skips non-existent
+    ├── global_hotkey.py  # register_global_hotkey(key_combo, callback) → listener | None;
+    │                     #   uses pynput.keyboard.GlobalHotKeys; returns None if pynput absent
+    ├── path_completion.py # path_completions(text) → sorted list of glob matches;
+    │                       #   handles absolute (/…), tilde (~…), relative (./…) prefixes
     └── transfer_stats.py # TransferStats — EWMA-smoothed (α=0.3) transfer speed tracker (no Qt);
                           #   update(t, bytes_done, bytes_total); speed_bps() → float; eta_seconds();
                           #   format_speed(bps) → "1.2 MB/s"; format_eta(secs) → "2m 30s"
@@ -702,7 +790,7 @@ apply_theme(app, name, plugin_manager)
       └─ bus.publish(ThemeChanged(name=name, tokens=tokens))
 ```
 
-Bundled themes: `dark`, `light`, `catppuccin-mocha`.
+Bundled themes: `dark`, `light`, `catppuccin-mocha`, `high-contrast`.
 User themes: drop `<name>.toml` into `~/.config/biome-fm/themes/`.
 `_TOKENS` and `_QSS` are backward-compat aliases in `theme.py`.
 
@@ -792,7 +880,7 @@ now a backward-compat shim that re-exports from there).
 
 ### Plugin System Enhancements (v0.7.0)
 
-8 hook specs; plugins implement any subset:
+9 hook specs; plugins implement any subset:
 
 | Hook | Mode | Purpose |
 |------|------|---------|
@@ -804,6 +892,7 @@ now a backward-compat shim that re-exports from there).
 | `context_menu_actions` | broadcast | Inject ActionSpec items into context menu |
 | `extra_columns` | broadcast | Inject ColumnDef into file listing |
 | `extra_archive_extensions` | broadcast | Register extra archive extensions |
+| `provide_vfs` | firstresult | Supply a custom VFS for a given path prefix |
 
 Loading order in `create_app()`:
 1. `load_entry_points()` — installed packages (`biome_fm.plugins` entry_points group)

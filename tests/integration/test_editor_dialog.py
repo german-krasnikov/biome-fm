@@ -18,6 +18,15 @@ def test_loads_content(qtbot, tmp_path: Path) -> None:
     assert dlg.windowTitle() == "hello.txt"
 
 
+def test_highlighter_applied_to_python_file(qtbot, tmp_path: Path) -> None:
+    f = tmp_path / "test.py"
+    f.write_text("def foo(): pass\n")
+    dlg = EditorDialog(f)
+    qtbot.addWidget(dlg)
+    assert dlg._highlighter is not None
+    assert dlg._editor.document().characterCount() > 0
+
+
 def test_ctrl_s_saves(qtbot, tmp_path: Path) -> None:
     f = tmp_path / "save_me.txt"
     f.write_text("original")

@@ -86,6 +86,13 @@ class TerminalPanel(QWidget):
             for m in _OSC7_RE.finditer(data):
                 self.cwd_changed.emit(Path(m.group(1)))
 
+    def run_command(self, cmd: str, cwd: Path | None = None) -> None:
+        """F254 — Write *cmd* to the shell stdin; start the shell if needed."""
+        if self._proc is None:
+            self.start(cwd or Path.cwd())
+        if self._proc and self._proc.state() == QProcess.ProcessState.Running:
+            self._proc.write((cmd + "\n").encode())
+
     def _read_err(self) -> None:
         if self._proc:
             data = self._proc.readAllStandardError().data().decode("utf-8", errors="replace")

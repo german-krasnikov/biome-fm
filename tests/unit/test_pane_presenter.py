@@ -220,6 +220,7 @@ class TestNavigation:
         p.navigate_to(HOME)
         new_item = _item("new_file.txt", HOME, size=1)
         tree[HOME].append(new_item)
+        p._cwd_mtime = 0.0  # force refresh (simulates dir mtime change)
         p.refresh()
         names = [i.name for i in view.items]
         assert "new_file.txt" in names
@@ -425,6 +426,26 @@ class TestMarks:
         p.navigate_to(HOME)
         view.cursor = FileItem(name="..", path=ROOT, is_dir=True, size=0, modified=0.0)
         p.toggle_mark_up()
+        assert len(p.marks) == 0
+
+    def test_mark_range_marks_all_items(self, env):
+        """F289 — mark_range marks every item between anchor and target."""
+        p, view, _vfs, _ = env
+        p.navigate_to(HOME)
+        # items sorted: archive (dir), docs (dir), readme.txt, zebra.txt
+        anchor = HOME / "archive"
+        target = HOME / "readme.txt"
+        p.mark_range(anchor, target)
+        assert HOME / "archive" in p.marks
+        assert HOME / "docs" in p.marks
+        assert HOME / "readme.txt" in p.marks
+        assert HOME / "zebra.txt" not in p.marks
+
+    def test_mark_range_unknown_items_ignored(self, env):
+        p, view, _vfs, _ = env
+        p.navigate_to(HOME)
+        # If either path is not in items, mark_range does nothing
+        p.mark_range(HOME / "ghost.txt", HOME / "readme.txt")
         assert len(p.marks) == 0
 
     def test_fmt_size_bytes(self):

@@ -38,6 +38,7 @@ my_plugin = "my_plugin:Plugin"
 | `context_menu_actions(items, pane_id)` | Context menu open | `list[ActionSpec]` |
 | `extra_columns()` | File list init | `list[ColumnDef]` |
 | `extra_archive_extensions()` | VFS init | `list[str]` |
+| `provide_vfs(path)` | Path navigation (firstresult) | VFS object or `None` |
 
 ## API versioning
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import difflib
 import hashlib
+import os
 import subprocess
 import threading
 from collections import Counter
@@ -121,6 +122,67 @@ class ComparePresenter:
             entries.append(CompareEntry(name=name, status=status, left=li, right=ri))
         entries.sort(key=lambda e: (_SORT_ORDER[e.status], e.name.lower()))
         return entries
+
+    def compare_recursive(
+        self,
+        left_root: Path,
+        right_root: Path,
+        cancel: threading.Event | None = None,
+    ) -> list[CompareEntry]:
+        """Walk both trees; return CompareEntry per file with relative path as name."""
+        def _walk(root: Path) -> dict[str, FileItem]:
+            result: dict[str, FileItem] = {}
+            for dirpath, _dirs, files in os.walk(root):
+                if cancel and cancel.is_set():
+                    break
+                dp = Path(dirpath)
+                for fname in files:
+                    p = dp / fname
+                    try:
+                        st = p.stat()
+                        rel = str(p.relative_to(root))
+                        result[rel] = FileItem(
+                            name=fname, path=p, is_dir=False,
+                            size=st.st_size, modified=st.st_mtime,
+                        )
+                    except OSError:
+                        pass
+            return result
+
+        lfiles = _walk(left_root)
+        rfiles = _walk(right_root)
+        entries: list[CompareEntry] = []
+        for rel in lfiles.keys() | rfiles.keys():
+            lf, rf = lfiles.get(rel), rfiles.get(rel)
+            if lf is None:
+                status = CompareStatus.RIGHT_ONLY
+            elif rf is None:
+                status = CompareStatus.LEFT_ONLY
+            else:
+                status = _compare_files(lf, rf)
+            entries.append(CompareEntry(name=rel, status=status, left=lf, right=rf))
+        entries.sort(key=lambda e: (_SORT_ORDER[e.status], e.name.lower()))
+        return entries
+
+    @staticmethod
+    def compare_dirs(left_path: Path, right_path: Path) -> dict[str, str]:
+        """Compare two dirs by name/size/mtime. Returns filename → status string."""
+        left_files = {f.name: f for f in left_path.iterdir() if f.is_file()}
+        right_files = {f.name: f for f in right_path.iterdir() if f.is_file()}
+        result: dict[str, str] = {}
+        for name in left_files.keys() | right_files.keys():
+            lf, rf = left_files.get(name), right_files.get(name)
+            if lf is None:
+                result[name] = "right_only"
+            elif rf is None:
+                result[name] = "left_only"
+            else:
+                ls, rs = lf.stat(), rf.stat()
+                if ls.st_size != rs.st_size or abs(ls.st_mtime - rs.st_mtime) > _MTIME_TOLERANCE:
+                    result[name] = "differs"
+                else:
+                    result[name] = "same"
+        return result
 
     @staticmethod
     def content_diff(entry: CompareEntry, context_lines: int = 3) -> str:

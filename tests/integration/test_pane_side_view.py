@@ -39,3 +39,27 @@ def test_set_active_tab(view):
     view.new_pane()
     view.set_active_tab(1)
     assert view._stack.currentIndex() == 1
+
+
+def test_set_tab_filter_active_appends_indicator(view):
+    view.add_tab("/home/user")
+    initial = view._tab_bar.tabText(0)
+    view.set_tab_filter_active(0, True)
+    assert view._tab_bar.tabText(0).endswith(PaneSideView._FILTER_INDICATOR)
+
+
+def test_set_tab_filter_active_removes_indicator(view):
+    view.add_tab("/home/user")
+    view.set_tab_filter_active(0, True)
+    view.set_tab_filter_active(0, False)
+    text = view._tab_bar.tabText(0)
+    assert PaneSideView._FILTER_INDICATOR not in text
+
+
+def test_set_tab_filter_active_idempotent(view):
+    """Calling active=True twice doesn't stack the indicator."""
+    view.add_tab("/home/user")
+    view.set_tab_filter_active(0, True)
+    view.set_tab_filter_active(0, True)
+    text = view._tab_bar.tabText(0)
+    assert text.count(PaneSideView._FILTER_INDICATOR) == 1

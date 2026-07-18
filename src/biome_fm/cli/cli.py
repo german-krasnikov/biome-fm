@@ -6,7 +6,7 @@ import sys
 
 UNHANDLED = object()
 
-_COMMANDS = {"version", "configure", "doctor", "uninstall"}
+_COMMANDS = {"version", "configure", "doctor", "uninstall", "install-service"}
 
 
 def dispatch(argv: list[str]) -> int | object:
@@ -22,6 +22,8 @@ def dispatch(argv: list[str]) -> int | object:
         return _doctor()
     if cmd == "uninstall":
         return _uninstall(argv[1:])
+    if cmd == "install-service":
+        return _install_service()
     return UNHANDLED
 
 
@@ -115,4 +117,10 @@ def _uninstall(argv: list[str]) -> int:
         if removed:
             print(f"Removed from {info.name}")
 
+    return 0
+
+
+def _install_service() -> int:
+    from biome_fm.cli.automator import install_quick_action
+    install_quick_action()
     return 0

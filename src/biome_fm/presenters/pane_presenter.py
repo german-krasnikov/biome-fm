@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import contextlib
+import datetime
 import fnmatch
+import queue
 import shutil
 import threading
 from collections import OrderedDict
@@ -40,6 +42,7 @@ class PaneViewProtocol(Protocol):
     def set_filter_visible(self, visible: bool) -> None: ...
     def set_nav_history(self, paths: list[Path]) -> None: ...
     def select_item(self, name: str) -> None: ...
+    def set_dir_size(self, path: Path, size: int) -> None: ...
 
 
 def _sort(items: list[FileItem]) -> list[FileItem]:
@@ -51,6 +54,8 @@ def _sort(items: list[FileItem]) -> list[FileItem]:
 
 
 class PanePresenter:
+    # (col, ascending): Name↑ → Name↓ → Size↓ → Modified↓ → Ext↑
+    _SORT_PRESETS = ((0, True), (0, False), (1, False), (2, False), (3, True))
     def __init__(
         self,
         view: PaneViewProtocol,
@@ -69,7 +74,7 @@ class PanePresenter:
         self._back: list[Path] = []
         self._forward: list[Path] = []
         self._items: list[FileItem] = []
-        self._marks: set[Path] = set()
+        self._marks: set[str] = set()
         self._nav_history: list[Path] = []
         self._virtual_activate: Callable[[FileItem], None] | None = None
         self._size_cancel: list[bool] = [False]
@@ -77,7 +82,11 @@ class PanePresenter:
         self._dir_view_state: dict[Path, object] = {}
         self._store = store
         self._frecency = frecency
-        self._persistent_marks: OrderedDict[Path, set[Path]] = OrderedDict()
+        self._persistent_marks: OrderedDict[Path, set[str]] = OrderedDict()
+        self._size_queue: queue.SimpleQueue[tuple[Path, int]] = queue.SimpleQueue()
+        self._cwd_mtime: float = 0.0
+        self._sort_preset: int = 0
+        self._sticky_marks_enabled: bool = False
 
     @property
     def current_path(self) -> Path:
@@ -94,12 +103,26 @@ class PanePresenter:
         return bool(self._forward)
 
     @property
+    def back_stack(self) -> list[Path]:
+        """Back history, most recent first."""
+        return list(reversed(self._back))
+
+    @property
+    def forward_stack(self) -> list[Path]:
+        """Forward history, most recent first."""
+        return list(reversed(self._forward))
+
+    @property
+    def vfs(self) -> VFSProtocol:
+        return self._vfs
+
+    @property
     def marks(self) -> set[Path]:
-        return set(self._marks)
+        return {Path(s) for s in self._marks}
 
     @property
     def marked_items(self) -> list[FileItem]:
-        return [i for i in self._items if i.path in self._marks]
+        return [i for i in self._items if str(i.path) in self._marks]
 
     @property
     def nav_history(self) -> list[Path]:
@@ -107,6 +130,11 @@ class PanePresenter:
 
     def _is_virtual(self) -> bool:
         return self._cwd == _VIRTUAL_PATH
+
+    def _push_nav_state_to_view(self) -> None:
+        if hasattr(self._view, "set_back_history"):
+            self._view.set_back_history(self.back_stack)
+            self._view.set_forward_history(self.forward_stack)
 
     def _push_history(self, path: Path) -> None:
         if path in self._nav_history:
@@ -120,12 +148,14 @@ class PanePresenter:
 
     def navigate_to(self, path: Path) -> None:
         old = self._cwd
+        self._cwd_mtime = 0.0  # force reload on explicit navigation
         if self._navigate_no_history(path):
             if old is not None:
                 self._back.append(old)
             self._forward.clear()
             if self._frecency is not None:
                 self._frecency.record(path)
+            self._push_nav_state_to_view()
 
     def navigate_virtual(self, items: list[FileItem], label: str = "Search Results", *, on_activate: Callable[[FileItem], None] | None = None) -> None:
         if self._cwd is not None:
@@ -159,9 +189,17 @@ class PanePresenter:
         self.navigate_to(Path(self._cwd.anchor))
 
     def refresh(self) -> None:
-        if self._cwd is not None:
-            cur = self._view.current_cursor_item()
-            self._navigate_no_history(self._cwd, initial_cursor=cur.name if cur else None)
+        if self._cwd is None:
+            return
+        try:
+            current_mtime = self._cwd.stat().st_mtime
+        except OSError:
+            current_mtime = 0.0
+        if current_mtime == self._cwd_mtime and current_mtime != 0.0:
+            return  # skip — directory unchanged
+        self._cwd_mtime = current_mtime
+        cur = self._view.current_cursor_item()
+        self._navigate_no_history(self._cwd, initial_cursor=cur.name if cur else None)
 
     def go_back(self) -> None:
         if not self._back:
@@ -170,6 +208,7 @@ class PanePresenter:
             self._forward.append(self._cwd)
         self._navigate_no_history(self._back.pop())
         self._virtual_activate = None
+        self._push_nav_state_to_view()
 
     def go_forward(self) -> None:
         if not self._forward:
@@ -177,6 +216,7 @@ class PanePresenter:
         if self._cwd is not None:
             self._back.append(self._cwd)
         self._navigate_no_history(self._forward.pop())
+        self._push_nav_state_to_view()
 
     def on_item_activated(self, item: FileItem) -> None:
         if self._is_virtual() and self._virtual_activate is not None:
@@ -197,7 +237,7 @@ class PanePresenter:
         item = self._view.current_cursor_item()
         if item is None or item.name == "..":
             return
-        self._marks ^= {item.path}
+        self._marks ^= {str(item.path)}
         self._push_marks()
         self._view.advance_cursor()
 
@@ -206,7 +246,7 @@ class PanePresenter:
         item = self._view.current_cursor_item()
         if item is None or item.name == "..":
             return
-        self._marks ^= {item.path}
+        self._marks ^= {str(item.path)}
         self._push_marks()
         self._view.retreat_cursor()
 
@@ -214,11 +254,11 @@ class PanePresenter:
         """Toggle mark on specific item without advancing cursor (Cmd+Click)."""
         if item.name == "..":
             return
-        self._marks ^= {item.path}
+        self._marks ^= {str(item.path)}
         self._push_marks()
 
     def select_all(self) -> None:
-        self._marks = {i.path for i in self._items}
+        self._marks = {str(i.path) for i in self._items}
         self._push_marks()
 
     def deselect_all(self) -> None:
@@ -226,20 +266,98 @@ class PanePresenter:
         self._push_marks()
 
     def invert_selection(self) -> None:
-        self._marks = {i.path for i in self._items} - self._marks
+        self._marks = {str(i.path) for i in self._items} - self._marks
         self._push_marks()
 
     def select_by_pattern(self, pattern: str) -> None:
-        self._marks |= {i.path for i in self._items if i.name != ".." and fnmatch.fnmatch(i.name, pattern)}
+        self._marks |= {str(i.path) for i in self._items if i.name != ".." and fnmatch.fnmatch(i.name, pattern)}
         self._push_marks()
 
     def deselect_by_pattern(self, pattern: str) -> None:
-        self._marks -= {i.path for i in self._items if fnmatch.fnmatch(i.name, pattern)}
+        self._marks -= {str(i.path) for i in self._items if fnmatch.fnmatch(i.name, pattern)}
+        self._push_marks()
+
+    def cycle_sort(self) -> None:
+        """F247: cycle Name↑ → Name↓ → Size↓ → Modified↓ → Ext↑ and notify view."""
+        self._sort_preset = (self._sort_preset + 1) % len(self._SORT_PRESETS)
+        col, asc = self._SORT_PRESETS[self._sort_preset]
+        with contextlib.suppress(AttributeError):
+            self._view.set_sort_preset(col, asc)
+
+    def select_same_ext(self) -> None:
+        """F287: mark all items sharing the cursor item's file extension."""
+        cur = self._view.current_cursor_item()
+        if not cur:
+            return
+        ext = Path(cur.name).suffix.lower()
+        self._marks = {str(i.path) for i in self._items if i.name != ".." and Path(i.name).suffix.lower() == ext}
+        self._push_marks()
+
+    def select_same_size_group(self) -> None:
+        """F287: mark all files within ±10% size of cursor item."""
+        cur = self._view.current_cursor_item()
+        if not cur or cur.is_dir:
+            return
+        lo, hi = cur.size * 0.9, cur.size * 1.1
+        self._marks = {str(i.path) for i in self._items if not i.is_dir and lo <= i.size <= hi}
+        self._push_marks()
+
+    def select_same_date(self) -> None:
+        """F287: mark all items with the same calendar date as cursor item."""
+        cur = self._view.current_cursor_item()
+        if not cur:
+            return
+        day = datetime.date.fromtimestamp(cur.modified)
+        self._marks = {str(i.path) for i in self._items
+                       if i.name != ".." and datetime.date.fromtimestamp(i.modified) == day}
+        self._push_marks()
+
+    def select_where(self, pred: Callable[[FileItem], bool]) -> None:
+        """Add items matching pred to the current mark set."""
+        self._marks |= {str(i.path) for i in self._items if pred(i)}
+        self._push_marks()
+
+    def calculate_all_dir_sizes(self) -> None:
+        """Spawn background threads to compute sizes for all dirs in current listing."""
+        dirs = [i for i in self._items if i.is_dir and i.name != ".."]
+        if not dirs:
+            return
+        self._size_cancel[0] = True
+        cancel: list[bool] = [False]
+        self._size_cancel = cancel
+
+        def _run_one(item: FileItem) -> None:
+            from biome_fm.utils.dir_size import calc_tree_size
+            size = calc_tree_size([item.path], cancel)
+            if size >= 0 and not cancel[0]:
+                self._size_queue.put((item.path, size))
+
+        for d in dirs:
+            threading.Thread(target=_run_one, args=(d,), daemon=True).start()
+
+    def drain_sizes(self) -> None:
+        """Drain queued dir-size results — call from main thread via QTimer."""
+        while not self._size_queue.empty():
+            try:
+                path, size = self._size_queue.get_nowait()
+                self._view.set_dir_size(path, size)
+            except Exception:
+                break
+
+    def mark_range(self, anchor: Path, target: Path) -> None:
+        """Mark all items between anchor and target paths (inclusive)."""
+        try:
+            ai = next(i for i, item in enumerate(self._items) if item.path == anchor)
+            ti = next(i for i, item in enumerate(self._items) if item.path == target)
+        except StopIteration:
+            return
+        lo, hi = min(ai, ti), max(ai, ti)
+        self._marks |= {str(self._items[i].path) for i in range(lo, hi + 1) if self._items[i].name != ".."}
         self._push_marks()
 
     def _start_dir_size_calc(self) -> None:
         """Start background dir size calculation for marked dirs."""
-        dirs = [i.path for i in self._items if i.path in self._marks and i.is_dir]
+        dirs = [i.path for i in self._items if str(i.path) in self._marks and i.is_dir]
         if not dirs:
             self._dir_size_result = None
             return
@@ -255,8 +373,14 @@ class PanePresenter:
 
         threading.Thread(target=_run, daemon=True).start()
 
+    def toggle_sticky_marks(self) -> None:
+        """Toggle show-only-marked filter (F284). View opts in via set_show_only_marked."""
+        self._sticky_marks_enabled = not getattr(self, "_sticky_marks_enabled", False)
+        with contextlib.suppress(AttributeError):
+            self._view.set_show_only_marked(self._sticky_marks_enabled)
+
     def _push_marks(self) -> None:
-        self._view.set_marked(set(self._marks))
+        self._view.set_marked({Path(s) for s in self._marks})
         self._start_dir_size_calc()
         self._update_status()
 
@@ -272,7 +396,7 @@ class PanePresenter:
         total = len(self._items)
         parts = [f"{total} items"]
         if self._marks:
-            size = sum(i.size for i in self._items if i.path in self._marks and not i.is_dir)
+            size = sum(i.size for i in self._items if str(i.path) in self._marks and not i.is_dir)
             parts.append(f"{len(self._marks)} marked ({self._fmt_size(size)})")
         if self._dir_size_result is not None:
             parts.append(f"Dirs: {self._fmt_size(self._dir_size_result)}")
@@ -355,9 +479,13 @@ class PanePresenter:
         set_state = getattr(self._view, "set_view_state", None)
         if saved is not None and set_state:
             set_state(saved)
-        self._view.set_marked(set(self._marks))
+        self._view.set_marked({Path(s) for s in self._marks})
         target = initial_cursor if initial_cursor and any(i.name == initial_cursor for i in items) else (items[0].name if items else "..")
         self._view.select_item(target)
         self._update_free_space()
         self._update_status()
+        try:
+            self._cwd_mtime = path.stat().st_mtime
+        except OSError:
+            self._cwd_mtime = 0.0
         return True

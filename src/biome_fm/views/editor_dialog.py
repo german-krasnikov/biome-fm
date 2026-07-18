@@ -8,6 +8,7 @@ from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QDialog, QPlainTextEdit, QVBoxLayout, QWidget
 
 from biome_fm.presenters.editor_presenter import EditorPresenter
+from biome_fm.views.editor_highlighter import PygmentsHighlighter
 
 
 class EditorDialog(QDialog):
@@ -28,6 +29,7 @@ class EditorDialog(QDialog):
         layout.addWidget(self._editor)
 
         self._presenter = EditorPresenter(self._editor, path)
+        self._highlighter = PygmentsHighlighter(self._editor.document(), path.name)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.modifiers() == Qt.ControlModifier:

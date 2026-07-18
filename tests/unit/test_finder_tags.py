@@ -37,3 +37,25 @@ def test_darwin_oserror():
         return
     with patch("biome_fm.models.finder_tags._getxattr", side_effect=OSError("no attr")):
         assert get_finder_tags(Path("/test")) == []
+
+
+# ── F279: set_finder_tags ─────────────────────────────────────────────────────
+
+def test_set_finder_tags_calls_setxattr(monkeypatch):
+    import biome_fm.models.finder_tags as m
+    if sys.platform != "darwin":
+        import pytest
+        pytest.skip("macOS only")
+    calls: list = []
+    monkeypatch.setattr(m._libc, "setxattr", lambda *a: (calls.append(a), 0)[1])
+    m.set_finder_tags(Path("/fake/file.txt"), ["Red", "Work"])
+    assert calls
+
+
+def test_set_finder_tags_noop_non_darwin():
+    from biome_fm.models.finder_tags import set_finder_tags
+    if sys.platform == "darwin":
+        import pytest
+        pytest.skip("non-darwin only")
+    # Should be a no-op, no exception
+    set_finder_tags(Path("/any"), ["Red"])

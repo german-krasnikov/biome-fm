@@ -21,15 +21,16 @@ def test_refresh_preserves_marks():
     p.navigate_to(Path("/tmp"))
 
     # Mark item_b
-    p._marks = {item_b.path}
+    p._marks = {str(item_b.path)}
     p._push_marks()
     view.reset_mock()
 
-    # Refresh
+    # Refresh — reset mtime so skip-optimization doesn't suppress the call
+    p._cwd_mtime = 0.0
     p.refresh()
 
     # Marks must be preserved in presenter state
-    assert item_b.path in p._marks
+    assert item_b.path in p.marks
 
     # And pushed to view
     view.set_marked.assert_called()
@@ -63,6 +64,7 @@ def test_refresh_preserves_cursor(tmp_path):
     p = PanePresenter(FakeView(), LocalVFS())
     p.navigate_to(tmp_path)
     selected.clear()
+    p._cwd_mtime = 0.0  # reset so refresh doesn't skip
     p.refresh()
     assert selected[-1] == "b.txt"
 
@@ -121,6 +123,7 @@ def test_preserve_scroll_true_on_refresh(tmp_path):
     p = PanePresenter(view, LocalVFS())
     p.navigate_to(tmp_path)
     view.set_items_calls.clear()
+    p._cwd_mtime = 0.0  # reset so refresh doesn't skip
     p.refresh()
     _, kwargs = view.set_items_calls[-1]
     assert kwargs.get("preserve_scroll") is True

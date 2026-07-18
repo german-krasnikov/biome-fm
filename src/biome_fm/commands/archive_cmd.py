@@ -116,6 +116,40 @@ class ProgressArchiveCmd(Command):
         return f"Archive {len(self._sources)} item(s)"
 
 
+class VerifyArchiveCmd(Command):
+    """Test archive integrity. Not undoable. execute() returns '' on success, error on failure."""
+
+    undoable = False
+
+    def __init__(self, archive_path: Path) -> None:
+        self._path = archive_path
+
+    def execute(self) -> str:  # type: ignore[override]
+        suffix = "".join(self._path.suffixes).lstrip(".")
+        try:
+            if suffix == "zip":
+                with zipfile.ZipFile(self._path) as z:
+                    bad = z.testzip()
+                    return f"Bad file: {bad}" if bad else ""
+            elif suffix in ("tar", "tar.gz", "tar.bz2", "tar.xz", "tgz"):
+                with tarfile.open(self._path) as t:
+                    for member in t.getmembers():
+                        if member.isfile():
+                            t.extractfile(member)
+                    return ""
+            else:
+                return f"Unsupported format: {suffix}"
+        except (zipfile.BadZipFile, tarfile.TarError, OSError) as e:
+            return str(e)
+
+    def undo(self) -> None:
+        pass
+
+    @property
+    def description(self) -> str:
+        return f"Verify {self._path.name}"
+
+
 _ZIP_EXTS = frozenset((".zip", ".jar", ".whl"))
 
 

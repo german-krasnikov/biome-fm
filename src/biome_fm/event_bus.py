@@ -109,3 +109,25 @@ class AsyncOpSubmitted:
     task_id: int
     description: str
     cancel: object  # threading.Event
+
+
+@dataclass(frozen=True)
+class RemoteConnected:
+    """A remote connection was established."""
+    scheme: str
+    host: str
+
+
+@dataclass(frozen=True)
+class RemoteDisconnected:
+    """A remote connection was closed."""
+    scheme: str
+    host: str
+
+
+@dataclass(frozen=True)
+class RemoteSyncing:
+    """A remote I/O operation is in progress."""
+    scheme: str
+    host: str
+    active: bool

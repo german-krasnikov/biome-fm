@@ -15,18 +15,20 @@ class DupGroup:
     size: int
 
 
-def find_duplicates(root: Path, cancel: list[bool]) -> list[DupGroup]:
-    """Group files under *root* by content hash. Returns groups with 2+ files."""
+def find_duplicates(root: Path | list[Path], cancel: list[bool]) -> list[DupGroup]:
+    """Group files under *root* (or multiple roots) by content hash. Returns groups with 2+ files."""
+    roots = [root] if isinstance(root, Path) else list(root)
     by_size: dict[int, list[Path]] = defaultdict(list)
-    for dirpath, _, files in os.walk(root):
-        if cancel[0]:
-            return []
-        for f in files:
-            p = Path(dirpath) / f
-            try:
-                by_size[p.stat().st_size].append(p)
-            except OSError:
-                pass
+    for r in roots:
+        for dirpath, _, files in os.walk(r):
+            if cancel[0]:
+                return []
+            for f in files:
+                p = Path(dirpath) / f
+                try:
+                    by_size[p.stat().st_size].append(p)
+                except OSError:
+                    pass
 
     by_hash: dict[str, list[Path]] = defaultdict(list)
     sizes: dict[str, int] = {}

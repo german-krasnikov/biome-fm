@@ -114,7 +114,7 @@ def test_dir_action_emits_bookmark_chosen(menu, qtbot):
     menu.set_store(store)
     menu._rebuild()
     actions = _flat_non_sep(menu)
-    dir_act = next(a for a in actions if a.text() == "XY")
+    dir_act = next(a for a in actions if a.text().replace("&", "") == "XY")
     with qtbot.waitSignal(menu.bookmark_chosen) as sig:
         dir_act.trigger()
     assert sig.args[0] == p
@@ -133,7 +133,7 @@ def test_submenu_child_emits_bookmark_chosen(menu, qtbot):
     menu._rebuild()
     subs = _submenus(menu)  # keep alive to prevent GC of submenu
     _act, sub_menu = subs[0]
-    child_act = next(a for a in sub_menu.actions() if not a.isSeparator() and a.text() == "Child")
+    child_act = next(a for a in sub_menu.actions() if not a.isSeparator() and a.text().replace("&", "") == "Child")
     with qtbot.waitSignal(menu.bookmark_chosen) as sig:
         child_act.trigger()
     assert sig.args[0] == p

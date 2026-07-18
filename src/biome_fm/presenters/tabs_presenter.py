@@ -98,6 +98,10 @@ class TabsPresenter:
             self._active_idx -= 1
         self._tabs_view.set_active_tab(self._active_idx)
 
+    def duplicate_tab(self, idx: int) -> PanePresenter:
+        """Open a new tab at the same path as tab[idx]."""
+        return self.new_tab(self._tabs[idx].current_path)
+
     def switch_tab(self, idx: int) -> None:
         if 0 <= idx < self.tab_count:
             self._active_idx = idx

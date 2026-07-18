@@ -17,9 +17,11 @@ def test_filter_bar_activate_shows_and_focuses():
 def test_filter_bar_deactivate_clears_and_hides():
     bar = FilterBar.__new__(FilterBar)
     bar._edit = MagicMock()
+    bar._invert_btn = MagicMock()
     bar.hide = MagicMock()
     bar.closed = MagicMock()
     bar.deactivate()
     bar._edit.clear.assert_called_once()
+    bar._invert_btn.setChecked.assert_called_once_with(False)
     bar.hide.assert_called_once()
     bar.closed.emit.assert_called_once()

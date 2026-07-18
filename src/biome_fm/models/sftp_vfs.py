@@ -1,8 +1,10 @@
 """SFTP VFS. Requires paramiko (optional dep)."""
 from __future__ import annotations
 
+import logging
 import re
 import stat
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -17,6 +19,7 @@ except ImportError:
 
 _URI_RE = re.compile(r"sftp://(?:([^@]+)@)?([^/:]+)(?::(\d+))?(/.*)$")
 _SSH_ERRORS: tuple[type[Exception], ...] = (ConnectionError, EOFError)
+_log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -25,6 +28,7 @@ class SFTPSession:
     port: int = 22
     user: str = ""
     remote_path: str = "/"
+    auto_add_host_key: bool = False
 
 
 def parse_sftp_uri(uri: str) -> SFTPSession | None:
@@ -43,10 +47,31 @@ def parse_sftp_uri(uri: str) -> SFTPSession | None:
 class SFTPVfs:
     """SFTP VFS backed by paramiko. Raises RuntimeError when paramiko absent."""
 
-    def __init__(self, session: SFTPSession) -> None:
+    def __init__(self, session: SFTPSession, max_channels: int = 4) -> None:
         self._session = session
         self._client = None
-        self._sftp = None
+        self._max_channels = max_channels
+        self._channels: list = []                             # pool of idle SFTPClient channels
+        self._semaphore = threading.Semaphore(max_channels)   # limits concurrent channel count
+        self._lock = threading.Lock()
+
+    def _get_channel(self):
+        """Acquire a fresh or pooled channel (blocks at max_channels)."""
+        if not _HAS_PARAMIKO:
+            raise RuntimeError("Install paramiko for SFTP support: pip install paramiko")
+        if self._client is None:
+            raise RuntimeError("Not connected — call connect() first")
+        self._semaphore.acquire()
+        with self._lock:
+            if self._channels:
+                return self._channels.pop()
+        return self._client.open_sftp()  # type: ignore[union-attr]
+
+    def _return_channel(self, channel) -> None:
+        """Return a channel to the pool and release the semaphore slot."""
+        with self._lock:
+            self._channels.append(channel)
+        self._semaphore.release()
 
     @staticmethod
     def available() -> bool:
@@ -56,49 +81,83 @@ class SFTPVfs:
         if not _HAS_PARAMIKO:
             raise RuntimeError("Install paramiko for SFTP support: pip install paramiko")
         client = _paramiko.SSHClient()
-        client.set_missing_host_key_policy(_paramiko.WarningPolicy())
+        if self._session.auto_add_host_key:
+            _log.warning(
+                "SFTP: auto-accepting host keys for %s — MITM risk", self._session.host
+            )
+            client.set_missing_host_key_policy(_paramiko.AutoAddPolicy())
+        else:
+            client.set_missing_host_key_policy(_paramiko.RejectPolicy())
         client.connect(
             self._session.host,
             port=self._session.port,
             username=self._session.user or None,
         )
         self._client = client
-        self._sftp = client.open_sftp()
         transport = client.get_transport()
         if transport is not None:
             transport.set_keepalive(30)
-
-    def _require_sftp(self):
-        if not _HAS_PARAMIKO:
-            raise RuntimeError("Install paramiko for SFTP support: pip install paramiko")
-        if self._sftp is None:
-            raise RuntimeError("Not connected — call connect() first")
-        return self._sftp
+        # Seed pool with one channel
+        with self._lock:
+            self._channels = [client.open_sftp()]
 
     def _reconnect(self) -> None:
-        self._sftp = None
+        with self._lock:
+            for ch in self._channels:
+                try:
+                    ch.close()
+                except Exception:
+                    pass
+            self._channels.clear()
+        if self._client:
+            self._client.close()
         self._client = None
         self.connect()
 
     def _with_reconnect(self, fn, *args):
-        """Call fn(*args), retrying up to 3 times on SSH errors with exponential backoff."""
+        """Acquire channel, call fn(sftp, *args), retry up to 3x on SSH errors."""
+        last_exc: Exception | None = None
         for attempt in range(4):
+            # client may be None if a previous reconnect attempt failed
+            if self._client is None:
+                if attempt == 0:
+                    if not _HAS_PARAMIKO:
+                        raise RuntimeError(
+                            "Install paramiko for SFTP support: pip install paramiko"
+                        )
+                    raise RuntimeError("Not connected — call connect() first")
+                if attempt >= 3:
+                    raise (last_exc or RuntimeError("Not connected"))
+                time.sleep(2 ** attempt)
+                try:
+                    self._reconnect()
+                except _SSH_ERRORS as exc:
+                    last_exc = exc
+                continue
+            ch = self._get_channel()
             try:
-                return fn(*args)
+                result = fn(ch, *args)
+                self._return_channel(ch)
+                return result
             except _SSH_ERRORS as exc:
+                last_exc = exc
+                try:
+                    ch.close()
+                except Exception:
+                    pass
+                self._semaphore.release()  # slot freed — channel discarded
                 if attempt >= 3:
                     raise
                 time.sleep(2 ** attempt)
                 try:
                     self._reconnect()
                 except _SSH_ERRORS:
-                    pass  # reconnect failed; will retry fn on next loop
+                    pass  # reconnect failed; will retry on next loop
 
     def listdir(self, path: PurePosixPath) -> list:
         from biome_fm.models.file_item import FileItem
-        sftp = self._require_sftp()
 
-        def _do(p):
+        def _do(sftp, p):
             attrs = sftp.listdir_attr(str(p))
             items = []
             for a in attrs:
@@ -116,37 +175,48 @@ class SFTPVfs:
         return self._with_reconnect(_do, path)
 
     def read_bytes(self, path: PurePosixPath) -> bytes:
-        sftp = self._require_sftp()
-
-        def _do(p):
+        def _do(sftp, p):
             with sftp.open(str(p), "rb") as f:
                 return f.read()
 
         return self._with_reconnect(_do, path)
 
     def write_bytes(self, path: PurePosixPath, data: bytes) -> None:
-        sftp = self._require_sftp()
-
-        def _do(p):
+        def _do(sftp, p, d):
             with sftp.open(str(p), "wb") as f:
-                f.write(data)
+                f.write(d)
+
+        self._with_reconnect(_do, path, data)
+
+    def mkdir(self, path: PurePosixPath) -> None:
+        def _do(sftp, p):
+            sftp.mkdir(str(p))
 
         self._with_reconnect(_do, path)
 
-    def mkdir(self, path: PurePosixPath) -> None:
-        self._require_sftp().mkdir(str(path))
-
     def remove(self, path: PurePosixPath) -> None:
-        sftp = self._require_sftp()
-        try:
-            sftp.remove(str(path))
-        except OSError:
-            sftp.rmdir(str(path))
+        def _do(sftp, p):
+            try:
+                sftp.remove(str(p))
+            except OSError:
+                sftp.rmdir(str(p))
+
+        self._with_reconnect(_do, path)
+
+    def chmod(self, path: PurePosixPath, mode: int) -> None:
+        def _do(sftp, p, m):
+            sftp.chmod(str(p), m)
+
+        self._with_reconnect(_do, path, mode)
 
     def disconnect(self) -> None:
-        if self._sftp:
-            self._sftp.close()
+        with self._lock:
+            for ch in self._channels:
+                try:
+                    ch.close()
+                except Exception:
+                    pass
+            self._channels.clear()
         if self._client:
             self._client.close()
-        self._sftp = None
         self._client = None

@@ -3,6 +3,126 @@
 All notable changes to Biome FM are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.26.0] — 2026-07-18
+
+### Added
+
+**Sessions & Workspaces**
+- Named sessions — save and restore full left+right pane layout by name (`models/session_store.py`, `views/session_picker_dialog.py`)
+
+**Task Runner**
+- Makefile/Justfile target runner — detects Make and Just targets in the active directory, runs with live QProcess output (`views/task_runner_dialog.py`, `models/project_detector.parse_makefile_targets`, `parse_justfile_targets`)
+
+**Shell & Navigation**
+- Path completion — `path_completions(text)` in `utils/path_completion.py` provides glob-based completions for absolute, tilde, and relative paths in the command bar
+
+**Cloud**
+- `CloudConnectionStore` — JSON-backed list of cloud connection URLs (`models/cloud_connection_store.py`)
+
+**VFS Plugin Hook**
+- `provide_vfs` hookspec (firstresult) — plugins can now supply a custom VFS implementation for any path prefix (`plugins/hookspecs.py`)
+
+### Tests
+- 1921 unit tests, 532 integration tests (2453 total)
+
+---
+
+## [v0.25.0] — 2026-07-18
+
+### Added
+
+**Disk Analysis**
+- Storage treemap — squarify-based disk usage visualization; background scanner + QPainter widget; click to navigate (`presenters/treemap_presenter.py`, `views/treemap_panel.py`)
+- Large file finder — configurable min-size threshold; background `os.walk` scan; sortable table (`views/large_file_dialog.py`)
+
+**Accessibility**
+- High Contrast theme — `themes/high-contrast.toml`; inherits dark with `#FFFF00` accent and `#00FFFF` accent2; `#FFFFFF` borders on `#000000` base
+
+**Desktop Integration**
+- Global hotkey — `register_global_hotkey(key_combo, callback)` via pynput (optional dep); returns listener handle or None if unavailable (`utils/global_hotkey.py`)
+- macOS Automator Quick Action — `install_quick_action()` installs "Open in Biome FM" workflow to `~/Library/Services/` (`cli/automator.py`); `biome-fm install-service` CLI subcommand
+
+---
+
+## [v0.24.0] — 2026-07-18
+
+### Added
+
+**Tags**
+- `TagCmd` — batch tag assign/remove command with undo; saves previous tag state per path for undo (`commands/tag_cmd.py`)
+
+**Git**
+- Git virtual pane — `git_changed_files(repo, cache)` returns `list[FileItem]` for all dirty paths in a repo; navigate to a virtual pane of uncommitted changes (`git/virtual_pane.py`)
+- Git worktree navigator — `list_worktrees(repo)` parses `git worktree list --porcelain`; returns `[{path, head, branch}]` dicts; timeout-safe (`git/worktree_ops.py`)
+
+**Editor**
+- Pygments syntax highlighter — `PygmentsHighlighter` (QSyntaxHighlighter); theme-aware (light/dark token colors); skips TextLexer; plugs into `EditorDialog` (`views/editor_highlighter.py`)
+
+**File List**
+- Group header delegate — `GroupDelegate` draws an accent separator line + group label above the first row of each group in the file list; reads `GROUP_ROLE` from proxy (`views/group_delegate.py`)
+
+### Tests
+- 41 new tests covering git virtual pane, worktree ops, tag command, group delegate
+
+---
+
+## [v0.23.0] — 2026-07-18
+
+### Added
+
+**Remote / Cloud VFS**
+- `RcloneVFS` — VFS backed by `rclone lsjson` subprocess; supports `listdir`, `stat`, `copy`, `move`, `delete`, `mkdir`; nanosecond modtime parsing (`models/rclone_vfs.py`)
+- `RemoteListCache` — thread-safe TTL=30s listing cache for remote VFS operations (`models/remote_cache.py`)
+- `PreviewFileCache` — SHA1-keyed local temp-file cache for remote file preview; 50 MB max, LRU eviction (`models/preview_file_cache.py`)
+
+**Credentials & Profiles**
+- `CredentialStore` — `get_credential` / `set_credential` / `delete_credential` via keyring; in-process dict fallback when keyring unavailable (`models/credential_store.py`)
+- `CloudProfileStore` + `CloudProfile` — TOML-backed CRUD store for named cloud connections (s3/sftp/ftp/ftps/webdav/rclone) with host, port, user, bucket (`models/cloud_profile_store.py`)
+- `CloudProfileDialog` — CRUD dialog: list on left, edit form on right (`views/cloud_profile_dialog.py`)
+- `QuickConnectBar` — URI QComboBox + Connect button widget; emits `connect_requested(uri)` (`views/quick_connect_bar.py`)
+- `UploadQueuePanel` — passive view showing pending/active/done uploads with per-item progress (`views/upload_queue_panel.py`)
+
+**Remote Editing**
+- `RemoteEditCmd` — download remote file → open `$EDITOR` → re-upload if mtime changed; not undoable (`commands/remote_edit_cmd.py`)
+
+**Events**
+- `RemoteConnected(scheme, host)` — fired when a remote VFS connects
+- `RemoteDisconnected(scheme, host)` — fired on disconnect
+- `RemoteSyncing(scheme, host, active)` — fired while remote I/O in progress
+
+### Tests
+- 72 new tests covering RcloneVFS, RemoteListCache, PreviewFileCache, CredentialStore, CloudProfileStore, RemoteEditCmd
+
+---
+
+## [v0.22.0] — 2026-07-18
+
+### Added
+
+**File Operations**
+- `CopyMoveDialog` — TC-style copy/move destination dialog with editable path, recent-history QComboBox, and browse button (`views/copy_move_dialog.py`)
+- `PermissionsEditorDialog` — bulk chmod dialog with 9 bit-checkboxes (rwxrwxrwx); shows common mode for mixed selections; POSIX-only (`views/permissions_editor_dialog.py`)
+- `ChmodCmd` — batch `os.chmod` command with undo; saves previous mode per path; supports optional `vfs.chmod` for remote VFS (`commands/chmod_cmd.py`)
+
+**Selection**
+- `SelectCriteria` + `SelectByAttrDialog` — pure-Python predicate (name glob, extensions list, min/max size bytes, min/max age days); `matches(item)` method; dialog builds criteria from user input (`models/select_criteria.py`, `views/select_criteria_dialog.py`)
+- `FileCollector` — deduplicated multi-directory virtual panel; `add(items)` / `remove(paths)` / `items()` / `count()` / `clear()`; show via `navigate_virtual` (`presenters/file_collector.py`)
+
+**Navigation**
+- `QuickCDDialog` — frecency + live filesystem-path-completion quick-change-directory; `Alt+C` shortcut; `path_selected` Signal (`views/quick_cd_dialog.py`)
+
+**Leader Key**
+- `WhichKeyPopup` — floating monospace hint overlay (ToolTip window type) showing available next keys in a leader sequence (`views/which_key_popup.py`)
+- `LeaderFilter` — QApplication event filter for leader key sequences; ignores input fields; 300ms timeout; emits `action_triggered(str)` (`views/leader_filter.py`)
+
+**User Menu**
+- `UserMenuItem` + `load_user_menu(cwd)` — walks up from `cwd` for `.biome-menu.toml`; falls back to global config; per-directory contextual menu items with shortcut field (`models/user_menu.py`)
+
+### Tests
+- 104 new tests covering FileCollector, SelectCriteria, CopyMoveDialog, ChmodCmd, QuickCDDialog, WhichKeyPopup, LeaderFilter
+
+---
+
 ## [v0.21.0] — 2026-07-18
 
 ### Added

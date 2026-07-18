@@ -41,6 +41,17 @@ if sys.platform == "darwin":
             return [t.split("\n")[0] for t in tags if isinstance(t, str)]
         except OSError:
             return []
+
+    def set_finder_tags(path: Path, tags: list[str]) -> None:
+        raw = plistlib.dumps(tags, fmt=plistlib.FMT_BINARY)
+        path_b = str(path).encode()
+        attr_b = b"com.apple.metadata:_kMDItemUserTags"
+        ret = _libc.setxattr(path_b, attr_b, raw, len(raw), 0, 0)
+        if ret < 0:
+            raise OSError(f"setxattr failed for {path}")
 else:
     def get_finder_tags(path: Path) -> list[str]:
         return []
+
+    def set_finder_tags(path: Path, tags: list[str]) -> None:
+        pass

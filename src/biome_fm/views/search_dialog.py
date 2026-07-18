@@ -7,7 +7,12 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QDate
 from PySide6.QtWidgets import QDateEdit, QGroupBox
 
-from biome_fm.presenters.search_presenter import DEFAULT_EXCLUDE, SearchFilter, SearchMode, SearchScope
+from biome_fm.presenters.search_presenter import (
+    DEFAULT_EXCLUDE,
+    SearchFilter,
+    SearchMode,
+    SearchScope,
+)
 from biome_fm.qt import (
     QCheckBox,
     QComboBox,
@@ -40,6 +45,7 @@ class SearchDialog(QDialog):
         *,
         store: SearchTemplateStore | None = None,
         history: list[str] | None = None,
+        initial_query: str | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Find Files")
@@ -75,6 +81,8 @@ class SearchDialog(QDialog):
         if history:
             completer = QCompleter(QStringListModel(history, self._query), self._query)
             self._query.setCompleter(completer)
+        if initial_query:
+            self._query.setText(initial_query)
         form.addRow("Pattern:", self._query)
 
         self._mode = QComboBox()
@@ -89,6 +97,7 @@ class SearchDialog(QDialog):
         self._scope.addItem("Current dir only", SearchScope.CURRENT_DIR)
         self._scope.addItem("Selected files", SearchScope.SELECTED_FILES)
         self._scope.addItem("Both panes", SearchScope.BOTH_PANES)
+        self._scope.addItem("Duplicate names", SearchScope.DUPLICATE_NAMES)
         form.addRow("Scope:", self._scope)
 
         self._max_results = QSpinBox()
@@ -282,9 +291,10 @@ class SearchDialog(QDialog):
         *,
         store: SearchTemplateStore | None = None,
         history: list[str] | None = None,
+        initial_query: str | None = None,
     ) -> tuple[str, SearchMode, int, SearchScope, SearchFilter | None, list[str], bool, bool, int] | None:
         """Show dialog, return (query, mode, max_results, scope, filter, exclude_patterns, case_sensitive, whole_word, context_lines) or None."""
-        dlg = SearchDialog(root, parent, store=store, history=history)
+        dlg = SearchDialog(root, parent, store=store, history=history, initial_query=initial_query)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             return (
                 dlg.query, dlg.mode, dlg.max_results, dlg.scope,

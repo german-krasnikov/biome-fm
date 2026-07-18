@@ -143,6 +143,14 @@ class PaneSideView(QWidget):
     def set_tab_tooltip(self, idx: int, tooltip: str) -> None:
         self._tab_bar.setTabToolTip(idx, tooltip)
 
+    _FILTER_INDICATOR = " ⊘"
+
+    def set_tab_filter_active(self, idx: int, active: bool) -> None:
+        """Append/remove filter indicator from tab display text."""
+        text = self._tab_bar.tabText(idx)
+        clean = text.removesuffix(self._FILTER_INDICATOR)
+        self._tab_bar.setTabText(idx, clean + self._FILTER_INDICATOR if active else clean)
+
     def set_tab_locked(self, idx: int, locked: bool) -> None:
         self._tab_bar.set_locked(idx, locked)
 

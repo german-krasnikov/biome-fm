@@ -13,6 +13,9 @@ class FileItem:
     modified: float
     permissions: str = ""
     is_symlink: bool = False
+    atime: float = 0.0
+    ctime: float = 0.0
+    owner: str = ""
 
     @property
     def size_str(self) -> str:

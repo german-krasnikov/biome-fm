@@ -39,6 +39,8 @@ class BatchRenameDialog(QDialog):
         self._replace = QLineEdit()
         self._replace.setPlaceholderText("Replace with…")
         self._regex = QCheckBox("Regex")
+        self._case = QCheckBox("Case")
+        self._case.setChecked(True)
 
         # Preview table
         self._table = QTableWidget(0, 2)
@@ -63,6 +65,7 @@ class BatchRenameDialog(QDialog):
         row.addWidget(QLabel("Replace:"))
         row.addWidget(self._replace)
         row.addWidget(self._regex)
+        row.addWidget(self._case)
 
         layout = QVBoxLayout(self)
         layout.addLayout(row)
@@ -73,6 +76,7 @@ class BatchRenameDialog(QDialog):
         self._find.textChanged.connect(self._update_preview)
         self._replace.textChanged.connect(self._update_preview)
         self._regex.toggled.connect(self._update_preview)
+        self._case.toggled.connect(self._update_preview)
 
     def _update_preview(self) -> None:
         find = self._find.text()
@@ -82,8 +86,9 @@ class BatchRenameDialog(QDialog):
             self._table.setRowCount(0)
             self._ok.setEnabled(False)
             return
+        flags = 0 if self._case.isChecked() else re.IGNORECASE
         pattern = find if self._regex.isChecked() else re.escape(find)
-        self._previews = self._presenter.apply_regex(pattern, replace)
+        self._previews = self._presenter.apply_regex(pattern, replace, flags=flags)
         red = QColor("#ff6b6b")
         self._table.setRowCount(len(self._previews))
         has_valid = False

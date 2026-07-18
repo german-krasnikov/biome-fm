@@ -252,6 +252,14 @@ class BookmarkStore:
             self._nodes = _migrate_old(bm)
             self._save()
 
+    @classmethod
+    def load_project(cls, project_root: Path) -> list[BookmarkNode]:
+        """Load bookmarks from <project_root>/.biome-fm/bookmarks.toml, or [] if absent."""
+        candidate = project_root / ".biome-fm" / "bookmarks.toml"
+        if not candidate.exists():
+            return []
+        return cls(candidate).tree()
+
     @staticmethod
     def _default_paths() -> list[Path]:
         home = Path.home()

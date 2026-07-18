@@ -5,6 +5,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from PySide6.QtGui import QAccessible, QAccessibleEvent
+
 from biome_fm.models.directory_model import (
     COL_EXT,
     COL_MODIFIED,
@@ -30,7 +32,6 @@ from biome_fm.qt import (
     QPen,
     QPushButton,
     QStyle,
-    QStyledItemDelegate,
     Qt,
     QTableView,
     QTimer,
@@ -40,9 +41,11 @@ from biome_fm.qt import (
 )
 
 _AUTO_RESIZE_THRESHOLD = 500
+from biome_fm.models.directory_model import GroupByMode
 from biome_fm.views.bookmark_menu import BookmarkMenu
 from biome_fm.views.dnd_utils import _MIME, make_path_mime
 from biome_fm.views.filter_bar import FilterBar
+from biome_fm.views.group_delegate import GroupDelegate
 from biome_fm.views.jump_bar import JumpBar
 
 _MOVE_MODS = Qt.KeyboardModifier.ShiftModifier | Qt.KeyboardModifier.AltModifier
@@ -62,7 +65,7 @@ def _match_positions(pattern: str, text: str) -> list[int]:
     return pos if pi == len(p) else []
 
 
-class _DropHintDelegate(QStyledItemDelegate):
+class _DropHintDelegate(GroupDelegate):
     """Draws highlight border around folder row during DnD hover."""
 
     def __init__(self, table: _PaneTableView) -> None:
@@ -177,6 +180,12 @@ class _PaneTableView(QTableView):
     _drop_hint_row: int = -1
     _cursor_row: int = -1
     _spring_row: int = -1
+    _g_pending: bool = False
+    # F288 — numeric count prefix (vi-style N<nav>)
+    _count: str = ""
+    # F289 — visual selection V mode
+    _v_mode: bool = False
+    _v_anchor: object = None  # FileItem | None
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -190,6 +199,10 @@ class _PaneTableView(QTableView):
         self._spring_timer.setSingleShot(True)
         self._spring_timer.setInterval(800)
         self._spring_timer.timeout.connect(self._spring_navigate)
+        self._g_timer = QTimer(self)
+        self._g_timer.setSingleShot(True)
+        self._g_timer.setInterval(500)
+        self._g_timer.timeout.connect(lambda: setattr(self, "_g_pending", False))
 
     # QTreeView compat: QTableView lacks this; Fixed row sections achieve same effect
     def setUniformRowHeights(self, uniform: bool) -> None:
@@ -201,6 +214,19 @@ class _PaneTableView(QTableView):
     def _on_cursor_row_changed(self, current: QModelIndex, _: QModelIndex) -> None:
         self._cursor_row = current.row() if current.isValid() else -1
         self.viewport().update()
+
+    def _jump_to_row(self, row: int) -> None:
+        if self.model().rowCount() == 0:
+            return
+        idx = self.model().index(row, 0)
+        self.setCurrentIndex(idx)
+        self.scrollTo(idx, QTableView.ScrollHint.PositionAtCenter)
+
+    def _page_scroll(self, direction: int) -> None:
+        rows = max(1, self.viewport().height() // max(1, self.rowHeight(0) or 20))
+        cur = self.currentIndex().row()
+        target = max(0, min(self.model().rowCount() - 1, cur + direction * rows))
+        self._jump_to_row(target)
 
     def scrollContentsBy(self, dx: int, dy: int) -> None:
         super().scrollContentsBy(dx, dy)  # must run: updates header offset + selection dirty region
@@ -232,6 +258,43 @@ class _PaneTableView(QTableView):
         mods = event.modifiers()  # type: ignore[attr-defined]
         parent = self.parent()
         if isinstance(parent, PaneView):
+            _bare = not mods
+            # F288 — numeric count prefix: accumulate digits before nav keys
+            if _bare and Qt.Key.Key_1 <= key <= Qt.Key.Key_9:
+                self._count += event.text()  # type: ignore[attr-defined]
+                return
+            if _bare and key == Qt.Key.Key_0 and self._count:
+                self._count += "0"
+                return
+            # F289 — V mode toggle (vi visual line selection)
+            if key == Qt.Key.Key_V and _bare:
+                if self._v_mode:
+                    self._v_mode = False
+                    self._v_anchor = None
+                else:
+                    item = parent.current_cursor_item()
+                    if item and item.name != "..":
+                        self._v_mode = True
+                        self._v_anchor = item
+                return
+            # Escape: exit V mode and reset count
+            if key == Qt.Key.Key_Escape:
+                self._count = ""
+                if self._v_mode:
+                    self._v_mode = False
+                    self._v_anchor = None
+                    return
+            # F315 — keyboard context menu (Shift+F10 or Menu key)
+            if (key == Qt.Key.Key_Menu or
+                    (key == Qt.Key.Key_F10 and mods & Qt.KeyboardModifier.ShiftModifier)):
+                from PySide6.QtGui import QContextMenuEvent
+                idx = self.currentIndex()
+                rect = self.visualRect(idx) if idx.isValid() else self.rect()
+                pos = rect.center()
+                self.contextMenuEvent(
+                    QContextMenuEvent(QContextMenuEvent.Reason.Keyboard, pos, self.mapToGlobal(pos))
+                )
+                return
             if key == Qt.Key.Key_F2:
                 idx = self.currentIndex()
                 if idx.isValid():
@@ -249,9 +312,7 @@ class _PaneTableView(QTableView):
             if key == Qt.Key.Key_Up and mods & Qt.KeyboardModifier.ShiftModifier:
                 parent.mark_toggle_up_requested.emit()
                 return
-            if key == Qt.Key.Key_Slash or (
-                key == Qt.Key.Key_F and mods & Qt.KeyboardModifier.ControlModifier
-            ):
+            if key == Qt.Key.Key_Slash:
                 parent.filter_bar.activate()
                 return
             if key == Qt.Key.Key_Backspace:
@@ -279,6 +340,60 @@ class _PaneTableView(QTableView):
                 else:
                     parent.trash_requested.emit()
                 return
+            if (key == Qt.Key.Key_Space and
+                    mods & Qt.KeyboardModifier.ControlModifier):
+                parent.calculate_dir_sizes_requested.emit()
+                return
+            # ── vi-style scroll: G, gg, Ctrl+F, Ctrl+B ──────────────────────
+            if key == Qt.Key.Key_G and not (mods & Qt.KeyboardModifier.ControlModifier):
+                if mods & Qt.KeyboardModifier.ShiftModifier:  # G → last row
+                    self._jump_to_row(self.model().rowCount() - 1)
+                    self._g_pending = False
+                    self._g_timer.stop()
+                elif self._g_pending:                          # gg → first row
+                    self._jump_to_row(0)
+                    self._g_pending = False
+                    self._g_timer.stop()
+                else:
+                    self._g_pending = True
+                    self._g_timer.start()
+                return
+            if mods & Qt.KeyboardModifier.ControlModifier:
+                if key == Qt.Key.Key_F:
+                    self._page_scroll(+1)
+                    return
+                if key == Qt.Key.Key_B:
+                    self._page_scroll(-1)
+                    return
+            # F288+F289 — count-aware vi navigation (j/k/Down/Up with N prefix)
+            if _bare and key in (Qt.Key.Key_Down, Qt.Key.Key_J):
+                n = int(self._count) if self._count else 1
+                self._count = ""
+                cur = self.currentIndex()
+                row = cur.row() if cur.isValid() else 0
+                target = min(self.model().rowCount() - 1, row + n)
+                self.setCurrentIndex(self.model().index(target, 0))
+                if self._v_mode and self._v_anchor:
+                    cur_item = parent.current_cursor_item()
+                    if cur_item and cur_item.name != "..":
+                        parent.mark_range_requested.emit(self._v_anchor, cur_item)
+                event.accept()  # type: ignore[attr-defined]
+                return
+            if _bare and key in (Qt.Key.Key_Up, Qt.Key.Key_K):
+                n = int(self._count) if self._count else 1
+                self._count = ""
+                cur = self.currentIndex()
+                row = cur.row() if cur.isValid() else 0
+                target = max(0, row - n)
+                self.setCurrentIndex(self.model().index(target, 0))
+                if self._v_mode and self._v_anchor:
+                    cur_item = parent.current_cursor_item()
+                    if cur_item and cur_item.name != "..":
+                        parent.mark_range_requested.emit(self._v_anchor, cur_item)
+                event.accept()  # type: ignore[attr-defined]
+                return
+            # Reset count on any other key
+            self._count = ""
         text = event.text()  # type: ignore[attr-defined]
         ctrl_or_alt = Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier
         if (text and text.isprintable() and not (mods & ctrl_or_alt)
@@ -289,18 +404,30 @@ class _PaneTableView(QTableView):
 
     def mousePressEvent(self, event: object) -> None:
         if (hasattr(event, "modifiers") and
-                event.modifiers() & Qt.KeyboardModifier.ControlModifier and
                 hasattr(event, "button") and
-                event.button() == Qt.MouseButton.LeftButton):
-            idx = self.indexAt(event.pos())  # type: ignore[attr-defined]
-            if idx.isValid():
-                self.setCurrentIndex(idx)
-                pane = self.parent()
-                if isinstance(pane, PaneView):
-                    src = pane._proxy.mapToSource(pane._proxy.index(idx.row(), 0))
-                    item = pane._model.item_at(src.row())
-                    if item and item.name != "..":
-                        pane.mark_at_requested.emit(item)
+                event.button() == Qt.MouseButton.LeftButton):  # type: ignore[attr-defined]
+            mods = event.modifiers()  # type: ignore[attr-defined]
+            if mods & Qt.KeyboardModifier.ShiftModifier:
+                idx = self.indexAt(event.pos())  # type: ignore[attr-defined]
+                if idx.isValid():
+                    pane = self.parent()
+                    if isinstance(pane, PaneView):
+                        cur = pane.current_cursor_item()
+                        src = pane._proxy.mapToSource(pane._proxy.index(idx.row(), 0))
+                        target_item = pane._model.item_at(src.row())
+                        if cur and target_item and target_item.name != "..":
+                            pane.mark_range_requested.emit(cur, target_item)
+                return
+            if mods & Qt.KeyboardModifier.ControlModifier:
+                idx = self.indexAt(event.pos())  # type: ignore[attr-defined]
+                if idx.isValid():
+                    self.setCurrentIndex(idx)
+                    pane = self.parent()
+                    if isinstance(pane, PaneView):
+                        src = pane._proxy.mapToSource(pane._proxy.index(idx.row(), 0))
+                        item = pane._model.item_at(src.row())
+                        if item and item.name != "..":
+                            pane.mark_at_requested.emit(item)
                 return
         super().mousePressEvent(event)  # type: ignore[arg-type]
 
@@ -335,14 +462,26 @@ class _PaneTableView(QTableView):
         drag.exec(supported_actions)
 
     def dragEnterEvent(self, event: object) -> None:
-        if hasattr(event, "mimeData") and event.mimeData().hasFormat(_MIME):
-            event.acceptProposedAction()  # type: ignore[attr-defined]
-        else:
-            super().dragEnterEvent(event)  # type: ignore[arg-type]
+        if hasattr(event, "mimeData"):
+            mime = event.mimeData()
+            if mime.hasFormat(_MIME) or mime.hasUrls():
+                event.acceptProposedAction()  # type: ignore[attr-defined]
+                return
+        super().dragEnterEvent(event)  # type: ignore[arg-type]
 
     def dragMoveEvent(self, event: object) -> None:
-        if not (hasattr(event, "mimeData") and event.mimeData().hasFormat(_MIME)):
+        if not hasattr(event, "mimeData"):
             super().dragMoveEvent(event)  # type: ignore[arg-type]
+            return
+        mime = event.mimeData()
+        has_our_mime = mime.hasFormat(_MIME)
+        if not has_our_mime and not mime.hasUrls():
+            super().dragMoveEvent(event)  # type: ignore[arg-type]
+            return
+        if not has_our_mime:
+            # External URL drop — accept without drop hint
+            event.setDropAction(Qt.DropAction.CopyAction)  # type: ignore[attr-defined]
+            event.accept()  # type: ignore[attr-defined]
             return
         idx = self.indexAt(event.pos())  # type: ignore[attr-defined]
         pane = self.parent()
@@ -384,28 +523,41 @@ class _PaneTableView(QTableView):
         self._spring_row = -1
 
     def dropEvent(self, event: object) -> None:
-        if not (hasattr(event, "mimeData") and event.mimeData().hasFormat(_MIME)):
+        if not hasattr(event, "mimeData"):
             super().dropEvent(event)  # type: ignore[arg-type]
             return
-        raw = event.mimeData().data(_MIME).data().decode()
-        paths = [Path(p) for p in raw.splitlines() if p]
-        move = bool(event.modifiers() & _MOVE_MODS)  # type: ignore[attr-defined]
-        target_folder = None
-        if self._drop_hint_row != -1:
+        mime = event.mimeData()
+        if mime.hasFormat(_MIME):
+            raw = mime.data(_MIME).data().decode()
+            paths = [Path(p) for p in raw.splitlines() if p]
+            move = bool(event.modifiers() & _MOVE_MODS)  # type: ignore[attr-defined]
+            target_folder = None
+            if self._drop_hint_row != -1:
+                pane = self.parent()
+                if isinstance(pane, PaneView):
+                    src_idx = pane._proxy.mapToSource(
+                        pane._proxy.index(self._drop_hint_row, 0)
+                    )
+                    item = pane._model.item_at(src_idx.row())
+                    if item and item.is_dir:
+                        target_folder = item.path
+            self._drop_hint_row = -1
+            self.viewport().update()
+            event.acceptProposedAction()  # type: ignore[attr-defined]
             pane = self.parent()
             if isinstance(pane, PaneView):
-                src_idx = pane._proxy.mapToSource(
-                    pane._proxy.index(self._drop_hint_row, 0)
-                )
-                item = pane._model.item_at(src_idx.row())
-                if item and item.is_dir:
-                    target_folder = item.path
-        self._drop_hint_row = -1
-        self.viewport().update()
-        event.acceptProposedAction()  # type: ignore[attr-defined]
-        pane = self.parent()
-        if isinstance(pane, PaneView):
-            pane.files_dropped.emit(paths, move, target_folder)
+                pane.files_dropped.emit(paths, move, target_folder)
+        elif mime.hasUrls():
+            # F323 — accept drops from external apps via text/uri-list
+            paths = [Path(u.toLocalFile()) for u in mime.urls() if u.isLocalFile()]
+            move = bool(event.modifiers() & _MOVE_MODS)  # type: ignore[attr-defined]
+            self._drop_hint_row = -1
+            event.acceptProposedAction()  # type: ignore[attr-defined]
+            pane = self.parent()
+            if isinstance(pane, PaneView) and paths:
+                pane.files_dropped.emit(paths, move, None)
+        else:
+            super().dropEvent(event)  # type: ignore[arg-type]
 
     def contextMenuEvent(self, event: object) -> None:
         p = self.parent()
@@ -432,6 +584,7 @@ class _PaneTableView(QTableView):
         menu.addSeparator()
         if p._model.marks:
             menu.addAction("Batch Rename...", lambda: p.context_action_requested.emit("batch_rename"))
+            menu.addAction("Batch Tag...", lambda: p.context_action_requested.emit("batch_tag"))
         menu.addAction("Compress...", lambda: p.context_action_requested.emit("compress"))
         item = p.current_cursor_item()
         if item and not item.is_dir:
@@ -505,6 +658,10 @@ class PaneView(QWidget):
     clipboard_cut_requested = Signal()
     clipboard_paste_requested = Signal()
     trash_requested = Signal()
+    calculate_dir_sizes_requested = Signal()
+    mark_range_requested = Signal(object, object)  # anchor FileItem, target FileItem
+    history_jump_requested = Signal(object)        # Path
+    _dir_size_signal = Signal(object, int)         # Path, size — queued to main thread
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -514,6 +671,14 @@ class PaneView(QWidget):
         self.plugin_menu_extra = None  # Callable[[], list[ActionSpec]] — set by app.py
         self._git_status_fn = None  # Callable[[Path], str | None] — set by app.py
         self._setup_ui()
+        self._setup_accessibility()
+
+    def _setup_accessibility(self) -> None:
+        self._btn_back.setAccessibleName("Back")
+        self._btn_fwd.setAccessibleName("Forward")
+        self._btn_new_tab.setAccessibleName("New tab")
+        self._status_label.setAccessibleName("Status")
+        self.filter_bar.setAccessibleName("Filter")
 
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -538,6 +703,10 @@ class PaneView(QWidget):
             btn.setToolTip(tip)
             btn.clicked.connect(signal)
             nav_layout.addWidget(btn)
+            if name == "nav_back":
+                self._btn_back = btn
+            elif name == "nav_forward":
+                self._btn_fwd = btn
 
         self._bookmark_menu = BookmarkMenu(self)
         self._bookmark_menu.bookmark_chosen.connect(self.bookmark_chosen)
@@ -561,6 +730,7 @@ class PaneView(QWidget):
         self.filter_bar = FilterBar(self)
         self.filter_bar.filter_changed.connect(self._proxy.set_filter)
         self.filter_bar.closed.connect(lambda: self._proxy.set_filter(""))
+        self.filter_bar.invert_toggled.connect(self._proxy.set_invert)
         layout.addWidget(self.filter_bar)
 
         self._table = _PaneTableView(self)
@@ -595,6 +765,7 @@ class PaneView(QWidget):
         self.filter_bar.closed.connect(lambda: _delegate.set_filter(""))
 
         self._proxy.sort(COL_NAME, Qt.SortOrder.AscendingOrder)
+        self._dir_size_signal.connect(self._model.set_dir_size)
 
         self._status_label = QLabel()
         layout.addWidget(self._status_label)
@@ -603,11 +774,40 @@ class PaneView(QWidget):
         self.jump_bar.jump_text_changed.connect(self._on_jump)
         layout.addWidget(self.jump_bar)
 
+        self._back_paths: list[Path] = []
+        self._fwd_paths: list[Path] = []
+        for btn, attr in [(self._btn_back, "_back_paths"), (self._btn_fwd, "_fwd_paths")]:
+            btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            btn.customContextMenuRequested.connect(
+                lambda pos, b=btn, a=attr: self._show_history_menu(b, getattr(self, a))
+            )
+
+    def _show_history_menu(self, btn: QPushButton, paths: list[Path]) -> None:
+        if not paths:
+            return
+        menu = QMenu(self)
+        for p in paths:
+            act = menu.addAction(str(p))
+            act.setData(p)
+        chosen = menu.exec(btn.mapToGlobal(btn.rect().bottomLeft()))
+        if chosen:
+            self.history_jump_requested.emit(chosen.data())
+
+    def set_back_history(self, paths: list[Path]) -> None:
+        self._back_paths = paths
+
+    def set_forward_history(self, paths: list[Path]) -> None:
+        self._fwd_paths = paths
+
     def set_bookmark_store(self, store) -> None:
         self._bookmark_menu.set_store(store)
 
     def set_tag_store(self, store: object | None) -> None:
         self._model.set_tag_store(store)
+
+    def set_dir_size(self, path: object, size: int) -> None:
+        """Thread-safe: emit signal so model update happens on main thread."""
+        self._dir_size_signal.emit(path, size)
 
     _COL_MAP = {"Size": COL_SIZE, "Modified": COL_MODIFIED, "Ext": COL_EXT}
 
@@ -630,6 +830,8 @@ class PaneView(QWidget):
     def set_path(self, path: Path) -> None:
         self._path_bar.set_path(path)
         self.path_updated.emit(path)
+        event = QAccessibleEvent(self._status_label, QAccessible.Event.NameChanged)
+        QAccessible.updateAccessibility(event)
 
     def show_error(self, message: str) -> None:
         self._path_bar.show_error(message)
@@ -639,6 +841,8 @@ class PaneView(QWidget):
 
     def set_status(self, text: str) -> None:
         self._status_label.setText(text)
+        event = QAccessibleEvent(self._status_label, QAccessible.Event.NameChanged)
+        QAccessible.updateAccessibility(event)
 
     def set_marked(self, paths: set[Path]) -> None:
         self._model.set_marks(paths)
@@ -738,6 +942,11 @@ class PaneView(QWidget):
             self.set_filter_visible(True)
         else:
             self._proxy.set_filter("")
+
+    def set_group_mode(self, mode: GroupByMode) -> None:
+        """F278 — Set group-by mode; proxy re-sorts and delegate draws headers."""
+        self._proxy.set_group_by(mode)
+        self._table.viewport().update()
 
     def _on_path_entered_text(self, text: str) -> None:
         self.path_change_requested.emit(Path(text))

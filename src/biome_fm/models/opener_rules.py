@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import fnmatch
+import shlex
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,3 +27,11 @@ def find_opener(rules: list[OpenerRule], filename: str) -> str | None:
         if fnmatch.fnmatch(filename.lower(), rule.match.lower()):
             return rule.cmd
     return None
+
+
+def apply_cmd(cmd: str, path: Path, selected: list[Path]) -> str:
+    """Expand $f/$d/$s and {} placeholders in opener command (F264)."""
+    f = shlex.quote(str(path))
+    d = shlex.quote(str(path.parent))
+    s = " ".join(shlex.quote(str(p)) for p in selected) if selected else f
+    return cmd.replace("$f", f).replace("$d", d).replace("$s", s).replace("{}", f)

@@ -195,53 +195,59 @@ Full architecture: [`AI/architecture.md`](AI/architecture.md)
 ## Recent Changes
 
 <details>
-<summary><strong>v0.21.0</strong> — 2026-07-18 — 62 New Features</summary>
+<summary><strong>v0.26.0</strong> — 2026-07-18 — Sessions, task runner, VFS plugin hook</summary>
 
-- Search: exclusion patterns, multi-pattern AND, context lines, archive content search, scope selector
-- Sync: dry-run preview, mirror mode, exclude patterns, conflict detection, session profiles
-- Git: branch switcher, in-app commit, conflict navigator
-- Preview: `.env` masking, CSV table, JSON/XML tree, Jupyter notebooks, Office documents
-- Navigation: URI breadcrumb (`sftp://`, `s3://`), numbered bookmarks (`Ctrl+1-9`), hotlist (`Ctrl+D`), quick view (`Ctrl+Q`), drive bar (`Alt+F1/F2`), path yank (`y n/p/d/e`)
-- AI: semantic search, group rename, diff summary, predictive destination
-
-</details>
-
-<details>
-<summary><strong>v0.20.0</strong> — 2026-07-17 — Script providers, editors, more</summary>
-
-- Built-in text editor (`F4`), zoomable image viewer, SQLite preview, Git log + blame
-- Clipboard cut/copy/paste (`Ctrl+X/C/V`), trash (`Delete`), spring-loaded DnD folders, persistent marks
-- Frecency jump (`Ctrl+J`), per-directory view state, Git status badges, volume watcher
-- Preview script providers, custom file associations, user actions/context menu, script runner
-- New commands: `NewFileCmd`, `SymlinkCmd`, `HardlinkCmd`, `EditorRenameCmd`, `TrashCmd`
+- Named sessions: save/restore full pane layout by name (`SessionStore`, `SessionPickerDialog`)
+- Task runner: run Makefile/Justfile targets with live output (`TaskRunnerDialog`)
+- Path completion in command bar (`utils/path_completion.py`)
+- `provide_vfs` plugin hookspec — plugins can now supply a custom VFS for any path prefix
+- `CloudConnectionStore` for JSON-backed cloud URL persistence
 
 </details>
 
 <details>
-<summary><strong>v0.19.1</strong> — 2026-07-17 — 48 Killer Features</summary>
+<summary><strong>v0.25.0</strong> — 2026-07-18 — Disk analysis, accessibility, desktop integration</summary>
 
-- Conflict resolution dialog, transfer queue, archive create/extract
-- Embedded terminal, sidebar panel, flat view, inline rename
-- Batch rename, named workspaces, fuzzy finder
-- AI rename suggestions, natural-language file operations
-- 8 new preview providers (PDF, video, audio, hex, git diff, archive, Quick Look)
-- File tags, macOS Finder tags, highlight rules, custom columns
-
-</details>
-
-<details>
-<summary><strong>v0.18.0</strong> — Architecture review + stability</summary>
-
-- Full architecture review pass, 10 bug fixes, DRY refactors
+- Storage treemap: squarify disk usage visualization, click to navigate (`TreemapPanel`)
+- Large file finder: background scan with configurable threshold (`LargeFileDialog`)
+- High Contrast theme (`themes/high-contrast.toml`)
+- Global hotkey support via pynput (optional) (`utils/global_hotkey.py`)
+- macOS Automator Quick Action installer (`cli/automator.py`)
 
 </details>
 
 <details>
-<summary><strong>v0.17.x</strong> — UI polish</summary>
+<summary><strong>v0.24.0</strong> — 2026-07-18 — Search/preview/git/tags</summary>
 
-- TC-style bookmark tree, confirmation dialogs
-- Glass opacity slider, breadcrumb scrolling, TC-style selection
-- Toolbar converted to menu bar, per-pane tab creation
+- `TagCmd`: batch tag assign/remove with undo
+- Git virtual pane: navigate all dirty files as a virtual directory (`git/virtual_pane.py`)
+- Git worktree navigator (`git/worktree_ops.py`)
+- Pygments syntax highlighting in built-in editor (`PygmentsHighlighter`)
+- Group header delegate in file list (`GroupDelegate`)
+
+</details>
+
+<details>
+<summary><strong>v0.23.0</strong> — 2026-07-18 — VFS & remote (19 features)</summary>
+
+- `RcloneVFS`: rclone-backed VFS for any cloud remote
+- `RemoteListCache`: TTL=30s thread-safe listing cache
+- `PreviewFileCache`: SHA1-keyed local cache for remote file preview
+- `CredentialStore`: keyring-backed credentials with fallback
+- Cloud profiles CRUD (`CloudProfileStore`, `CloudProfileDialog`, `QuickConnectBar`)
+- `RemoteEditCmd`: download → edit → re-upload workflow
+
+</details>
+
+<details>
+<summary><strong>v0.22.0</strong> — 2026-07-18 — Core ops & navigation (18 features)</summary>
+
+- `CopyMoveDialog`: TC-style destination with history (`Alt+C` quick-CD)
+- `SelectCriteria`: multi-criteria selection (name glob, extension, size, age)
+- `FileCollector`: cherry-pick files across directories into a virtual panel
+- `PermissionsEditorDialog` + `ChmodCmd`: bulk chmod with undo
+- `WhichKeyPopup` + `LeaderFilter`: visual leader key hints
+- `UserMenuItem` + `load_user_menu()`: per-directory `.biome-menu.toml`
 
 </details>
 

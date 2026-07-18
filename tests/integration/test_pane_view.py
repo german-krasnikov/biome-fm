@@ -9,6 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from pathlib import Path
 
 from biome_fm.models.file_item import FileItem
+from biome_fm.qt import Qt
 from biome_fm.views.pane_view import PaneView
 
 
@@ -82,3 +83,76 @@ class TestPaneView:
     def test_set_status_displays_text(self, view):
         view.set_status("42 items")
         assert view._status_label.text() == "42 items"
+
+
+class TestNumericCountPrefix:
+    """F288 — Numeric count prefix moves cursor N rows."""
+
+    def test_count_prefix_moves_down_n_rows(self, qtbot, view):
+        items = [_item(f"f{i:02d}.txt") for i in range(20)]
+        view.set_items(items)
+        view._table.setCurrentIndex(view._proxy.index(0, 0))
+        view._table._count = "5"
+        qtbot.keyClick(view._table, Qt.Key.Key_Down)
+        assert view._table.currentIndex().row() == 5
+
+    def test_count_prefix_clamps_to_last_row(self, qtbot, view):
+        items = [_item(f"f{i}.txt") for i in range(5)]
+        view.set_items(items)
+        view._table.setCurrentIndex(view._proxy.index(0, 0))
+        view._table._count = "99"
+        qtbot.keyClick(view._table, Qt.Key.Key_Down)
+        assert view._table.currentIndex().row() == 4  # last row
+
+    def test_digit_key_accumulates_count(self, qtbot, view):
+        view.set_items([_item("a.txt"), _item("b.txt")])
+        view._table.setCurrentIndex(view._proxy.index(0, 0))
+        qtbot.keyClick(view._table, Qt.Key.Key_1)
+        qtbot.keyClick(view._table, Qt.Key.Key_2)
+        assert view._table._count == "12"
+
+    def test_non_digit_resets_count(self, qtbot, view):
+        view.set_items([_item("a.txt")])
+        view._table._count = "5"
+        qtbot.keyClick(view._table, Qt.Key.Key_Down)
+        assert view._table._count == ""
+
+
+class TestVisualSelectionVMode:
+    """F289 — Visual selection V mode."""
+
+    def test_v_key_enters_visual_mode(self, qtbot, view):
+        items = [_item("a.txt"), _item("b.txt"), _item("c.txt")]
+        view.set_items(items)
+        view._table.setCurrentIndex(view._proxy.index(0, 0))
+        assert not view._table._v_mode
+        qtbot.keyClick(view._table, Qt.Key.Key_V)
+        assert view._table._v_mode
+        assert view._table._v_anchor is not None
+
+    def test_second_v_exits_visual_mode(self, qtbot, view):
+        view.set_items([_item("a.txt"), _item("b.txt")])
+        view._table.setCurrentIndex(view._proxy.index(0, 0))
+        qtbot.keyClick(view._table, Qt.Key.Key_V)
+        assert view._table._v_mode
+        qtbot.keyClick(view._table, Qt.Key.Key_V)
+        assert not view._table._v_mode
+
+    def test_escape_exits_visual_mode(self, qtbot, view):
+        view.set_items([_item("a.txt"), _item("b.txt")])
+        view._table.setCurrentIndex(view._proxy.index(0, 0))
+        qtbot.keyClick(view._table, Qt.Key.Key_V)
+        assert view._table._v_mode
+        qtbot.keyClick(view._table, Qt.Key.Key_Escape)
+        assert not view._table._v_mode
+
+    def test_v_mode_nav_emits_mark_range(self, qtbot, view):
+        items = [_item(f"f{i}.txt") for i in range(5)]
+        view.set_items(items)
+        view._table.setCurrentIndex(view._proxy.index(0, 0))
+        received = []
+        view.mark_range_requested.connect(lambda a, b: received.append((a, b)))
+        qtbot.keyClick(view._table, Qt.Key.Key_V)
+        qtbot.keyClick(view._table, Qt.Key.Key_Down)
+        assert len(received) == 1
+        assert received[0][0] == view._table._v_anchor

@@ -43,3 +43,7 @@ class BiomeFMSpec:
     @hookspec
     def extra_archive_extensions(self) -> list[str]:
         """Return list of archive extensions this plugin handles: ['rar', '7z']."""
+
+    @hookspec(firstresult=True)
+    def provide_vfs(self, path: str) -> object | None:
+        """Return a VFS for the given path prefix, or None to pass through."""

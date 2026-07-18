@@ -31,6 +31,7 @@ class PreviewPanel(QWidget):
         self.setAccessibleName("Preview panel")
         self.setMinimumWidth(0)
         self._anim: QPropertyAnimation | None = None
+        self._reduce_motion: bool = False
 
         self._stack = QStackedWidget()
         self._busy_label = QLabel("Loading…", alignment=Qt.AlignmentFlag.AlignCenter)
@@ -132,7 +133,21 @@ class PreviewPanel(QWidget):
         if busy:
             self._stack.setCurrentWidget(self._busy_label)
 
+    def set_reduce_motion(self, val: bool) -> None:
+        self._reduce_motion = val
+
+    def _os_reduce_motion(self) -> bool:
+        try:
+            from PySide6.QtWidgets import QApplication
+            app = QApplication.instance()
+            return bool(app and not app.styleHints().animationsEnabled())
+        except AttributeError:
+            return False
+
     def set_visible(self, visible: bool) -> None:
+        if self._reduce_motion or self._os_reduce_motion():
+            self.setVisible(visible)
+            return
         if self._anim is not None and self._anim.state() == QPropertyAnimation.State.Running:
             self._anim.stop()
         if visible:

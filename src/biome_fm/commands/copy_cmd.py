@@ -73,6 +73,7 @@ class ProgressCopyCmd(Command):
         verify: bool = False,
         strategy: ConflictAction | None = None,
         pause: object = None,  # threading.Event; SET = running, CLEAR = paused
+        src_vfs: object = None,  # source VFS for cross-VFS reads; None = local fs
     ) -> None:
         self._sources = sources
         self._dest_dir = dest_dir
@@ -85,6 +86,7 @@ class ProgressCopyCmd(Command):
         )
         self._verify = verify
         self._pause = pause
+        self._src_vfs = src_vfs
         self._created: list[Path] = []
 
     def execute(self) -> None:
@@ -113,6 +115,10 @@ class ProgressCopyCmd(Command):
                     raise
             elif src.is_file():
                 self._copy_file(src, dst, i, total, force_overwrite=force_overwrite)
+            elif self._src_vfs is not None:
+                # Cross-VFS: read from src_vfs, write locally
+                # ponytail: loads whole file into memory; stream if >100MB needed
+                self._copy_cross_vfs(src, dst, i, total)
             elif self._vfs is not None:
                 # Archive path — ask the VFS
                 try:
@@ -152,6 +158,14 @@ class ProgressCopyCmd(Command):
                 self._copy_archive_dir(item.path, dst / item.name)
             else:
                 self._copy_archive_file(item.path, dst / item.name)
+
+    def _copy_cross_vfs(self, src: Path, dst: Path, files_done: int = 0, files_total: int = 0) -> None:
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        data = self._src_vfs.read_bytes(src)  # type: ignore[union-attr]
+        if self._cancel.is_set():
+            raise Cancelled()
+        dst.write_bytes(data)
+        self._report(files_done + 1, files_total, len(data), len(data), src.name)
 
     def _copy_archive_file(self, src: Path, dst: Path, files_done: int = 0, files_total: int = 0) -> None:
         dst.parent.mkdir(parents=True, exist_ok=True)

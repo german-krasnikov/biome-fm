@@ -96,10 +96,12 @@ class SearchResultsPanel(QWidget):
     stop_requested = Signal()
     context_action_requested = Signal(object, str)  # (SearchResult, action)
     preview_requested = Signal(object)  # FileItem | None
+    rerun_requested = Signal(str)  # F230: emits selected history query
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._model = SearchResultsModel()
+        self._history: list[str] = []
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -117,10 +119,14 @@ class SearchResultsPanel(QWidget):
         add_panel_buttons(header, self.detach_requested, self.close_requested)
         layout.addLayout(header)
 
-        # Status + Stop
+        # Status + History + Stop
         status_row = QHBoxLayout()
         self._status = QLabel("Ready")
         status_row.addWidget(self._status, 1)
+        self._history_btn = QPushButton("History ▾")
+        self._history_btn.setFixedWidth(80)
+        self._history_btn.clicked.connect(self._show_history_menu)
+        status_row.addWidget(self._history_btn)
         self._stop_btn = QPushButton("Stop")
         self._stop_btn.setFixedWidth(60)
         self._stop_btn.clicked.connect(self.stop_requested)
@@ -157,6 +163,18 @@ class SearchResultsPanel(QWidget):
         self._table.customContextMenuRequested.connect(self._show_context_menu)
         self._table.doubleClicked.connect(self._on_double_click)
         layout.addWidget(self._table)
+
+    def set_history(self, history: list[str]) -> None:
+        """Update displayed history (last 10 shown in dropdown)."""
+        self._history = list(history)
+
+    def _show_history_menu(self) -> None:
+        if not self._history:
+            return
+        menu = QMenu(self)
+        for q in self._history[:10]:
+            menu.addAction(q, lambda _q=q: self.rerun_requested.emit(_q))
+        menu.popup(self._history_btn.mapToGlobal(self._history_btn.rect().bottomLeft()))
 
     def on_search_started(self, query: str) -> None:
         self._model.clear()

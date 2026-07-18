@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
-_KNOWN = {"sftp", "ssh", "s3", "ftp", "ftps", "webdav"}
+_KNOWN = {"sftp", "ssh", "s3", "ftp", "ftps", "webdav", "rclone"}
 
 
 @dataclass

@@ -14,6 +14,8 @@ def _build_menu(menu: QMenu, nodes: list[BookmarkNode], signal) -> None:
             _build_menu(sub, node.children, signal)
         else:  # dir
             label = node.name or (node.path.name if node.path else "")
+            if label:
+                label = f"&{label}"  # first letter as mnemonic accelerator
             act = menu.addAction(label)
             act.triggered.connect(lambda c=False, p=node.path: signal.emit(p))
 

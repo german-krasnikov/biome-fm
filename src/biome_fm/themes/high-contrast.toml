@@ -1,0 +1,15 @@
+[meta]
+name = "High Contrast"
+inherits = "dark"
+
+[tokens]
+base     = "#000000"
+surface  = "#111111"
+surface2 = "#222222"
+border   = "#FFFFFF"
+text     = "#FFFFFF"
+text_dim = "#CCCCCC"
+accent   = "#FFFF00"
+accent2  = "#00FFFF"
+red      = "#FF4444"
+green    = "#44FF44"

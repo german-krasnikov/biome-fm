@@ -64,5 +64,9 @@ class FsspecVFS:
     def delete(self, path: Path) -> None:
         self._fs.rm(str(path), recursive=True)
 
+    def write_bytes(self, path: Path, data: bytes) -> None:
+        with self._fs.open(str(path), "wb") as f:
+            f.write(data)
+
     def mkdir(self, path: Path) -> None:
         self._fs.makedirs(str(path), exist_ok=True)

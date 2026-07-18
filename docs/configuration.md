@@ -60,3 +60,32 @@ Type a URI in the breadcrumb bar to connect:
 | `webdav://host/path` | WebDAV |
 
 Credentials for SFTP/FTP are prompted on first connect and cached in the session keychain.
+
+## Cloud Profiles
+
+Named cloud connections are stored in `~/.config/biome-fm/cloud_profiles.toml`. Edit via
+**Tools → Cloud Profiles** or the `CloudProfileDialog`.
+
+```toml
+[profiles.my-s3]
+scheme = "s3"
+host   = "my-bucket.s3.us-east-1.amazonaws.com"
+bucket = "my-bucket"
+
+[profiles.my-sftp]
+scheme = "sftp"
+host   = "myserver.example.com"
+port   = 22
+user   = "alice"
+```
+
+Supported schemes: `s3`, `sftp`, `ssh`, `ftp`, `ftps`, `webdav`, `rclone`.
+
+Credentials (passwords, API keys) are stored separately via the system keyring, not in this file.
+
+## Named Sessions
+
+Save and restore full pane layouts by name. Sessions include both panes, all tabs, and
+panel positions. Stored as JSON entries in `~/.config/biome-fm/sessions/`.
+
+Open the session picker via **File → Named Sessions**. Saved sessions survive restarts.

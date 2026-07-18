@@ -78,6 +78,12 @@ class SyncDialog(QDialog):
         excl_row.addWidget(self._exclude_edit)
         layout.addLayout(excl_row)
 
+        subdirs_row = QHBoxLayout()
+        self._subdirs_chk = QCheckBox("Include subdirectories")
+        subdirs_row.addWidget(self._subdirs_chk)
+        subdirs_row.addStretch()
+        layout.addLayout(subdirs_row)
+
         mirror_row = QHBoxLayout()
         self._mirror_chk = QCheckBox("Delete files not in source (mirror)")
         mirror_row.addWidget(self._mirror_chk)

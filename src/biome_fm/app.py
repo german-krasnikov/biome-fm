@@ -10,6 +10,7 @@ from pathlib import Path
 
 from biome_fm.ai.provider import make_providers
 from biome_fm.commands.base import CommandHistory
+from biome_fm.commands.editor_rename_cmd import EditorRenameCmd
 from biome_fm.commands.git_stage import GitStageCmd, GitUnstageCmd
 from biome_fm.commands.new_file_cmd import NewFileCmd
 from biome_fm.commands.registry import CommandEntry, CommandRegistry
@@ -34,15 +35,19 @@ from biome_fm.models.command_store import CommandStore
 from biome_fm.models.dir_state_store import DirStateStore
 from biome_fm.models.frecency_store import FrecencyStore
 from biome_fm.models.highlight_rules import HighlightRule
+from biome_fm.models.project_detector import detect_project
 from biome_fm.models.search_template_store import SearchTemplateStore
+from biome_fm.models.session_store import SessionStore
 from biome_fm.models.tag_store import TagStore
+from biome_fm.models.user_actions import UserActionsStore
 from biome_fm.models.vfs_router import VFSRouter
 from biome_fm.models.workspace_store import WorkspaceStore
-from biome_fm.operations.queue import OpQueue
+from biome_fm.operations.queue import OpQueue, make_serial_queue
 from biome_fm.operations.task import OpCancelled, OpConflict, OpDone, OpError, OpProgress
 from biome_fm.panel_manager import PanelManager
 from biome_fm.plugins.builtin.dark_theme import BuiltinDarkTheme
 from biome_fm.plugins.manager import PluginManager
+from biome_fm.plugins.types import ActionSpec
 from biome_fm.presenters.ai_presenter import AIPresenter
 from biome_fm.presenters.info_presenter import InfoPresenter
 from biome_fm.presenters.manager_presenter import ManagerPresenter
@@ -59,10 +64,10 @@ from biome_fm.preview.providers.git_diff import GitDiffPreviewProvider
 from biome_fm.preview.providers.git_log import GitLogPreviewProvider
 from biome_fm.preview.providers.hex import HexPreviewProvider
 from biome_fm.preview.providers.image import ImagePreviewProvider
+from biome_fm.preview.providers.json_tree import JsonTreeProvider
 from biome_fm.preview.providers.markdown import MarkdownPreviewProvider
 from biome_fm.preview.providers.metadata import MetadataPreviewProvider
 from biome_fm.preview.providers.pdf import PDFPreviewProvider
-from biome_fm.preview.providers.json_tree import JsonTreeProvider
 from biome_fm.preview.providers.text import TextPreviewProvider
 from biome_fm.preview.providers.video import VideoPreviewProvider
 from biome_fm.preview.registry import PreviewRegistry
@@ -71,6 +76,7 @@ from biome_fm.qt import (
     QDialog,
     QInputDialog,
     QKeySequence,
+    QMessageBox,
     QShortcut,
     QStandardPaths,
     Qt,
@@ -105,6 +111,7 @@ from biome_fm.views.pattern_dialog import PatternDialog
 from biome_fm.views.preview_panel import PreviewPanel
 from biome_fm.views.progress_dialog import ProgressDialog
 from biome_fm.views.search_panel import SearchResultsPanel
+from biome_fm.views.session_picker_dialog import SessionPickerDialog
 from biome_fm.views.settings_dialog import SettingsDialog
 from biome_fm.views.terminal_panel import TerminalPanel
 from biome_fm.views.transfer_queue_panel import TransferQueuePanel
@@ -169,6 +176,25 @@ class _AppContext:
     plugins: object
     git_worker: object = None
     timers: list = field(default_factory=list)
+    tray: object = None  # F320 — keep QSystemTrayIcon alive
+    hotkey_listener: object = None  # F321 — keep pynput listener alive
+
+
+def _build_tray(window: object) -> object:
+    """F320 — Create system tray icon with Show/Hide + Quit context menu."""
+    from PySide6.QtWidgets import QMenu, QSystemTrayIcon
+    tray = QSystemTrayIcon(window)  # type: ignore[arg-type]
+    menu = QMenu()
+    menu.addAction("Show/Hide", lambda: (
+        window.hide() if window.isVisible() else (window.show(), window.raise_())  # type: ignore[union-attr]
+    ))
+    menu.addAction("Quit", lambda: __import__("PySide6.QtWidgets", fromlist=["QApplication"]).QApplication.quit())
+    tray.setContextMenu(menu)
+    tray.activated.connect(lambda reason, w=window: (
+        w.show() or w.raise_()  # type: ignore[union-attr]
+    ) if reason == QSystemTrayIcon.ActivationReason.DoubleClick else None)
+    tray.show()
+    return tray
 
 
 # ── Module-level build functions (construction only, no signal wiring) ────────
@@ -271,10 +297,17 @@ def _wire_pane(view: PaneViewProtocol, presenter: PanePresenter) -> None:
         ("home_requested", presenter.go_home),
         ("mark_toggle_up_requested", presenter.toggle_mark_up),
         ("mark_at_requested", presenter.toggle_mark_at),
+        ("calculate_dir_sizes_requested", presenter.calculate_all_dir_sizes),
     ]:
         sig = getattr(view, attr, None)
         if sig is not None:
             sig.connect(slot)
+    sig = getattr(view, "mark_range_requested", None)
+    if sig is not None:
+        sig.connect(lambda a, t, p=presenter: p.mark_range(a.path, t.path))
+    sig = getattr(view, "history_jump_requested", None)
+    if sig is not None:
+        sig.connect(presenter.navigate_to)
 
 
 def _wire_ai_cursor(view: object, tabs: object, ai_presenter: object) -> None:
@@ -318,11 +351,31 @@ def _wire_system_theme(cfg: object, style_hints: object, apply_fn: object) -> No
         sig.connect(apply_fn)
 
 
+def _handle_app_state_change(state: object, watch_timer: object, refresh_timer: object, drain: object) -> None:
+    """Pause/resume watch timers based on app focus state."""
+    from biome_fm.qt import Qt
+    if state == Qt.ApplicationState.ApplicationActive:
+        watch_timer.start()  # type: ignore[union-attr]
+        refresh_timer.start()  # type: ignore[union-attr]
+        drain()  # type: ignore[operator]
+    else:
+        watch_timer.stop()  # type: ignore[union-attr]
+        refresh_timer.stop()  # type: ignore[union-attr]
+
+
 def create_app() -> MainWindow:
     # ── Config & Session ──────────────────────────────────────────
     cfg_dir = _config_dir()
     cfg = load_config(cfg_dir / "config.toml")
     session = load_session(cfg_dir / "session.json")
+
+    # F308 — apply configurable font size before any widgets are created
+    if cfg.ui_font_size > 0:
+        _app = QApplication.instance()
+        if _app is not None:
+            _f = _app.font()
+            _f.setPointSize(cfg.ui_font_size)
+            _app.setFont(_f)
 
     # ── Construction phase ────────────────────────────────────────
     plugins = _build_plugins(cfg)
@@ -331,10 +384,16 @@ def create_app() -> MainWindow:
     clipboard = ClipboardService()
     store = BookmarkStore(cfg_dir / "bookmarks.toml")
     tag_store = TagStore.load(cfg_dir / "tags.toml")
+    user_actions_store = UserActionsStore(cfg_dir / "actions.json")
+    user_actions_store.load()
+    _project_actions: list = []  # updated on navigate; shared by closure
     ws_store = WorkspaceStore(cfg_dir / "workspaces.json")
-    op_queue = OpQueue(max_workers=2)
+    named_session_store = SessionStore(cfg_dir / "sessions.json")
+    op_queue = make_serial_queue() if cfg.serial_ops else OpQueue(max_workers=2)
     dir_state_store = DirStateStore(cfg_dir / "dir_state.json")
     frecency_store = FrecencyStore(cfg_dir / "frecency.json")
+    from biome_fm.presenters.file_collector import FileCollector
+    file_collector = FileCollector()
     left_side, right_side, left_tabs, right_tabs = _build_panes(vfs, dir_state_store, frecency_store)
     import queue as _queue_mod
     _watch_queue: _queue_mod.SimpleQueue = _queue_mod.SimpleQueue()
@@ -375,6 +434,30 @@ def create_app() -> MainWindow:
         if sig2 is not None:
             sig2.connect(lambda item, pp=preview_presenter: pp.update_if_visible(item) if cfg.auto_preview else None)
 
+    def _wire_breadcrumb_completer(view: object) -> None:
+        """Inject a remote-aware completion source into the breadcrumb path bar."""
+        path_bar = getattr(view, "_path_bar", None)
+        if path_bar is None or not hasattr(path_bar, "set_completer_source"):
+            return
+
+        def _remote_source(text: str) -> list[str]:
+            if "://" not in text and ":/" not in text:
+                return []
+            try:
+                p = Path(text) if text.endswith("/") else Path(text).parent
+                items = vfs.listdir(p)
+                base = str(p).rstrip("/")
+                return [f"{base}/{item.name}" for item in items]
+            except Exception:
+                return []
+
+        def _on_path_updated(path: Path) -> None:
+            path_bar.set_completer_source(_remote_source if ":/" in str(path) else None)
+
+        sig = getattr(view, "path_updated", None)
+        if sig is not None:
+            sig.connect(_on_path_updated)
+
     def _git_op(item: object, cmd_cls) -> None:
         p = getattr(item, "path", None)
         repo = git_cache.find_repo(p.parent) if p else None
@@ -413,6 +496,7 @@ def create_app() -> MainWindow:
             v = tabs.view_at(tabs.tab_count - 1)
             _wire_pane(v, p)
             _wire_preview(v)
+            _wire_breadcrumb_completer(v)
         tabs.switch_tab(state.active_idx)  # triggers load of active tab
 
     home = Path.home()
@@ -424,10 +508,12 @@ def create_app() -> MainWindow:
         v0 = left_tabs.view_at(0)
         _wire_pane(v0, lp)
         _wire_preview(v0)
+        _wire_breadcrumb_completer(v0)
         rp = right_tabs.new_tab(home)
         v1 = right_tabs.view_at(0)
         _wire_pane(v1, rp)
         _wire_preview(v1)
+        _wire_breadcrumb_completer(v1)
 
     # ── Manager ───────────────────────────────────────────────────
     _confirm_parent: list[object] = [None]  # late-bound after window creation
@@ -535,6 +621,15 @@ def create_app() -> MainWindow:
     _sidebar.set_volumes(_volumes)
     _sidebar.set_bookmarks(store.tree())
     bus.subscribe(BookmarkChanged, lambda _: _sidebar.set_bookmarks(store.tree()))
+
+    def _on_project_navigate(path: Path) -> None:
+        """F334/F337: detect project root, merge project bookmarks + actions."""
+        proj = detect_project(path)
+        proj_root = proj.root if proj else None
+        proj_nodes = BookmarkStore.load_project(proj_root) if proj_root else []
+        _sidebar.set_bookmarks(store.tree() + proj_nodes)
+        _project_actions[:] = UserActionsStore.load_project(proj_root) if proj_root else []
+
     _sidebar.path_activated.connect(lambda p: manager.navigate_active(p))
     window.sidebar_toggle_requested.connect(lambda: _dock.setVisible(not _dock.isVisible()))
     QShortcut(QKeySequence("Ctrl+B"), window).activated.connect(
@@ -586,12 +681,13 @@ def create_app() -> MainWindow:
     terminal_panel.detach_requested.connect(lambda: coord.detach("terminal"))
     terminal_panel.close_requested.connect(lambda: coord.toggle("terminal"))
     terminal_panel.cwd_changed.connect(lambda p: manager.navigate_active(p) if p.is_dir() else None)
-    # Sync terminal cwd when any pane navigates
+    # Sync terminal cwd + project context when any pane navigates
     for _side_tabs in [left_tabs, right_tabs]:
         for _i in range(_side_tabs.tab_count):
             _sig = getattr(_side_tabs.view_at(_i), "path_updated", None)
             if _sig is not None:
                 _sig.connect(terminal_panel.set_cwd)
+                _sig.connect(_on_project_navigate)
     window.detach_preview_requested.connect(lambda: coord.detach("preview"))
     window.detach_ai_requested.connect(lambda: coord.detach("ai"))
 
@@ -620,6 +716,16 @@ def create_app() -> MainWindow:
     preview_timer.setInterval(100)
     preview_timer.timeout.connect(preview_presenter.drain)
     preview_timer.start()
+
+    def _drain_dir_sizes() -> None:
+        for _tabs in (left_tabs, right_tabs):
+            for _i in range(_tabs.tab_count):
+                _tabs.presenter_at(_i).drain_sizes()
+
+    size_drain_timer = QTimer(window)
+    size_drain_timer.setInterval(200)
+    size_drain_timer.timeout.connect(_drain_dir_sizes)
+    size_drain_timer.start()
 
     # ── Op queue drain ────────────────────────────────────────────
     def _drain_op_events() -> None:
@@ -670,8 +776,16 @@ def create_app() -> MainWindow:
 
     # ── Tray notifications ────────────────────────────────────────
     from PySide6.QtWidgets import QSystemTrayIcon
-    _tray = QSystemTrayIcon(window)
-    _tray.show()
+    _tray = _build_tray(window)
+
+    # F321 — global hotkey to summon window
+    _hotkey_listener = None
+    if cfg.global_hotkey:
+        from biome_fm.utils.global_hotkey import register_global_hotkey
+        def _summon() -> None:
+            window.show()
+            window.raise_()
+        _hotkey_listener = register_global_hotkey(cfg.global_hotkey, _summon)
 
     def _on_op_finished(ev: OperationFinished) -> None:
         if _should_show_notification(ev, has_active_window=QApplication.activeWindow() is not None):
@@ -721,6 +835,10 @@ def create_app() -> MainWindow:
     watch_timer.timeout.connect(_drain_watch_events)
     watch_timer.start()
 
+    QApplication.instance().applicationStateChanged.connect(  # type: ignore[union-attr]
+        lambda state: _handle_app_state_change(state, watch_timer, refresh_timer, _drain_watch_events)
+    )
+
     # ── Active side helper ────────────────────────────────────────
     def _active() -> TabsPresenter:
         return left_tabs if manager.active_pane_id == "left" else right_tabs
@@ -747,11 +865,20 @@ def create_app() -> MainWindow:
             on_activate=lambda item: sc.navigate_to(item.path.parent, item.name),
         )
 
+    def _on_search_history_update(h: list[str]) -> None:
+        cfg.search_history = h
+        save_config(cfg, cfg_dir / "config.toml")
+        search_panel.set_history(h)
+
     sc = SearchCoordinator(
         vfs, coord, manager, search_panel, _active, window=window,
         on_search_completed=_on_search_completed,
         store=_tmpl_store,
+        history=list(cfg.search_history),
+        on_history_update=_on_search_history_update,
     )
+    search_panel.set_history(list(cfg.search_history))
+    search_panel.rerun_requested.connect(sc.request_search_with_query)
     window.search_requested.connect(sc.request_search)
 
     def _on_nl_op_requested() -> None:
@@ -831,10 +958,16 @@ def create_app() -> MainWindow:
         _wire_new_file(v)
         _wire_clipboard(v)
         _wire_trash(v)
+        _wire_breadcrumb_completer(v)
         _sig = getattr(v, "path_updated", None)
         if _sig is not None:
             _sig.connect(terminal_panel.set_cwd)
             _sig.connect(_update_git_branch)
+            _sig.connect(_on_project_navigate)
+
+    def _dup_tab() -> None:
+        """Duplicate the active tab — opens a new tab at the same path."""
+        _new_tab()
 
     # ── Dialog helpers ────────────────────────────────────────────
     def _ask_mkdir() -> None:
@@ -862,6 +995,9 @@ def create_app() -> MainWindow:
         path = str(item.path) if item is not None else str(_active().current_path)
         QApplication.clipboard().setText(path)
 
+    def _copy_names() -> None:
+        QApplication.clipboard().setText("\n".join(i.name for i in _op_items()))
+
     def _reveal_in_finder() -> None:
         target = _active().current_item()
         if target is not None:
@@ -873,6 +1009,12 @@ def create_app() -> MainWindow:
             return items
         cursor = _active().current_item()
         return [cursor] if cursor and cursor.name != ".." else []
+
+    def _run_user_action(cmd: str) -> None:
+        """F337: run a project user action in a shell subprocess."""
+        import subprocess
+        cwd = _active().current_path
+        subprocess.Popen(cmd, shell=True, cwd=cwd)
 
     def _update_cut_state() -> None:
         cut = clipboard.has_cut
@@ -918,18 +1060,25 @@ def create_app() -> MainWindow:
     def _wire_plugin_ctx(view: object, pane_id: str) -> None:
         if hasattr(view, "plugin_menu_extra"):
             _pid = pane_id
-            view.plugin_menu_extra = lambda: [  # type: ignore[attr-defined]
-                a for lst in plugins.hook.context_menu_actions(items=[], pane_id=_pid)
-                for a in lst
-            ]
+            def _extras(_pid=_pid):
+                plugin_actions = [
+                    a for lst in plugins.hook.context_menu_actions(items=[], pane_id=_pid)
+                    for a in lst
+                ]
+                proj = [
+                    ActionSpec(label=a.label, callback=lambda cmd=a.command: _run_user_action(cmd))
+                    for a in _project_actions
+                ]
+                return plugin_actions + proj
+            view.plugin_menu_extra = _extras  # type: ignore[attr-defined]
 
     def _wire_ctx(view: object) -> None:
         def _dispatch(action: str) -> None:
             items = _op_items()
             if action == "copy":
-                manager.copy_selected(items)
+                _do_copy_or_move("copy")
             elif action == "move":
-                manager.move_selected(items)
+                _do_copy_or_move("move")
             elif action == "delete":
                 manager.delete_selected(items)
             elif action == "rename":
@@ -975,6 +1124,16 @@ def create_app() -> MainWindow:
                     dlg = BatchRenameDialog(marked, window)
                     if dlg.exec() == QDialog.DialogCode.Accepted and dlg.renames:
                         manager.multi_rename(dlg.renames)
+            elif action == "batch_tag":
+                marked = _active().marked_items
+                if marked:
+                    from biome_fm.commands.tag_cmd import TagCmd
+                    from biome_fm.views.tag_dialog import TagDialog
+                    current = tag_store.get_tags(marked[0].path)
+                    result = TagDialog.get_tags(current, tag_store.all_tags(), parent=window)
+                    if result is not None:
+                        cmd = TagCmd([i.path for i in marked], add_tags=result, remove_tags=[], store=tag_store)
+                        history.execute(cmd)
         sig = getattr(view, "context_action_requested", None)
         if sig is not None:
             sig.connect(_dispatch)
@@ -1033,8 +1192,10 @@ def create_app() -> MainWindow:
                 current = tag_store.get_tags(items[0].path)
                 result = TagDialog.get_tags(current, tag_store.all_tags(), parent=window)
                 if result is not None:
+                    from biome_fm.models.finder_tags import set_finder_tags
                     for item in items:
                         tag_store.set_tags(item.path, result)
+                        set_finder_tags(item.path, result)
                     tag_store.save()
                     # Trigger model repaint
                     for _t in [left_tabs, right_tabs]:
@@ -1147,6 +1308,7 @@ def create_app() -> MainWindow:
             _pu = getattr(_v_w, "path_updated", None)
             if _pu is not None:
                 _pu.connect(_update_git_branch)
+                _pu.connect(_on_project_navigate)
 
     def _bookmark_toggle() -> None:
         path = _active().current_path
@@ -1165,6 +1327,49 @@ def create_app() -> MainWindow:
     QShortcut(QKeySequence("Ctrl+Shift+F"), window).activated.connect(sc.request_search)
     QShortcut(QKeySequence("Ctrl+Shift+N"), window).activated.connect(_on_nl_op_requested)
     QShortcut(QKeySequence("Ctrl+Shift+T"), window).activated.connect(lambda: _active().toggle_flat_view())
+    QShortcut(QKeySequence("Ctrl+."), window).activated.connect(lambda: manager.repeat_last(_op_items()))
+
+    def _snapshot_session() -> SessionState:
+        panel_states = coord.save_state()
+        return SessionState(
+            left=PaneSideState(
+                tabs=[TabState(str(p)) for p in left_tabs.paths()],
+                active_idx=left_tabs.active_idx,
+            ),
+            right=PaneSideState(
+                tabs=[TabState(str(p)) for p in right_tabs.paths()],
+                active_idx=right_tabs.active_idx,
+            ),
+            preview=PanelSession(**panel_states.get("preview", {})),
+            ai=PanelSession(**panel_states.get("ai", {})),
+        )
+
+    def _save_named_session() -> None:
+        from PySide6.QtWidgets import QInputDialog
+        name, ok = QInputDialog.getText(window, "Save Session", "Session name:")
+        if ok and name.strip():
+            named_session_store.save_named_session(name.strip(), _snapshot_session())
+
+    def _open_session_picker() -> None:
+        dlg = SessionPickerDialog(named_session_store, parent=window)
+        if dlg.exec() and (name := getattr(dlg, "selected_name", None)):
+            state = named_session_store.load_named_session(name)
+            if state:
+                _restore(left_tabs, state.left)
+                _restore(right_tabs, state.right)
+
+    QShortcut(QKeySequence("Ctrl+Shift+S"), window).activated.connect(_save_named_session)
+    QShortcut(QKeySequence("Ctrl+Shift+O"), window).activated.connect(_open_session_picker)
+
+    def _bulk_rename_editor() -> None:
+        items = [i for i in _op_items() if i.name != ".."]
+        if not items:
+            return
+        cmd = EditorRenameCmd(items, vfs)
+        history.execute(cmd)
+        manager._refresh_both()
+
+    QShortcut(QKeySequence("Ctrl+Shift+R"), window).activated.connect(_bulk_rename_editor)
 
     def _select_by_pattern() -> None:
         dlg = PatternDialog(window)
@@ -1177,6 +1382,49 @@ def create_app() -> MainWindow:
 
     QShortcut(QKeySequence("Ctrl+G"), window).activated.connect(_select_by_pattern)
 
+    def _select_by_criteria() -> None:
+        from biome_fm.views.select_criteria_dialog import SelectByAttrDialog
+        dlg = SelectByAttrDialog(window)
+        if dlg.exec():
+            _active().select_where(dlg.get_criteria().matches)
+
+    QShortcut(QKeySequence("Ctrl+Shift+G"), window).activated.connect(_select_by_criteria)
+
+    def _open_user_menu() -> None:
+        from biome_fm.models.user_menu import load_user_menu
+        from biome_fm.qt import QCursor, QMenu
+        active = _active()
+        other = right_tabs if manager.active_pane_id == "left" else left_tabs
+        cwd = active.current_path
+        commands = load_user_menu(cwd)
+        if not commands:
+            return
+        menu = QMenu(window)
+        for cmd in commands:
+            label = f"{cmd.name}  [{cmd.shortcut}]" if cmd.shortcut else cmd.name
+            action = menu.addAction(label)
+            action.setData(cmd.command)
+        chosen = menu.exec(QCursor.pos())
+        if chosen:
+            raw_cmd = chosen.data()
+            expanded = expand_shell_vars(
+                raw_cmd,
+                files=[i.path for i in _op_items()],
+                cwd=cwd,
+                other_cwd=other.current_path,
+            )
+            subprocess.Popen(shlex.split(expanded), cwd=str(cwd))
+
+    QShortcut(QKeySequence("F2"), window).activated.connect(_open_user_menu)
+
+    def _open_quick_cd() -> None:
+        from biome_fm.views.quick_cd_dialog import QuickCDDialog
+        dlg = QuickCDDialog(frecency_store.top(50), _active().current_path, window)
+        dlg.path_selected.connect(lambda p: _active().navigate_to(p))
+        dlg.exec()
+
+    QShortcut(QKeySequence("Alt+C"), window).activated.connect(_open_quick_cd)
+
     # ── Shortcuts ─────────────────────────────────────────────────
     def _open_jump_dialog() -> None:
         from biome_fm.views.jump_dialog import JumpDialog
@@ -1185,7 +1433,20 @@ def create_app() -> MainWindow:
         dlg.exec()
 
     QShortcut(QKeySequence("Ctrl+J"), window).activated.connect(_open_jump_dialog)
-    QShortcut(QKeySequence("Ctrl+T"), window).activated.connect(_new_tab)
+    QShortcut(QKeySequence("Ctrl+T"),     window).activated.connect(_new_tab)
+    QShortcut(QKeySequence("Ctrl+Alt+T"), window).activated.connect(_dup_tab)
+
+    def _collect_add() -> None:
+        for item in _op_items():
+            file_collector.add([item])
+        window.statusBar().showMessage(f"Collection: {file_collector.count()} files", 2000)
+
+    def _collect_show() -> None:
+        file_collector.show(_active())
+
+    QShortcut(QKeySequence("Ctrl+Alt+C"), window).activated.connect(_collect_add)
+    QShortcut(QKeySequence("Ctrl+Alt+V"), window).activated.connect(_collect_show)
+
     QShortcut(QKeySequence("Ctrl+W"), window).activated.connect(
         lambda: _active().close_tab(_active().active_idx)
     )
@@ -1198,8 +1459,30 @@ def create_app() -> MainWindow:
 
     # ── Action bar ────────────────────────────────────────────────
     bar = window.action_bar
-    bar.copy_requested.connect(lambda: manager.copy_selected(_op_items()))
-    bar.move_requested.connect(lambda: manager.move_selected(_op_items()))
+    _copy_history: list[str] = []
+
+    def _do_copy_or_move(op: str) -> None:
+        from biome_fm.views.copy_move_dialog import CopyMoveDialog
+        items = _op_items()
+        if not items:
+            return
+        dest = manager.inactive_pane.current_path
+        dlg = CopyMoveDialog(op, [i.path for i in items], dest, _copy_history, window)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        result = dlg.destination
+        s = str(result)
+        if s in _copy_history:
+            _copy_history.remove(s)
+        _copy_history.insert(0, s)
+        del _copy_history[20:]
+        if op == "copy":
+            manager.copy_to(items, result, verify=dlg.verify_enabled)
+        else:
+            manager.move_to(items, result)
+
+    bar.copy_requested.connect(lambda: _do_copy_or_move("copy"))
+    bar.move_requested.connect(lambda: _do_copy_or_move("move"))
     bar.delete_requested.connect(lambda: manager.delete_selected(_op_items()))
     bar.mkdir_requested.connect(_ask_mkdir)
     bar.rename_requested.connect(_ask_rename)
@@ -1232,6 +1515,11 @@ def create_app() -> MainWindow:
     QShortcut(QKeySequence("Alt+Home"),  window).activated.connect(lambda: _active().go_home())
     QShortcut(QKeySequence("Alt+["),     window).activated.connect(lambda: _active().go_back())
     QShortcut(QKeySequence("Alt+]"),     window).activated.connect(lambda: _active().go_forward())
+    # F312 — fill keyboard-only gaps
+    QShortcut(QKeySequence("Alt+Return"), window).activated.connect(
+        lambda: coord.toggle("info", manager.active_pane_id)
+    )
+    QShortcut(QKeySequence("Alt+B"), window).activated.connect(_open_bm_dialog)
 
     # ── Misc shortcuts ────────────────────────────────────────────
     def _toggle_preview_f3() -> None:
@@ -1244,6 +1532,22 @@ def create_app() -> MainWindow:
 
     bar.view_requested.connect(_toggle_preview_f3)
     QShortcut(QKeySequence("Ctrl+Shift+C"), window).activated.connect(_copy_path)
+    QShortcut(QKeySequence("Alt+Shift+N"),  window).activated.connect(_copy_names)
+
+    def _set_permissions() -> None:
+        if os.name != "posix":
+            return
+        from biome_fm.views.permissions_editor_dialog import PermissionsEditorDialog
+        items = _op_items()
+        if not items:
+            return
+        result = PermissionsEditorDialog.ask([i.path for i in items], window)
+        if result is None:
+            return
+        mode, recursive = result
+        manager.chmod_selected(items, mode, recursive)
+
+    QShortcut(QKeySequence("Ctrl+Shift+P"), window).activated.connect(_set_permissions)
     QShortcut(QKeySequence("F3"),           window).activated.connect(_toggle_preview_f3)
 
     def _open_in_editor_f4() -> None:
@@ -1255,6 +1559,13 @@ def create_app() -> MainWindow:
     QShortcut(QKeySequence("F9"),           window).activated.connect(
         lambda: open_terminal(_active().current_path)
     )
+
+    def _open_task_runner() -> None:
+        from biome_fm.views.task_runner_dialog import TaskRunnerDialog
+        dlg = TaskRunnerDialog(_active().current_path, window)
+        dlg.exec()
+
+    QShortcut(QKeySequence("Ctrl+Shift+M"), window).activated.connect(_open_task_runner)
 
     def _open_fullscreen() -> None:
         items = _active().active._items
@@ -1433,10 +1744,14 @@ def create_app() -> MainWindow:
         CommandEntry("Switch Pane",    "Tab",          manager.switch_active_pane),
         CommandEntry("Quit",           "Alt+F4",       window.close),  # type: ignore[arg-type]
         CommandEntry("New Tab",        "Ctrl+T",       _new_tab),
+        CommandEntry("Duplicate Tab",  "Ctrl+Alt+T",   _dup_tab),
+        CommandEntry("Add to Collection",  "Ctrl+Alt+C", _collect_add),
+        CommandEntry("Show Collection",    "Ctrl+Alt+V", _collect_show),
         CommandEntry("Close Tab",      "Ctrl+W",       lambda: _active().close_tab(_active().active_idx)),  # noqa: E501
         CommandEntry("Toggle AI",      "Ctrl+I",       lambda: coord.toggle("ai", manager.active_pane_id)),  # noqa: E501
         CommandEntry("Refresh",        "Ctrl+R",       lambda: _active().refresh()),
-        CommandEntry("Copy Path",      "Ctrl+Shift+C", _copy_path),
+        CommandEntry("Copy Path",       "Ctrl+Shift+C", _copy_path),
+        CommandEntry("Copy File Names", "Alt+Shift+N",  _copy_names),
         CommandEntry("Preview",        "F3",           _toggle_preview_f3),
         CommandEntry("Sync Browsing",  "Ctrl+Shift+L", manager.toggle_mirror),
         CommandEntry("Toggle Hidden",  "Ctrl+H",       manager.toggle_hidden),
@@ -1447,6 +1762,8 @@ def create_app() -> MainWindow:
         CommandEntry("Home",           "Alt+Home",     lambda: _active().go_home()),
         CommandEntry("Settings",         "Ctrl+,",       _open_settings),
         CommandEntry("Find Files",       "Ctrl+Shift+F", sc.request_search),
+        CommandEntry("Properties",       "Alt+Return",   lambda: coord.toggle("info", manager.active_pane_id)),
+        CommandEntry("Bookmarks",        "Alt+B",        _open_bm_dialog),
     ]:
         registry.register(entry)
 
@@ -1512,6 +1829,22 @@ def create_app() -> MainWindow:
     window.find_duplicates_requested.connect(_open_dup_finder)
     QShortcut(QKeySequence("Ctrl+Shift+D"), window).activated.connect(_open_dup_finder)
 
+    def _open_storage_treemap() -> None:
+        from biome_fm.views.treemap_panel import TreemapPanel
+        panel = TreemapPanel(parent=window)
+        panel.scan(_active().current_path)
+        panel.show()
+
+    QShortcut(QKeySequence("Ctrl+Shift+T"), window).activated.connect(_open_storage_treemap)
+
+    def _open_large_file_finder() -> None:
+        from biome_fm.views.large_file_dialog import LargeFileDialog
+        dlg = LargeFileDialog(_active().current_path, parent=window)
+        dlg.navigate_requested.connect(lambda p: _active().navigate_to(p.parent))
+        dlg.show()
+
+    QShortcut(QKeySequence("Ctrl+Shift+L"), window).activated.connect(_open_large_file_finder)
+
     def _open_panelize() -> None:
         from biome_fm.utils.panelize import parse_shell_output
         cmd, ok = QInputDialog.getText(window, "Panelize", "Shell command:")
@@ -1530,6 +1863,37 @@ def create_app() -> MainWindow:
             _active().navigate_virtual(items, label=f"$ {cmd}")
 
     window.panelize_requested.connect(_open_panelize)
+
+    def _open_cloud_profiles() -> None:
+        from biome_fm.models.cloud_profile_store import CloudProfileStore
+        from biome_fm.views.cloud_profile_dialog import CloudProfileDialog
+        _store = CloudProfileStore(cfg_dir / "cloud_profiles.toml")
+        _store.load()
+        dlg = CloudProfileDialog(_store, parent=window)
+        dlg.exec()
+
+    window.cloud_profiles_requested.connect(_open_cloud_profiles)
+
+    # ── Quick-connect bar ─────────────────────────────────────────
+    from biome_fm.models.cloud_profile_store import CloudProfileStore as _CPS
+    from biome_fm.models.ssh_profiles import SSHProfileStore as _SPS
+    from biome_fm.views.quick_connect_bar import QuickConnectBar as _QCBar
+    _ssh_store = _SPS(cfg_dir / "ssh_profiles.toml")
+    _ssh_store.load()
+    _cloud_store2 = _CPS(cfg_dir / "cloud_profiles.toml")
+    _cloud_store2.load()
+    _qcbar = _QCBar(window)
+    _qc_profiles: list[tuple[str, str]] = []
+    for _sp in _ssh_store.list_all():
+        _port = f":{_sp.port}" if _sp.port != 22 else ""
+        _user = f"{_sp.user}@" if _sp.user else ""
+        _qc_profiles.append((_sp.name, f"sftp://{_user}{_sp.host}{_port}/"))
+    for _cp in _cloud_store2.list_all():
+        _root = f"{_cp.host}/{_cp.bucket}" if _cp.bucket else _cp.host
+        _qc_profiles.append((_cp.name, f"{_cp.scheme}://{_root}/"))
+    _qcbar.set_profiles(_qc_profiles)
+    _qcbar.connect_requested.connect(lambda uri: manager.navigate_active(Path(uri)))
+    window.statusBar().addWidget(_qcbar)
 
     def _open_temp_panel() -> None:
         from biome_fm.views.temp_panel import TempPanel
@@ -1598,6 +1962,7 @@ def create_app() -> MainWindow:
         drain_timer.stop()
         preview_presenter.shutdown()
         preview_timer.stop()
+        size_drain_timer.stop()
         search_timer.stop()
         op_timer.stop()
         refresh_timer.stop()
@@ -1606,6 +1971,35 @@ def create_app() -> MainWindow:
         right_watcher.stop()
         op_queue.shutdown(wait=False)
 
+    # ── Leader key (which-key popup, F290) ───────────────────────
+    from biome_fm.presenters.leader_handler import LeaderHandler
+    from biome_fm.views.leader_filter import LeaderFilter
+    from biome_fm.views.which_key_popup import WhichKeyPopup
+
+    _leader = LeaderHandler()
+    _leader.register("\\r", lambda: _active().refresh())
+    _leader.register("\\h", manager.toggle_hidden)
+    _leader.register("\\t", _dup_tab)
+    _leader.register("\\p", palette.open)
+    _leader.register("\\s", sc.request_search)
+    _wk_popup = WhichKeyPopup(window)
+    _wk_filter = LeaderFilter(_leader, _wk_popup)
+    QApplication.instance().installEventFilter(_wk_filter)  # type: ignore[union-attr]
+
+    def _guard_close() -> bool:
+        """F268: ask before quitting while ops are running."""
+        if op_queue.active_count() == 0:
+            return True
+        reply = QMessageBox.question(
+            window,
+            "Operations Running",
+            "Operations are still running. Quit anyway?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return reply == QMessageBox.StandardButton.Yes
+
+    window._close_guard = _guard_close  # type: ignore[attr-defined]
     window.about_to_close.connect(_on_close)
     window._ctx = _AppContext(  # type: ignore[attr-defined]
         manager=manager,
@@ -1619,7 +2013,9 @@ def create_app() -> MainWindow:
         op_queue=op_queue,
         plugins=plugins,
         git_worker=git_worker,
-        timers=[drain_timer, preview_timer, op_timer, search_timer, refresh_timer, watch_timer],
+        timers=[drain_timer, preview_timer, size_drain_timer, op_timer, search_timer, refresh_timer, watch_timer],
+        tray=_tray,
+        hotkey_listener=_hotkey_listener,
     )
 
     return window

@@ -12,6 +12,7 @@ from biome_fm.qt import (
     QLineEdit,
     QListWidget,
     QSlider,
+    QSpinBox,
     Qt,
     QTabWidget,
     QVBoxLayout,
@@ -58,6 +59,10 @@ class SettingsDialog(QDialog):
         for cb in (self._col_size_cb, self._col_modified_cb, self._col_ext_cb):
             cb.setChecked(True)
             al.addRow(cb)
+        self._font_size_spin = QSpinBox()
+        self._font_size_spin.setRange(0, 32)
+        self._font_size_spin.setSpecialValueText("System default")
+        al.addRow("UI font size:", self._font_size_spin)
         self._glass_cb = QCheckBox("Glass effect")
         al.addRow(self._glass_cb)
         opacity_row = QHBoxLayout()
@@ -90,6 +95,16 @@ class SettingsDialog(QDialog):
         ail.addRow("Ollama URL:", self._ollama_url)
         ail.addRow("Ollama Model:", self._ollama_model)
         self._tabs.addTab(ai, "AI")
+
+        # ── Accessibility ─────────────────────────────────────────────────────
+        a11y = QWidget()
+        a11yl = QFormLayout(a11y)
+        self._reduce_motion_cb = QCheckBox("Reduce motion (skip animations)")
+        self._high_contrast_cb = QCheckBox("High contrast theme (WCAG AAA)")
+        a11yl.addRow(self._reduce_motion_cb)
+        a11yl.addRow(self._high_contrast_cb)
+        a11yl.addRow(QLabel("Font size changes require restart."))
+        self._tabs.addTab(a11y, "Accessibility")
 
         # ── Plugins ───────────────────────────────────────────────────────────
         plugins = QWidget()
@@ -199,3 +214,21 @@ class SettingsDialog(QDialog):
 
     def get_ollama(self) -> tuple[str, str]:
         return (self._ollama_url.text(), self._ollama_model.text())
+
+    def set_ui_font_size(self, val: int) -> None:
+        self._font_size_spin.setValue(val)
+
+    def get_ui_font_size(self) -> int:
+        return self._font_size_spin.value()
+
+    def set_reduce_motion(self, val: bool) -> None:
+        self._reduce_motion_cb.setChecked(val)
+
+    def get_reduce_motion(self) -> bool:
+        return self._reduce_motion_cb.isChecked()
+
+    def set_high_contrast(self, val: bool) -> None:
+        self._high_contrast_cb.setChecked(val)
+
+    def get_high_contrast(self) -> bool:
+        return self._high_contrast_cb.isChecked()

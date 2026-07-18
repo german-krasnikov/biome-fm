@@ -133,3 +133,20 @@ def test_bookmark_save_atomic(tmp_path):
     assert tmp_path in store2
     # No leftover .tmp file
     assert not p.with_suffix(".tmp").exists()
+
+
+# ── F334: project-scoped bookmarks ────────────────────────────────────────────
+
+def test_load_project_bookmarks(tmp_path):
+    proj = tmp_path / ".biome-fm"
+    proj.mkdir()
+    (proj / "bookmarks.toml").write_text(
+        '\n[[bookmarks.items]]\nkind = "dir"\nname = "Docs"\npath = "/docs"\n'
+    )
+    nodes = BookmarkStore.load_project(tmp_path)
+    assert len(nodes) == 1
+    assert nodes[0].name == "Docs"
+
+
+def test_load_project_no_file_returns_empty(tmp_path):
+    assert BookmarkStore.load_project(tmp_path) == []

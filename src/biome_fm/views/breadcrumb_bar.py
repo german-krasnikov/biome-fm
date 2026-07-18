@@ -67,6 +67,44 @@ class _PathComboBox(QComboBox):
         completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
         completer.setMaxVisibleItems(10)
         self.lineEdit().setCompleter(completer)
+        self._default_completer = completer
+        self._source_fn = None
+        self._custom_completer = None
+
+    def set_completer_source(self, fn) -> None:
+        """Set a callable(text) → list[str] as completion source, or None to restore default."""
+        from PySide6.QtCore import QStringListModel
+        from PySide6.QtWidgets import QCompleter
+        # Disconnect previous custom handler
+        if self._source_fn is not None:
+            try:
+                self.lineEdit().textChanged.disconnect(self._on_text_changed)
+            except RuntimeError:
+                pass
+        self._source_fn = fn
+        if fn is None:
+            self.lineEdit().setCompleter(self._default_completer)
+            self._custom_completer = None
+        else:
+            self._custom_model = QStringListModel(self)
+            c = QCompleter(self._custom_model, self)
+            c.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+            c.setMaxVisibleItems(10)
+            self._custom_completer = c
+            self.lineEdit().setCompleter(c)
+            self.lineEdit().textChanged.connect(self._on_text_changed)
+
+    def _on_text_changed(self, text: str) -> None:
+        QTimer.singleShot(0, lambda t=text: self._fetch_completions(t))
+
+    def _fetch_completions(self, text: str) -> None:
+        if self._source_fn is None:
+            return
+        try:
+            names = self._source_fn(text)
+            self._custom_model.setStringList(names)
+        except Exception:
+            pass
 
     def _emit(self):
         text = self.lineEdit().text().strip()
@@ -326,3 +364,7 @@ class BreadcrumbBar(QWidget):
     # Compat shim so callers that still use lineEdit() keep working
     def lineEdit(self):
         return self._combo.lineEdit()
+
+    def set_completer_source(self, fn) -> None:
+        """Inject a callable(text) → list[str] for remote path completion."""
+        self._combo.set_completer_source(fn)

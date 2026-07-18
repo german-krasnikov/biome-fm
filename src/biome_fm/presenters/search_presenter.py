@@ -15,7 +15,6 @@ from pathlib import Path
 from biome_fm.models.file_item import FileItem
 from biome_fm.models.vfs import VFSProtocol
 
-
 DEFAULT_EXCLUDE = [
     ".git", "node_modules", "__pycache__", ".venv", "venv", "vendor",
     ".tox", ".mypy_cache", ".pytest_cache", "dist", "build", ".idea", ".vscode",
@@ -34,6 +33,19 @@ class SearchScope(Enum):
     CURRENT_DIR = "current_dir"
     SELECTED_FILES = "selected"
     BOTH_PANES = "both_panes"
+    DUPLICATE_NAMES = "duplicate_names"
+
+
+def find_duplicate_names(
+    left_items: list[FileItem],
+    right_items: list[FileItem],
+) -> list[SearchResult]:
+    """Return SearchResults for items whose names appear in both panes (symmetric)."""
+    right_names = {i.name for i in right_items}
+    left_names = {i.name for i in left_items}
+    results = [SearchResult(item=i) for i in left_items if i.name in right_names]
+    results += [SearchResult(item=i) for i in right_items if i.name in left_names]
+    return results
 
 
 @dataclass(frozen=True, slots=True)

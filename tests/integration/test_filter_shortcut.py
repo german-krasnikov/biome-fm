@@ -1,4 +1,4 @@
-"""Test Ctrl+F shortcut activates FilterBar in PaneView."""
+"""Test filter bar shortcuts in PaneView."""
 import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
@@ -14,10 +14,18 @@ def pane_view(qtbot):
     return w
 
 
-def test_ctrl_f_activates_filter_bar(pane_view):
+def test_slash_activates_filter_bar(pane_view):
+    # F292: Ctrl+F is now page-down; only '/' activates filter
+    assert not pane_view.filter_bar.isVisible()
+    QTest.keyPress(pane_view._table, Qt.Key.Key_Slash, Qt.KeyboardModifier.NoModifier)
+    assert pane_view.filter_bar.isVisible()
+
+
+def test_ctrl_f_does_not_activate_filter_bar(pane_view):
+    # F292: Ctrl+F is now page-down scroll, not filter
     assert not pane_view.filter_bar.isVisible()
     QTest.keyPress(pane_view._table, Qt.Key.Key_F, Qt.KeyboardModifier.ControlModifier)
-    assert pane_view.filter_bar.isVisible()
+    assert not pane_view.filter_bar.isVisible()
 
 
 def test_escape_deactivates_filter_bar(pane_view):

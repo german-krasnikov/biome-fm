@@ -21,7 +21,7 @@ def test_toggle_mark_at_marks_item():
     item = FileItem(name="file.txt", path=Path("/tmp/file.txt"), is_dir=False, size=100, modified=0.0)
     p, view = _make_presenter([item])
     p.toggle_mark_at(item)
-    assert item.path in p._marks
+    assert item.path in p.marks
     view.set_marked.assert_called()
 
 
@@ -30,7 +30,7 @@ def test_toggle_mark_at_unmarks_item():
     p, view = _make_presenter([item])
     p.toggle_mark_at(item)
     p.toggle_mark_at(item)
-    assert item.path not in p._marks
+    assert item.path not in p.marks
 
 
 def test_toggle_mark_at_ignores_dotdot():

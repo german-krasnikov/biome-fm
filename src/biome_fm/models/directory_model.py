@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -19,8 +20,19 @@ from biome_fm.qt import (
     QWidget,
 )
 
-COL_NAME, COL_SIZE, COL_MODIFIED, COL_EXT = range(4)
-HEADERS = ("Name", "Size", "Modified", "Ext")
+COL_NAME, COL_SIZE, COL_MODIFIED, COL_EXT, COL_ATIME, COL_OWNER = range(6)
+HEADERS = ("Name", "Size", "Modified", "Ext", "Accessed", "Owner")
+
+# F278 — File Grouping
+GROUP_ROLE = Qt.ItemDataRole.UserRole + 2
+
+
+class GroupByMode(Enum):
+    NONE = "none"
+    KIND = "kind"
+    DATE = "date"
+    SIZE = "size"
+    FIRST_LETTER = "first_letter"
 
 _CODE = (".py", ".js", ".ts", ".c", ".cpp", ".h", ".java", ".go", ".rs", ".rb")
 _DOCS = (".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".md", ".txt", ".rtf")
@@ -42,6 +54,59 @@ _GIT_COLORS: dict[str, str] = {
     "R ": "#CC79A7", " R": "#CC79A7",
 }
 _GIT_DIR_DIRTY = "#E69F00"
+
+_ARCHIVE_EXTS = {".zip", ".tar", ".gz", ".bz2", ".xz", ".7z", ".rar"}
+_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg", ".webp", ".ico"}
+_MEDIA_EXTS = {".mp3", ".mp4", ".wav", ".flac", ".avi", ".mkv", ".mov"}
+
+
+def _group_key(item: FileItem, mode: GroupByMode) -> str:
+    """Return group label for *item* given *mode*."""
+    if mode == GroupByMode.NONE:
+        return ""
+    if mode == GroupByMode.FIRST_LETTER:
+        return item.name[0].upper() if item.name else ""
+    if mode == GroupByMode.KIND:
+        if item.is_dir:
+            return "Folders"
+        ext = Path(item.name).suffix.lower()
+        if ext in set(_CODE):
+            return "Code"
+        if ext in set(_DOCS):
+            return "Documents"
+        if ext in _IMAGE_EXTS:
+            return "Images"
+        if ext in _ARCHIVE_EXTS:
+            return "Archives"
+        if ext in _MEDIA_EXTS:
+            return "Media"
+        return "Other"
+    if mode == GroupByMode.SIZE:
+        if item.is_dir:
+            return "Folders"
+        s = item.size
+        if s < 1_024:
+            return "Tiny (<1 KB)"
+        if s < 1_048_576:
+            return "Small (<1 MB)"
+        if s < 104_857_600:
+            return "Medium (<100 MB)"
+        return "Large (>100 MB)"
+    if mode == GroupByMode.DATE:
+        if item.modified == 0.0:
+            return "Unknown"
+        import time
+        now = time.time()
+        age = now - item.modified
+        if age < 86_400:
+            return "Today"
+        if age < 172_800:
+            return "Yesterday"
+        if age < 604_800:
+            return "This week"
+        return "Older"
+    return ""
+
 
 _Idx = QModelIndex | QPersistentModelIndex
 
@@ -70,6 +135,7 @@ class DirectoryModel(QAbstractTableModel):
         self._highlight_rules: list[HighlightRule] = []
         self._tag_store: object | None = None  # TagStore, duck-typed
         self._dir_sizes: dict[Path, int] = {}
+        self._compare_result: dict[str, str] = {}  # filename → "left_only"|"right_only"|"differs"|"same"
 
     def set_tag_store(self, store: object | None) -> None:
         self._tag_store = store
@@ -135,13 +201,19 @@ class DirectoryModel(QAbstractTableModel):
     def marks(self) -> frozenset[Path]:
         return frozenset(self._marks)
 
-    def set_git_status(self, statuses: dict[Path, str], dirty_dirs: frozenset[Path]) -> None:
+    def set_git_status(
+        self,
+        statuses: dict[Path, str],
+        dirty_dirs: frozenset[Path],
+        visible_range: tuple[int, int] | None = None,
+    ) -> None:
         self._git_statuses = statuses
         self._git_dirty_dirs = dirty_dirs
         if self.rowCount():
+            first, last = visible_range if visible_range is not None else (0, self.rowCount() - 1)
             self.dataChanged.emit(
-                self.index(0, 0),
-                self.index(self.rowCount() - 1, 0),
+                self.index(first, 0),
+                self.index(last, 0),
                 [Qt.ItemDataRole.ForegroundRole],
             )
 
@@ -151,6 +223,16 @@ class DirectoryModel(QAbstractTableModel):
             self.dataChanged.emit(
                 self.index(0, 0),
                 self.index(self.rowCount() - 1, 0),
+                [Qt.ItemDataRole.ForegroundRole],
+            )
+
+    def set_compare_result(self, diff: dict[str, str]) -> None:
+        """Set per-filename compare status. Drives ForegroundRole colors."""
+        self._compare_result = dict(diff)
+        if self._items:
+            self.dataChanged.emit(
+                self.index(0, 0),
+                self.index(len(self._items) - 1, 0),
                 [Qt.ItemDataRole.ForegroundRole],
             )
 
@@ -181,6 +263,16 @@ class DirectoryModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.ForegroundRole:
             if item.path in self._cut_paths:
                 return QBrush(QColor(128, 128, 128, 100))
+            if self._compare_result:
+                status = self._compare_result.get(item.name)
+                if status == "left_only":
+                    return QBrush(QColor("#00cc44"))   # green
+                if status == "right_only":
+                    return QBrush(QColor("#cc0000"))   # red
+                if status == "differs":
+                    return QBrush(QColor("#ccaa00"))   # yellow
+                if status == "same":
+                    return None
             if item.path in self._git_statuses:
                 color = _GIT_COLORS.get(self._git_statuses[item.path])
                 if color:
@@ -228,14 +320,20 @@ class DirectoryModel(QAbstractTableModel):
             return datetime.datetime.fromtimestamp(item.modified).strftime("%Y-%m-%d %H:%M")
         if col == COL_EXT:
             return Path(item.name).suffix.lstrip(".") if not item.is_dir else ""
+        if col == COL_ATIME:
+            if item.atime == 0.0:
+                return ""
+            return datetime.datetime.fromtimestamp(item.atime).strftime("%Y-%m-%d %H:%M")
+        if col == COL_OWNER:
+            return item.owner
         return None
 
 
 def _scan_worker(
     vfs: object,
-    path: "Path",
-    cancel: "threading.Event",
-    out_queue: "queue.SimpleQueue",
+    path: Path,
+    cancel: threading.Event,
+    out_queue: queue.SimpleQueue,
     batch_size: int = 50,
 ) -> None:
     """List *path* via *vfs* callable, emit batches into *out_queue*, sentinel None at end."""
@@ -271,10 +369,41 @@ class DirSortFilterProxy(QSortFilterProxyModel):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._filter = ""
+        self._filters: list[str] = []
         self._show_hidden = False
         self._tag_filter: str | None = None
         self._tag_store: object | None = None
+        self._invert: bool = False
+        self._group_mode: GroupByMode = GroupByMode.NONE
+        self._sort_key_cache: dict[int, str] = {}
+        self._type_filter: str = "all"
+        self._show_only_marked: bool = False
+        self._marked_paths: set[Path] = set()
+
+    @property
+    def _filter(self) -> str:
+        """Backward-compat accessor: returns first filter or empty string."""
+        return self._filters[0] if self._filters else ""
+
+    def setSourceModel(self, model: object) -> None:
+        super().setSourceModel(model)  # type: ignore[arg-type]
+        if model is not None:
+            model.modelReset.connect(self._sort_key_cache.clear)  # type: ignore[attr-defined]
+
+    def invalidateFilter(self) -> None:  # type: ignore[override]
+        self._sort_key_cache.clear()
+        super().invalidateFilter()
+
+    def sort(self, column: int, order: Qt.SortOrder = Qt.SortOrder.AscendingOrder) -> None:
+        self._sort_key_cache.clear()
+        super().sort(column, order)
+
+    def _sort_key(self, row: int) -> str:
+        if row not in self._sort_key_cache:
+            model = self.sourceModel()
+            item: FileItem | None = model.data(model.index(row, COL_NAME), Qt.ItemDataRole.UserRole)
+            self._sort_key_cache[row] = item.name.lower() if item else ""
+        return self._sort_key_cache[row]
 
     def set_tag_filter(self, tag: str | None, store: object | None = None) -> None:
         self._tag_filter = tag
@@ -282,12 +411,53 @@ class DirSortFilterProxy(QSortFilterProxyModel):
         self.invalidateRowsFilter()
 
     def set_filter(self, text: str) -> None:
-        self._filter = text.lower()
+        self._filters = [text.lower()] if text else []
+        self.invalidateRowsFilter()
+
+    def push_filter(self, text: str) -> None:
+        if text:
+            self._filters.append(text.lower())
+            self.invalidateRowsFilter()
+
+    def pop_filter(self) -> None:
+        if self._filters:
+            self._filters.pop()
+            self.invalidateRowsFilter()
+
+    def set_type_filter(self, t: str) -> None:  # "all"|"files"|"dirs"
+        self._type_filter = t
+        self.invalidateRowsFilter()
+
+    def set_marked_paths(self, paths: set[Path]) -> None:
+        self._marked_paths = set(paths)
+        if self._show_only_marked:
+            self.invalidateRowsFilter()
+
+    def set_show_only_marked(self, enabled: bool) -> None:
+        self._show_only_marked = enabled
         self.invalidateRowsFilter()
 
     def set_show_hidden(self, show: bool) -> None:
         self._show_hidden = show
         self.invalidateRowsFilter()
+
+    def set_invert(self, invert: bool) -> None:
+        self._invert = invert
+        self.invalidateRowsFilter()
+
+    def set_group_by(self, mode: GroupByMode) -> None:
+        self._group_mode = mode
+        self.invalidate()
+
+    def data(self, index: _Idx, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
+        if role == GROUP_ROLE:
+            src_idx = self.mapToSource(index)
+            model = self.sourceModel()
+            item: FileItem | None = model.data(src_idx.sibling(src_idx.row(), COL_NAME), Qt.ItemDataRole.UserRole)
+            if item is None:
+                return ""
+            return _group_key(item, self._group_mode)
+        return super().data(index, role)
 
     def filterAcceptsRow(self, source_row: int, source_parent: _Idx) -> bool:
         _role = Qt.ItemDataRole.UserRole
@@ -301,9 +471,19 @@ class DirSortFilterProxy(QSortFilterProxyModel):
             tags = self._tag_store.get_tags(item.path)  # type: ignore[attr-defined]
             if self._tag_filter not in tags:
                 return False
-        if self._filter:
-            return _fuzzy_match(self._filter, item.name)
-        return True
+        # F217 — type filter
+        if self._type_filter == "files" and item.is_dir:
+            return False
+        if self._type_filter == "dirs" and not item.is_dir:
+            return False
+        # F284 — sticky marks
+        if self._show_only_marked and item.path not in self._marked_paths:
+            return False
+        # F291 — stacked filters (was single _filter)
+        if self._filters:
+            match = all(_fuzzy_match(f, item.name) for f in self._filters)
+            return (not match) if self._invert else match
+        return True  # no filter → show all regardless of invert
 
     def lessThan(self, left: _Idx, right: _Idx) -> bool:
         _role = Qt.ItemDataRole.UserRole
@@ -318,6 +498,14 @@ class DirSortFilterProxy(QSortFilterProxyModel):
             return asc
         if r_item.name == "..":
             return not asc
+        # Group-aware sort: keep group members together
+        if self._group_mode != GroupByMode.NONE:
+            lg = _group_key(l_item, self._group_mode)
+            rg = _group_key(r_item, self._group_mode)
+            if lg != rg:
+                return lg < rg if asc else lg > rg
         if l_item.is_dir != r_item.is_dir:
             return l_item.is_dir if asc else r_item.is_dir
-        return super().lessThan(left, right)
+        lk = self._sort_key(left.row())
+        rk = self._sort_key(right.row())
+        return lk < rk if asc else lk > rk

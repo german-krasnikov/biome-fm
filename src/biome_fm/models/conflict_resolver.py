@@ -64,7 +64,7 @@ class ConflictResolver:
 class PreCopyConflictResolver:
     """Pre-decided conflict strategy — returns the same action for every conflict."""
 
-    def __init__(self, action: ConflictAction, fallback: "ConflictResolver | None" = None) -> None:
+    def __init__(self, action: ConflictAction, fallback: ConflictResolver | None = None) -> None:
         self._action = action
         self._fallback = fallback
 

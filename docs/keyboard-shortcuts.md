@@ -19,6 +19,7 @@
 | `Alt+Ctrl+1`–`Ctrl+9` | Assign current path to numbered bookmark |
 | `Alt+F1` | Drive bar: volume picker for left pane |
 | `Alt+F2` | Drive bar: volume picker for right pane |
+| `Alt+C` | Quick CD — frecency + path-completion jump dialog |
 
 ### Path Yank (leader sequences — press `y` then the second key)
 

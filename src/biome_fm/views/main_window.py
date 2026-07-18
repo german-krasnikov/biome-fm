@@ -20,6 +20,7 @@ from biome_fm.qt import (
     QWidget,
     Signal,
 )
+from biome_fm.utils.path_completion import path_completions
 from biome_fm.views.action_bar import ActionBar
 
 
@@ -51,6 +52,14 @@ class _HistoryLineEdit(QLineEdit):
         if key == Qt.Key.Key_Down:
             self._idx = max(self._idx - 1, -1)
             self.setText(self._history[self._idx] if self._idx >= 0 else "")
+            return
+        if key == Qt.Key.Key_Tab:
+            matches = path_completions(self.text())
+            if matches:
+                c = self.completer()
+                if c is not None:
+                    c.model().setStringList(matches)
+                    c.complete()
             return
         self._idx = -1
         super().keyPressEvent(event)  # type: ignore[arg-type]
@@ -86,6 +95,7 @@ class MainWindow(QMainWindow):
     sync_dirs_requested = Signal()
     nl_op_requested = Signal()
     panelize_requested = Signal()
+    cloud_profiles_requested = Signal()
 
     def __init__(
         self,
@@ -99,6 +109,7 @@ class MainWindow(QMainWindow):
         self.resize(1200, 700)
         self._ai_panel = ai_panel
         self._preview_panel = preview_panel
+        self._close_guard = None  # Callable[[], bool] | None — set by app.py
         self._act_ai = QAction("AI", self, checkable=True)
         self._act_ai.setToolTip("Toggle AI panel (Ctrl+I)")
         self._act_ai.triggered.connect(lambda _: self.ai_toggle_requested.emit())
@@ -107,6 +118,11 @@ class MainWindow(QMainWindow):
         self._act_preview.triggered.connect(lambda _: self.preview_toggle_requested.emit())
         self._setup_ui(left, right)
         self._setup_shortcuts()
+        self._setup_accessibility()
+
+    def _setup_accessibility(self) -> None:
+        self._cmd_line.setAccessibleName("Command line")
+        self.action_bar.setAccessibleName("Action bar")
 
     def _setup_ui(self, left: QWidget | None, right: QWidget | None) -> None:
         central = QWidget()
@@ -153,11 +169,15 @@ class MainWindow(QMainWindow):
         sb = QStatusBar()
         self._git_label = QLabel()
         self._ops_label = QLabel()
+        self._remote_status_label = QLabel()
+        self._remote_status_label.hide()
+        sb.addPermanentWidget(self._remote_status_label)
         sb.addPermanentWidget(self._git_label)
         sb.addPermanentWidget(self._ops_label)
         self.setStatusBar(sb)
         self._build_menubar()
         self._build_drag_toolbar()
+        self._subscribe_remote_events()
 
     def _build_drag_toolbar(self) -> None:
         import sys
@@ -296,6 +316,10 @@ class MainWindow(QMainWindow):
         a = QAction("&Panelize...", self)
         a.triggered.connect(lambda _: self.panelize_requested.emit())
         tm.addAction(a)
+        tm.addSeparator()
+        a = QAction("Cloud &Profiles...", self)
+        a.triggered.connect(lambda _: self.cloud_profiles_requested.emit())
+        tm.addAction(a)
 
     def _setup_shortcuts(self) -> None:
         for key, signal in [
@@ -344,6 +368,10 @@ class MainWindow(QMainWindow):
         return super().eventFilter(obj, event)  # type: ignore[arg-type]
 
     def closeEvent(self, event: object) -> None:
+        if self._close_guard is not None and not self._close_guard():
+            if hasattr(event, "ignore"):
+                event.ignore()  # type: ignore[union-attr]
+            return
         self.about_to_close.emit()
         super().closeEvent(event)  # type: ignore[arg-type]
 
@@ -360,3 +388,28 @@ class MainWindow(QMainWindow):
 
     def update_ops_count(self, n: int) -> None:
         self._ops_label.setText(f" {n} op(s) running" if n > 0 else "")
+
+    def _subscribe_remote_events(self) -> None:
+        from biome_fm.event_bus import RemoteConnected, RemoteDisconnected, RemoteSyncing
+        from biome_fm.event_bus import bus as _bus
+        _bus.subscribe(RemoteConnected, self._on_remote_connected)
+        _bus.subscribe(RemoteDisconnected, self._on_remote_disconnected)
+        _bus.subscribe(RemoteSyncing, self._on_remote_syncing)
+
+    def _on_remote_connected(self, ev: object) -> None:
+        scheme = getattr(ev, "scheme", "")
+        host = getattr(ev, "host", "")
+        self._remote_status_label.setText(f"  ● {scheme}://{host}")
+        self._remote_status_label.show()
+
+    def _on_remote_disconnected(self, ev: object) -> None:
+        self._remote_status_label.hide()
+        self._remote_status_label.setText("")
+
+    def _on_remote_syncing(self, ev: object) -> None:
+        active = getattr(ev, "active", False)
+        if active:
+            scheme = getattr(ev, "scheme", "")
+            host = getattr(ev, "host", "")
+            self._remote_status_label.setText(f"  ⧗ {scheme}://{host}")
+            self._remote_status_label.show()

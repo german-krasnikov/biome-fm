@@ -77,7 +77,7 @@ def test_presenter_sets_dir_size_result(tmp_path: Path) -> None:
 
     p = PanePresenter(FakeView(), LocalVFS())
     p._items = [FileItem(name="mydir", path=d, is_dir=True, size=0, modified=0.0)]
-    p._marks = {d}
+    p._marks = {str(d)}
 
     p._start_dir_size_calc()
     # wait for daemon thread (max 2s)

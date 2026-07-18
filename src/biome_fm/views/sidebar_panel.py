@@ -1,4 +1,4 @@
-"""Sidebar panel — Volumes / Bookmarks / Recent."""
+"""Sidebar panel — Volumes / Bookmarks / Recent / Tags."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -8,6 +8,7 @@ from biome_fm.qt import QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, Sign
 
 class SidebarPanel(QWidget):
     path_activated = Signal(object)  # Path
+    tag_activated = Signal(str)      # tag name
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -16,7 +17,7 @@ class SidebarPanel(QWidget):
         self._tree.setIndentation(12)
         self._tree.setUniformRowHeights(True)
 
-        for label in ("Volumes", "Bookmarks", "Recent"):
+        for label in ("Volumes", "Bookmarks", "Recent", "Tags"):
             item = QTreeWidgetItem([label])
             self._tree.addTopLevelItem(item)
             item.setExpanded(True)
@@ -41,6 +42,15 @@ class SidebarPanel(QWidget):
     def set_recent(self, paths: list[Path]) -> None:
         self._populate(2, {p: p.name or str(p) for p in paths[:20]})
 
+    def set_tags(self, tags: list[tuple[str, str]]) -> None:
+        """Populate Tags section. tags = [(name, color_hex), ...]."""
+        parent = self._tree.topLevelItem(3)
+        parent.takeChildren()
+        for name, _color in tags:
+            child = QTreeWidgetItem([name])
+            child.setData(0, 256, name)  # store tag name as str
+            parent.addChild(child)
+
     # ── internals ─────────────────────────────────────────────────────────────
 
     def _collect_bm(self, nodes, out: dict, display_label) -> None:
@@ -59,6 +69,8 @@ class SidebarPanel(QWidget):
             parent.addChild(child)
 
     def _on_activated(self, item: QTreeWidgetItem, _col: int) -> None:
-        path = item.data(0, 256)
-        if isinstance(path, Path):
-            self.path_activated.emit(path)
+        data = item.data(0, 256)
+        if isinstance(data, Path):
+            self.path_activated.emit(data)
+        elif isinstance(data, str):
+            self.tag_activated.emit(data)

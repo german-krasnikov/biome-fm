@@ -56,7 +56,7 @@ class SearchCoordinator:
         self._all_results: list = []
         self._cancel_flag = threading.Event()
 
-    def request_search(self) -> None:
+    def request_search(self, initial_query: str | None = None) -> None:
         """Show search dialog, cancel any in-progress, start thread. Call on main thread."""
         from biome_fm.presenters.search_presenter import SearchPresenter, SearchScope
         from biome_fm.views.search_dialog import SearchDialog
@@ -70,6 +70,7 @@ class SearchCoordinator:
         params = SearchDialog.get_params(
             active.current_path, self._window,  # type: ignore[arg-type]
             store=self._store, history=self._history,
+            initial_query=initial_query,
         )
         if params is None:
             return
@@ -105,6 +106,27 @@ class SearchCoordinator:
                     q.put(self._CANCELLED if self._cancel_flag.is_set() else None)
 
             threading.Thread(target=_run_selected, daemon=True).start()
+            return
+
+        if scope == SearchScope.DUPLICATE_NAMES:
+            from biome_fm.presenters.search_presenter import find_duplicate_names
+            inactive = self._manager.inactive_pane
+            inactive_path = inactive.current_path if inactive is not None else active.current_path  # type: ignore[union-attr]
+
+            def _run_dupes() -> None:
+                try:
+                    left = self._vfs.listdir(active.current_path)
+                    right = self._vfs.listdir(inactive_path)
+                    for r in find_duplicate_names(left, right):
+                        if self._cancel_flag.is_set():
+                            return
+                        q.put(r)
+                except OSError:
+                    pass
+                finally:
+                    q.put(self._CANCELLED if self._cancel_flag.is_set() else None)
+
+            threading.Thread(target=_run_dupes, daemon=True).start()
             return
 
         if scope == SearchScope.BOTH_PANES:
@@ -192,3 +214,7 @@ class SearchCoordinator:
         v = tabs.view_at(tabs.active_idx)
         if hasattr(v, "select_item"):
             v.select_item(filename)  # type: ignore[union-attr]
+
+    def request_search_with_query(self, query: str) -> None:
+        """Open search dialog pre-filled with query from history."""
+        self.request_search(initial_query=query)

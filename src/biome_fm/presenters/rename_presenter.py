@@ -32,9 +32,9 @@ class RenamePresenter:
 
     # ── apply rules ────────────────────────────────────────────────────────
 
-    def apply_regex(self, pattern: str, replacement: str) -> list[RenamePreview]:
+    def apply_regex(self, pattern: str, replacement: str, flags: int = 0) -> list[RenamePreview]:
         try:
-            new_names = [re.sub(pattern, replacement, it.name) for it in self._items]
+            new_names = [re.sub(pattern, replacement, it.name, flags=flags) for it in self._items]
         except re.error:
             new_names = [it.name for it in self._items]
         return self._save(new_names)

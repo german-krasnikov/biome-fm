@@ -4,10 +4,10 @@ from __future__ import annotations
 import io
 import tarfile
 import zipfile
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Generator
 
 from biome_fm.models.file_item import FileItem
 

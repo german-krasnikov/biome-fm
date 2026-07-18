@@ -81,6 +81,8 @@ class ManagerPresenter:
         self._mirroring = False
         self._pending_cmds: dict[int, Command] = {}
         self._pending_specs: dict[int, _OpSpec] = {}
+        self._last_op_kind: str = ""
+        self._last_op_dst: Path | None = None
 
     @property
     def active_pane_id(self) -> PaneId:
@@ -146,13 +148,29 @@ class ManagerPresenter:
         if not items:
             return
         dst = self._target().current_path
+        self._last_op_kind = "copy"
+        self._last_op_dst = dst
         self._start_op([i.path for i in items], dst, move=False)
 
     def move_selected(self, items: list[FileItem]) -> None:
         if not items:
             return
         dst = self._target().current_path
+        self._last_op_kind = "move"
+        self._last_op_dst = dst
         self._start_op([i.path for i in items], dst, move=True)
+
+    def copy_to(self, items: list[FileItem], dest: Path, verify: bool = False) -> None:
+        if items:
+            self._last_op_kind = "copy"
+            self._last_op_dst = dest
+            self._start_op([i.path for i in items], dest, move=False, verify=verify)
+
+    def move_to(self, items: list[FileItem], dest: Path) -> None:
+        if items:
+            self._last_op_kind = "move"
+            self._last_op_dst = dest
+            self._start_op([i.path for i in items], dest, move=True)
 
     def delete_selected(self, items: list[FileItem]) -> None:
         if not items:
@@ -160,7 +178,20 @@ class ManagerPresenter:
         paths = [i.path for i in items]
         if not self._confirm(ConfirmSpec("delete", paths)):
             return
+        self._last_op_kind = "delete"
+        self._last_op_dst = None
         self._run(DeleteCmd(paths, self._vfs), "Delete", _OpSpec("delete", paths[0], sources=paths))
+
+    def repeat_last(self, items: list[FileItem]) -> None:
+        """Re-run the last copy/move/delete with current selection."""
+        if not items or not self._last_op_kind:
+            return
+        if self._last_op_kind == "copy" and self._last_op_dst:
+            self._start_op([i.path for i in items], self._last_op_dst, move=False)
+        elif self._last_op_kind == "move" and self._last_op_dst:
+            self._start_op([i.path for i in items], self._last_op_dst, move=True)
+        elif self._last_op_kind == "delete":
+            self.delete_selected(items)
 
     def mkdir(self, name: str) -> None:
         path = self._source().current_path / name
@@ -213,7 +244,7 @@ class ManagerPresenter:
         self._history.redo()
         self._refresh_both()
 
-    def _start_op(self, sources: list[Path], dst: Path, move: bool) -> None:
+    def _start_op(self, sources: list[Path], dst: Path, move: bool, verify: bool = False) -> None:
         op = "move" if move else "copy"
         if not self._confirm(ConfirmSpec(op, sources, dst)):
             return
@@ -246,12 +277,18 @@ class ManagerPresenter:
 
         resolver.on_conflict = _on_conflict
 
+        from biome_fm.models.vfs import LocalVFS
+        src_vfs = self._source_vfs
+        dst_vfs = self._target_vfs
+        is_cross = not isinstance(src_vfs, LocalVFS)
         if move:
-            cmd: Command = ProgressMoveCmd(sources, dst, self._vfs, cancel, _progress,
+            cmd: Command = ProgressMoveCmd(sources, dst, dst_vfs, cancel, _progress,
                                            conflict_resolver=resolver)
         else:
-            cmd = ProgressCopyCmd(sources, dst, self._vfs, cancel, _progress,
-                                  conflict_resolver=resolver)
+            cmd = ProgressCopyCmd(sources, dst, dst_vfs, cancel, _progress,
+                                  conflict_resolver=resolver,
+                                  src_vfs=src_vfs if is_cross else None,
+                                  verify=verify)
 
         self._pending_cmds[task_id] = cmd
         self._op_queue.submit(cmd, cancel=cancel, task_id=task_id)
@@ -262,6 +299,16 @@ class ManagerPresenter:
 
     def _target(self) -> PanePresenter:
         return self._panes[_OTHER[self._active]]
+
+    @property
+    def _source_vfs(self) -> VFSProtocol:
+        src = self._panes[self._active]
+        return src.vfs if hasattr(src, "vfs") else self._vfs
+
+    @property
+    def _target_vfs(self) -> VFSProtocol:
+        tgt = self._panes[_OTHER[self._active]]
+        return tgt.vfs if hasattr(tgt, "vfs") else self._vfs
 
     def _refresh_both(self) -> None:
         for p in self._panes.values():
@@ -284,6 +331,16 @@ class ManagerPresenter:
         dst.new_tab(path)  # type: ignore[attr-defined]
         src.close_tab(tab_idx)  # type: ignore[attr-defined]
 
+    def chmod_selected(self, items: list[FileItem], mode: int, recursive: bool = False) -> None:
+        if not items:
+            return
+        from biome_fm.commands.chmod_cmd import ChmodCmd
+        paths = [i.path for i in items]
+        # Pass VFS if any path is remote (contains "://")
+        vfs = self._vfs if any("://" in str(p) for p in paths) else None
+        cmd = ChmodCmd(paths, mode, recursive, vfs=vfs)
+        self._run(cmd, cmd.description)
+
     def multi_rename(self, renames: list[tuple[Path, str]]) -> None:
         """Execute batch rename. renames = [(old_path, new_name), ...]"""
         if not renames:
@@ -291,6 +348,18 @@ class ManagerPresenter:
         from biome_fm.commands.multi_rename_cmd import MultiRenameCmd
         pairs = [(p, p.parent / n) for p, n in renames]
         self._run(MultiRenameCmd(pairs, self._vfs), f"Rename {len(renames)} item(s)")
+
+    def pack_to_other_panel(self, items: list[FileItem], fmt: str = "zip") -> None:
+        """Pack items to an archive placed in the opposite pane's directory."""
+        sources = [i.path for i in items if i.name != ".."]
+        if not sources:
+            return
+        stem = sources[0].stem if len(sources) == 1 else self._source().current_path.name
+        dest_dir = self._target().current_path
+        archive_path = dest_dir / f"{stem}.{fmt}"
+        from biome_fm.commands.archive_cmd import ArchiveCmd
+        self._run(ArchiveCmd(sources, archive_path, fmt), f"Pack to {fmt}",
+                  _OpSpec("compress", dst=archive_path, sources=sources))
 
     def compress(self, items: list[FileItem], archive_path: Path) -> None:
         from biome_fm.commands.archive_cmd import ArchiveCmd

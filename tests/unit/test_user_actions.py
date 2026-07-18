@@ -30,3 +30,22 @@ def test_persist_roundtrip(tmp_path: Path) -> None:
     store2 = UserActionsStore(p)
     store2.load()
     assert store2.actions_for(".py")[0].label == "Run"
+
+
+# ── F337: project-scoped user actions ────────────────────────────────────────
+
+import json
+
+def test_load_project_actions(tmp_path: Path) -> None:
+    proj = tmp_path / ".biome-fm"
+    proj.mkdir()
+    (proj / "actions.json").write_text(
+        json.dumps([{"label": "Build", "command": "make", "extensions": []}])
+    )
+    actions = UserActionsStore.load_project(tmp_path)
+    assert len(actions) == 1
+    assert actions[0].label == "Build"
+
+
+def test_load_project_actions_no_file_returns_empty(tmp_path: Path) -> None:
+    assert UserActionsStore.load_project(tmp_path) == []

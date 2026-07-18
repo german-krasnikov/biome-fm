@@ -33,6 +33,12 @@ class SettingsViewProtocol(Protocol):
     def get_show_git_status(self) -> bool: ...
     def set_auto_preview(self, val: bool) -> None: ...
     def get_auto_preview(self) -> bool: ...
+    def set_ui_font_size(self, val: int) -> None: ...
+    def get_ui_font_size(self) -> int: ...
+    def set_reduce_motion(self, val: bool) -> None: ...
+    def get_reduce_motion(self) -> bool: ...
+    def set_high_contrast(self, val: bool) -> None: ...
+    def get_high_contrast(self) -> bool: ...
 
 
 class SettingsPresenter:
@@ -62,6 +68,9 @@ class SettingsPresenter:
         self._view.set_hidden_columns(self._config.hidden_columns)
         self._view.set_show_git_status(self._config.show_git_status)
         self._view.set_auto_preview(self._config.auto_preview)
+        self._view.set_ui_font_size(self._config.ui_font_size)
+        self._view.set_reduce_motion(self._config.reduce_motion)
+        self._view.set_high_contrast(self._config.high_contrast)
 
     def apply(self) -> Config:
         """Read view state → update config → return it."""
@@ -81,4 +90,7 @@ class SettingsPresenter:
         self._config.hidden_columns = self._view.get_hidden_columns()
         self._config.show_git_status = self._view.get_show_git_status()
         self._config.auto_preview = self._view.get_auto_preview()
+        self._config.ui_font_size = self._view.get_ui_font_size()
+        self._config.reduce_motion = self._view.get_reduce_motion()
+        self._config.high_contrast = self._view.get_high_contrast()
         return self._config

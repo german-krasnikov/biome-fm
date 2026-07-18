@@ -61,6 +61,19 @@ class PreviewPresenter:
             )
             self._render_item(item)
 
+    def _auto_detect_mode(self, item: FileItem) -> str:
+        """Return 'hex' for binary files, 'text' otherwise. Pure function, no Qt."""
+        if item.is_dir or item.size == 0:
+            return "text"
+        try:
+            sample = item.path.read_bytes()[:512]
+        except OSError:
+            return "text"
+        if not sample:
+            return "text"
+        non_print = sum(1 for b in sample if b < 9 or 13 < b < 32 or b == 127)
+        return "hex" if non_print / len(sample) > 0.30 else "text"
+
     def toggle_item(self, item: FileItem | None) -> None:
         if item is None or item.name == "..":
             return
@@ -95,11 +108,11 @@ class PreviewPresenter:
             self._view.show_result(hit)
             return
         self._view.set_busy(True)
-        provider = self._get_provider(item.path)
+        provider = self._get_provider(item.path, item)
         req = PreviewRequest(path=item.path, dark=self._dark)
         self._pool.submit(self._run, provider, req, cache_key)
 
-    def _get_provider(self, path: Path):
+    def _get_provider(self, path: Path, item: FileItem | None = None):
         match self._forced_mode:
             case PreviewMode.TEXT:
                 from biome_fm.preview.providers.text import TextPreviewProvider
@@ -116,6 +129,10 @@ class PreviewPresenter:
                 from biome_fm.preview.providers.git_blame import GitBlamePreviewProvider
                 return GitBlamePreviewProvider()
             case _:
+                # Auto-detect binary files → hex; don't override explicit user selection
+                if item is not None and self._auto_detect_mode(item) == "hex":
+                    from biome_fm.preview.providers.hex import HexPreviewProvider
+                    return HexPreviewProvider()
                 return self._registry.find(path)
 
     def _run(self, provider, req: PreviewRequest, cache_key: tuple[Path, float, bool]) -> None:

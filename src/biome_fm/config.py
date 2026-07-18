@@ -37,6 +37,11 @@ class Config:
     editor_cmd: str = ""
     search_history: list[str] = field(default_factory=list)
     layout_profiles: dict[str, dict] = field(default_factory=dict)
+    serial_ops: bool = False
+    ui_font_size: int = 0  # 0 = system default
+    reduce_motion: bool = False
+    high_contrast: bool = False
+    global_hotkey: str = ""  # F321 — e.g. "<ctrl>+<alt>+b"
 
     def save_layout(self, name: str, data: dict) -> None:
         self.layout_profiles[name] = data

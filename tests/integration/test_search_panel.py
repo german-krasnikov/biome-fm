@@ -76,3 +76,11 @@ def test_on_cancelled_shows_status(panel):
     panel.on_cancelled()
     assert not panel._progress.isVisible()
     assert "Cancelled" in panel._status.text()
+
+
+# F224 — Search Result Columns
+def test_search_results_model_has_four_columns():
+    from biome_fm.views.search_panel import SearchResultsModel
+    model = SearchResultsModel()
+    assert model.columnCount() == 4
+    assert model.HEADERS == ("Name", "Location", "Size", "Modified")

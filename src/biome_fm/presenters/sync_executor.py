@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import threading
-from typing import Callable
+from collections.abc import Callable
 
 from biome_fm.presenters.sync_presenter import SyncOp
 
