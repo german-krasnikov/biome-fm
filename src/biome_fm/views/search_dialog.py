@@ -7,8 +7,9 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QDate
 from PySide6.QtWidgets import QDateEdit, QGroupBox
 
-from biome_fm.presenters.search_presenter import SearchFilter, SearchMode, SearchScope
+from biome_fm.presenters.search_presenter import DEFAULT_EXCLUDE, SearchFilter, SearchMode, SearchScope
 from biome_fm.qt import (
+    QCheckBox,
     QComboBox,
     QCompleter,
     QDialog,
@@ -86,6 +87,8 @@ class SearchDialog(QDialog):
         self._scope = QComboBox()
         self._scope.addItem("Subtree", SearchScope.SUBTREE)
         self._scope.addItem("Current dir only", SearchScope.CURRENT_DIR)
+        self._scope.addItem("Selected files", SearchScope.SELECTED_FILES)
+        self._scope.addItem("Both panes", SearchScope.BOTH_PANES)
         form.addRow("Scope:", self._scope)
 
         self._max_results = QSpinBox()
@@ -93,6 +96,19 @@ class SearchDialog(QDialog):
         self._max_results.setValue(1000)
         self._max_results.setSingleStep(100)
         form.addRow("Max results:", self._max_results)
+
+        self._exclude = QLineEdit()
+        self._exclude.setPlaceholderText("comma-separated dir names / fnmatch patterns")
+        self._exclude.setText(", ".join(DEFAULT_EXCLUDE))
+        form.addRow("Exclude dirs:", self._exclude)
+
+        self._case_sensitive = QCheckBox("Aa  Case sensitive")
+        self._whole_word = QCheckBox("\\b  Whole word")
+        flags_row = QHBoxLayout()
+        flags_row.addWidget(self._case_sensitive)
+        flags_row.addWidget(self._whole_word)
+        flags_row.addStretch()
+        form.addRow("Options:", flags_row)
 
         layout.addLayout(form)
 
@@ -127,6 +143,12 @@ class SearchDialog(QDialog):
         self._extensions = QLineEdit()
         self._extensions.setPlaceholderText(".py .txt .md")
         adv_form.addRow("Extensions:", self._extensions)
+
+        self._context_lines = QSpinBox()
+        self._context_lines.setRange(0, 5)
+        self._context_lines.setValue(0)
+        self._context_lines.setToolTip("Lines of context above/below each content match")
+        adv_form.addRow("Context lines:", self._context_lines)
 
         self._adv_box = adv_box
         layout.addWidget(adv_box)
@@ -216,6 +238,25 @@ class SearchDialog(QDialog):
         return self._max_results.value()
 
     @property
+    def case_sensitive(self) -> bool:
+        return self._case_sensitive.isChecked()
+
+    @property
+    def whole_word(self) -> bool:
+        return self._whole_word.isChecked()
+
+    @property
+    def context_lines(self) -> int:
+        return self._context_lines.value()
+
+    @property
+    def exclude_patterns(self) -> list[str]:
+        raw = self._exclude.text().strip()
+        if not raw:
+            return []
+        return [p.strip() for p in raw.split(",") if p.strip()]
+
+    @property
     def search_filter(self) -> SearchFilter | None:
         if not self._adv_box.isChecked():
             return None
@@ -241,9 +282,13 @@ class SearchDialog(QDialog):
         *,
         store: SearchTemplateStore | None = None,
         history: list[str] | None = None,
-    ) -> tuple[str, SearchMode, int, SearchScope, SearchFilter | None] | None:
-        """Show dialog, return (query, mode, max_results, scope, filter) or None if cancelled."""
+    ) -> tuple[str, SearchMode, int, SearchScope, SearchFilter | None, list[str], bool, bool, int] | None:
+        """Show dialog, return (query, mode, max_results, scope, filter, exclude_patterns, case_sensitive, whole_word, context_lines) or None."""
         dlg = SearchDialog(root, parent, store=store, history=history)
         if dlg.exec() == QDialog.DialogCode.Accepted:
-            return dlg.query, dlg.mode, dlg.max_results, dlg.scope, dlg.search_filter
+            return (
+                dlg.query, dlg.mode, dlg.max_results, dlg.scope,
+                dlg.search_filter, dlg.exclude_patterns,
+                dlg.case_sensitive, dlg.whole_word, dlg.context_lines,
+            )
         return None

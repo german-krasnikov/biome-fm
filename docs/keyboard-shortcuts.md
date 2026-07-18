@@ -13,6 +13,21 @@
 | (printable) | Type-to-navigate (JumpBar) |
 | `Ctrl+P` | Command palette / fuzzy finder |
 | `Ctrl+J` | Frecency jump dialog (recent directories) |
+| `Ctrl+Q` | Quick view (inline preview overlay) |
+| `Ctrl+D` | Open hotlist (persistent path shortcuts) |
+| `Ctrl+1`–`Ctrl+9` | Jump to numbered bookmark |
+| `Alt+Ctrl+1`–`Ctrl+9` | Assign current path to numbered bookmark |
+| `Alt+F1` | Drive bar: volume picker for left pane |
+| `Alt+F2` | Drive bar: volume picker for right pane |
+
+### Path Yank (leader sequences — press `y` then the second key)
+
+| Sequence | Copies to clipboard |
+|----------|---------------------|
+| `y n` | File name only |
+| `y p` | Full absolute path |
+| `y d` | Parent directory |
+| `y e` | File extension |
 
 ## File Operations
 
@@ -65,6 +80,7 @@
 | `Ctrl+G` | Select / deselect by pattern |
 | `Shift+Down` | Mark item and advance cursor |
 | `Shift+Up` | Mark item and retreat cursor |
+| `Ctrl+Shift+M` | Show cross-directory marks list |
 
 ## Settings & App
 

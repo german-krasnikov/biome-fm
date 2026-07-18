@@ -298,9 +298,10 @@ wheels = [
 
 [[package]]
 name = "biome-fm"
-version = "0.19.1"
+version = "0.20.0"
 source = { editable = "." }
 dependencies = [
+    { name = "fsspec" },
     { name = "pluggy" },
     { name = "pygments" },
     { name = "pyside6" },
@@ -339,6 +340,7 @@ requires-dist = [
     { name = "anthropic", marker = "extra == 'ai'", specifier = ">=0.30" },
     { name = "blake3", marker = "extra == 'perf'", specifier = ">=0.4" },
     { name = "chromadb", marker = "extra == 'ai'", specifier = ">=0.5" },
+    { name = "fsspec", specifier = ">=2026.6.0" },
     { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.100" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
     { name = "pluggy", specifier = ">=1.4" },

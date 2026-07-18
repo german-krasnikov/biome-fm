@@ -95,6 +95,7 @@ class SearchResultsPanel(QWidget):
     navigate_to_file = Signal(object, str)  # (parent_dir: Path, filename: str)
     stop_requested = Signal()
     context_action_requested = Signal(object, str)  # (SearchResult, action)
+    preview_requested = Signal(object)  # FileItem | None
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -136,6 +137,7 @@ class SearchResultsPanel(QWidget):
         # Table
         self._table = QTableView()
         self._table.setModel(self._model)
+        self._table.selectionModel().currentRowChanged.connect(self._on_row_changed)
         self._table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
         self._table.setShowGrid(False)
         self._table.setAlternatingRowColors(True)
@@ -185,9 +187,17 @@ class SearchResultsPanel(QWidget):
         self._stop_btn.hide()
         self._status.setText(f"Cancelled — {self._model.rowCount()} items found")
 
+    def _on_row_changed(self, current, _previous) -> None:
+        result = self._model.result_at(current.row())
+        if result is not None and not result.item.is_dir:
+            self.preview_requested.emit(result.item)
+        else:
+            self.preview_requested.emit(None)
+
     def clear(self) -> None:
         self._model.clear()
         self._status.setText("Ready")
+        self.preview_requested.emit(None)
 
     def _emit_context_action(self, result: object, action: str) -> None:
         self.context_action_requested.emit(result, action)

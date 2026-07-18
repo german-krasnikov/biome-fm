@@ -1,11 +1,12 @@
 """PreviewPanel — passive sidebar panel. Implements PreviewViewProtocol."""
 from __future__ import annotations
 
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, Signal
-from PySide6.QtGui import QPixmap
+from PySide6.QtCore import QEasingCurve, QEvent, QPropertyAnimation, Qt, Signal
+from PySide6.QtGui import QKeyEvent, QPixmap
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QStackedWidget,
     QTextBrowser,
@@ -79,11 +80,28 @@ class PreviewPanel(QWidget):
         mode_bar.addStretch()
         layout.addLayout(mode_bar)
 
+        # Find bar
+        self._find_bar = QWidget()
+        find_row = QHBoxLayout(self._find_bar)
+        find_row.setContentsMargins(0, 0, 0, 0)
+        find_row.setSpacing(4)
+        find_row.addWidget(QLabel("Find:"))
+        self._find_edit = QLineEdit()
+        self._find_edit.installEventFilter(self)
+        self._find_edit.textChanged.connect(self._find_current)
+        self._find_edit.returnPressed.connect(self._find_next)
+        find_row.addWidget(self._find_edit)
+        self._find_label = QLabel("")
+        find_row.addWidget(self._find_label)
+        self._find_bar.hide()
+        layout.addWidget(self._find_bar)
+
         layout.addWidget(self._stack)
 
     # ── PreviewViewProtocol ──────────────────────────────────────────────
 
     def show_result(self, result: PreviewResult) -> None:
+        self._find_label.setText("")
         match result.kind:
             case ContentKind.IMAGE:
                 px = QPixmap()
@@ -137,6 +155,66 @@ class PreviewPanel(QWidget):
     def hideEvent(self, event: object) -> None:
         super().hideEvent(event)  # type: ignore[arg-type]
         self.visibility_changed.emit(False)
+
+    # ── Find bar ────────────────────────────────────────────────────────
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:  # type: ignore[override]
+        if event.key() == Qt.Key.Key_F and event.modifiers() == Qt.KeyboardModifier.ControlModifier:
+            self._show_find_bar()
+        else:
+            super().keyPressEvent(event)
+
+    def eventFilter(self, obj: object, event: object) -> bool:
+        if obj is self._find_edit and isinstance(event, QEvent):
+            if event.type() == QEvent.Type.KeyPress:
+                assert isinstance(event, QKeyEvent)
+                if event.key() == Qt.Key.Key_Escape:
+                    self._find_bar.hide()
+                    return True
+        return super().eventFilter(obj, event)  # type: ignore[arg-type]
+
+    def _show_find_bar(self) -> None:
+        self._find_bar.show()
+        self._find_edit.setFocus()
+        self._find_edit.selectAll()
+
+    def _find_current(self, text: str) -> None:
+        if not text:
+            self._find_label.setText("")
+            return
+        # Reset cursor to start, then search forward
+        cursor = self._text_view.textCursor()
+        cursor.movePosition(cursor.MoveOperation.Start)
+        self._text_view.setTextCursor(cursor)
+        found = self._text_view.find(text)
+        self._find_label.setText("Found" if found else "Not found")
+
+    def _find_next(self) -> bool:
+        text = self._find_edit.text()
+        if not text:
+            return False
+        found = self._text_view.find(text)
+        if not found:
+            cursor = self._text_view.textCursor()
+            cursor.movePosition(cursor.MoveOperation.Start)
+            self._text_view.setTextCursor(cursor)
+            found = self._text_view.find(text)
+        self._find_label.setText("Found" if found else "Not found")
+        return found
+
+    def _find_prev(self) -> bool:
+        from PySide6.QtGui import QTextDocument
+        text = self._find_edit.text()
+        if not text:
+            return False
+        found = self._text_view.find(text, QTextDocument.FindFlag.FindBackward)
+        if not found:
+            cursor = self._text_view.textCursor()
+            cursor.movePosition(cursor.MoveOperation.End)
+            self._text_view.setTextCursor(cursor)
+            found = self._text_view.find(text, QTextDocument.FindFlag.FindBackward)
+        self._find_label.setText("Found" if found else "Not found")
+        return found
 
     # ── Animation ────────────────────────────────────────────────────────
 

@@ -231,6 +231,35 @@ class DirectoryModel(QAbstractTableModel):
         return None
 
 
+def _scan_worker(
+    vfs: object,
+    path: "Path",
+    cancel: "threading.Event",
+    out_queue: "queue.SimpleQueue",
+    batch_size: int = 50,
+) -> None:
+    """List *path* via *vfs* callable, emit batches into *out_queue*, sentinel None at end."""
+    if cancel.is_set():
+        return
+    try:
+        items = list(vfs(path))  # type: ignore[call-arg]
+    except Exception as exc:
+        if not cancel.is_set():
+            out_queue.put(str(exc))
+        return
+    batch: list = []
+    for item in items:
+        if cancel.is_set():
+            return
+        batch.append(item)
+        if len(batch) >= batch_size:
+            out_queue.put(batch)
+            batch = []
+    if batch:
+        out_queue.put(batch)
+    out_queue.put(None)
+
+
 def _fuzzy_match(pattern: str, text: str) -> bool:
     """True if every char in pattern appears in text in order (subsequence)."""
     it = iter(text.lower())

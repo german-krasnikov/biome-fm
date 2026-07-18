@@ -14,6 +14,7 @@ class ConflictAction(Enum):
     SKIP_ALL = auto()
     RENAME = auto()
     CANCEL = auto()
+    ASK_EACH = auto()
 
 
 def auto_rename(dst: Path) -> Path:
@@ -58,3 +59,18 @@ class ConflictResolver:
     def reset(self) -> None:
         """Reset apply_all state for a new operation."""
         self._apply_all = None
+
+
+class PreCopyConflictResolver:
+    """Pre-decided conflict strategy — returns the same action for every conflict."""
+
+    def __init__(self, action: ConflictAction, fallback: "ConflictResolver | None" = None) -> None:
+        self._action = action
+        self._fallback = fallback
+
+    def ask(self, src: Path, dst: Path) -> ConflictAction:
+        if self._action == ConflictAction.ASK_EACH:
+            if self._fallback is not None:
+                return self._fallback.ask(src, dst)
+            return ConflictAction.CANCEL
+        return self._action

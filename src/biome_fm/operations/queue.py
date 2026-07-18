@@ -32,6 +32,7 @@ class OpQueue:
         self._pool = ThreadPoolExecutor(max_workers=max_workers)
         self._events: queue.SimpleQueue[OpEvent] = queue.SimpleQueue()
         self._tasks: dict[int, OpTask] = {}
+        self._failed: dict[int, OpTask] = {}
         self._lock = threading.Lock()
 
     def next_task_id(self) -> int:
@@ -60,6 +61,17 @@ class OpQueue:
         if task:
             task.cancel.set()
 
+    def retry(self, task_id: int) -> "OpTask | None":
+        with self._lock:
+            task = self._failed.pop(task_id, None)
+        if task is None:
+            return None
+        return self.submit(task.cmd, task.cancel, task_id=task_id)
+
+    def skip(self, task_id: int) -> None:
+        with self._lock:
+            self._failed.pop(task_id, None)
+
     def drain(self) -> list[OpEvent]:
         """Pull all pending events — call from main thread on QTimer."""
         events: list[OpEvent] = []
@@ -86,6 +98,8 @@ class OpQueue:
             self._events.put(OpCancelled(task.task_id))
         except Exception as exc:
             self._events.put(OpError(task.task_id, exc))
+            with self._lock:
+                self._failed[task.task_id] = task
         finally:
             with self._lock:
                 self._tasks.pop(task.task_id, None)

@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import tarfile
+import threading
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
 
 from biome_fm.commands.base import Command
+from biome_fm.operations.task import Cancelled
 
 
 class ArchiveCmd(Command):
@@ -37,6 +40,73 @@ class ArchiveCmd(Command):
         except (zipfile.BadZipFile, tarfile.TarError, OSError, PermissionError) as e:
             self._archive_path.unlink(missing_ok=True)
             raise RuntimeError(f"Archive creation failed: {e}") from e
+
+    def undo(self) -> None:
+        self._archive_path.unlink(missing_ok=True)
+
+    @property
+    def description(self) -> str:
+        return f"Archive {len(self._sources)} item(s)"
+
+
+_VALID_FMTS = frozenset({"zip", "tar.gz", "tar.bz2"})
+
+
+class ProgressArchiveCmd(Command):
+    """Archive with cancel + per-file progress callback."""
+
+    undoable = True
+
+    def __init__(
+        self,
+        sources: list[Path],
+        archive_path: Path,
+        fmt: str,
+        cancel: threading.Event,
+        progress: Callable[..., None],
+    ) -> None:
+        self._sources = sources
+        self._archive_path = archive_path
+        self._fmt = fmt
+        self._cancel = cancel
+        self._progress = progress
+
+    def execute(self) -> None:
+        if self._fmt not in _VALID_FMTS:
+            raise ValueError(f"Unknown archive format: {self._fmt!r}")
+        files = self._collect_files()
+        try:
+            if self._fmt in ("tar.gz", "tar.bz2"):
+                mode = "w:gz" if self._fmt == "tar.gz" else "w:bz2"
+                with tarfile.open(self._archive_path, mode) as tf:
+                    for i, (src, arcname) in enumerate(files):
+                        if self._cancel.is_set():
+                            raise Cancelled()
+                        tf.add(src, arcname=arcname)
+                        self._progress(i + 1, len(files), 0, 0, src.name)
+            else:
+                with zipfile.ZipFile(self._archive_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                    for i, (src, arcname) in enumerate(files):
+                        if self._cancel.is_set():
+                            raise Cancelled()
+                        zf.write(src, arcname)
+                        self._progress(i + 1, len(files), 0, 0, src.name)
+        except Cancelled:
+            self._archive_path.unlink(missing_ok=True)
+            raise
+
+    def _collect_files(self) -> list[tuple[Path, str]]:
+        files: list[tuple[Path, str]] = []
+        for src in self._sources:
+            if src.is_dir():
+                for f in src.rglob("*"):
+                    if self._cancel.is_set():
+                        raise Cancelled()
+                    if f.is_file():
+                        files.append((f, str(f.relative_to(src.parent))))
+            else:
+                files.append((src, src.name))
+        return files
 
     def undo(self) -> None:
         self._archive_path.unlink(missing_ok=True)

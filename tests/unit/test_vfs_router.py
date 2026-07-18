@@ -46,10 +46,11 @@ def test_parent_of_archive_uses_local(zip_archive: Path) -> None:
     assert any(i.name == zip_archive.name for i in items)
 
 
-def test_write_through_archive_raises(zip_archive: Path, tmp_path: Path) -> None:
+def test_copy_from_archive_extracts(zip_archive: Path, tmp_path: Path) -> None:
     router = VFSRouter()
-    with pytest.raises(NotImplementedError):
-        router.copy(zip_archive / "inside.txt", tmp_path / "out.txt")
+    out = tmp_path / "out.txt"
+    router.copy(zip_archive / "inside.txt", out)
+    assert out.exists()
 
 
 def test_exists_inside_archive(zip_archive: Path) -> None:

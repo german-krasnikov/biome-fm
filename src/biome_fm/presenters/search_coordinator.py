@@ -54,12 +54,14 @@ class SearchCoordinator:
         self._presenter = None
         self._queue: queue.SimpleQueue = queue.SimpleQueue()
         self._all_results: list = []
+        self._cancel_flag = threading.Event()
 
     def request_search(self) -> None:
         """Show search dialog, cancel any in-progress, start thread. Call on main thread."""
-        from biome_fm.presenters.search_presenter import SearchPresenter
+        from biome_fm.presenters.search_presenter import SearchPresenter, SearchScope
         from biome_fm.views.search_dialog import SearchDialog
 
+        self._cancel_flag.clear()
         if self._presenter is not None:
             self._presenter.cancel()
         self._queue = queue.SimpleQueue()
@@ -71,22 +73,81 @@ class SearchCoordinator:
         )
         if params is None:
             return
-        query, mode, max_results, scope, filt = params
+        query, mode, max_results, scope, filt, exclude_patterns, case_sensitive, whole_word, context_lines = params
         self._history = add_to_history(self._history, query)
         if self._on_history_update is not None:
             self._on_history_update(self._history)
-        self._presenter = SearchPresenter(self._vfs, active.current_path)
         self._panel.on_search_started(query)
         self._coord.toggle("search", self._manager.active_pane_id)
         q = self._queue
 
+        if scope == SearchScope.SELECTED_FILES:
+            marked = active.marked_items  # type: ignore[attr-defined]
+
+            def _run_selected() -> None:
+                try:
+                    if not marked:
+                        return
+                    p = SearchPresenter(self._vfs, active.current_path)
+                    self._presenter = p
+                    for item in marked:
+                        if self._cancel_flag.is_set():
+                            return
+                        result = p.match_item(
+                            item, query, mode,
+                            case_sensitive=case_sensitive,
+                            whole_word=whole_word,
+                            context_lines=context_lines,
+                        )
+                        if result is not None:
+                            q.put(result)
+                finally:
+                    q.put(self._CANCELLED if self._cancel_flag.is_set() else None)
+
+            threading.Thread(target=_run_selected, daemon=True).start()
+            return
+
+        if scope == SearchScope.BOTH_PANES:
+            inactive_path = self._manager.inactive_pane.current_path  # type: ignore[union-attr]
+            roots = list(dict.fromkeys([active.current_path, inactive_path]))
+
+            def _run_both() -> None:
+                try:
+                    for root in roots:
+                        if self._cancel_flag.is_set():
+                            return
+                        p = SearchPresenter(self._vfs, root)
+                        self._presenter = p
+                        p.search(
+                            query, mode=mode, max_results=max_results,
+                            on_match=q.put, scope=SearchScope.SUBTREE, filter=filt,
+                            exclude_patterns=exclude_patterns,
+                            case_sensitive=case_sensitive, whole_word=whole_word,
+                            context_lines=context_lines,
+                        )
+                        if p.is_cancelled:
+                            return
+                finally:
+                    q.put(self._CANCELLED if self._cancel_flag.is_set() else None)
+
+            threading.Thread(target=_run_both, daemon=True).start()
+            return
+
+        # Default: SUBTREE / CURRENT_DIR
+        self._presenter = SearchPresenter(self._vfs, active.current_path)
+
         def _run() -> None:
-            self._presenter.search(  # type: ignore[union-attr]
-                query, mode=mode, max_results=max_results,
-                on_match=q.put, scope=scope, filter=filt,
-            )
-            sentinel = self._CANCELLED if self._presenter._cancel.is_set() else None  # type: ignore[union-attr]
-            q.put(sentinel)
+            try:
+                self._presenter.search(  # type: ignore[union-attr]
+                    query, mode=mode, max_results=max_results,
+                    on_match=q.put, scope=scope, filter=filt,
+                    exclude_patterns=exclude_patterns,
+                    case_sensitive=case_sensitive, whole_word=whole_word,
+                    context_lines=context_lines,
+                )
+            finally:
+                sentinel = self._CANCELLED if self._presenter.is_cancelled else None  # type: ignore[union-attr]
+                q.put(sentinel)
 
         threading.Thread(target=_run, daemon=True).start()
 
@@ -120,6 +181,7 @@ class SearchCoordinator:
                     self._on_search_completed(list(self._all_results))
 
     def cancel(self) -> None:
+        self._cancel_flag.set()
         if self._presenter is not None:
             self._presenter.cancel()
 

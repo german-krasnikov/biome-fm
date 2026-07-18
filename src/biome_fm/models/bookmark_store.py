@@ -142,7 +142,21 @@ class BookmarkStore:
     def __init__(self, path: Path) -> None:
         self._path = path
         self._nodes: list[BookmarkNode] = []
+        self._numbered: dict[int, Path] = {}
         self._load()
+
+    # ── numbered slots (Ctrl+1–9) ─────────────────────────────────────────────
+
+    def set_numbered(self, slot: int, path: Path) -> None:
+        if slot not in range(1, 10):
+            raise ValueError(f"slot must be 1-9, got {slot}")
+        self._numbered[slot] = path
+
+    def get_numbered(self, slot: int) -> Path | None:
+        return self._numbered.get(slot)
+
+    def clear_numbered(self, slot: int) -> None:
+        self._numbered.pop(slot, None)
 
     # ── tree API ──────────────────────────────────────────────────────────────
 

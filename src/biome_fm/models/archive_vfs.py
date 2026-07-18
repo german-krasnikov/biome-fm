@@ -1,10 +1,13 @@
 """Read-only VFS for zip and tar.gz archives."""
 from __future__ import annotations
 
+import io
 import tarfile
 import zipfile
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
+from typing import Generator
 
 from biome_fm.models.file_item import FileItem
 
@@ -18,7 +21,41 @@ class ArchiveVFS:
 
     def listdir(self, path: Path) -> list[FileItem]:
         prefix = self._internal_path(path)
-        return self._list_tar(prefix) if self._is_tar else self._list_zip(prefix)
+        try:
+            return self._list_tar(prefix) if self._is_tar else self._list_zip(prefix)
+        except OSError:
+            raise
+        except Exception as exc:
+            raise OSError(str(exc)) from exc
+
+    def read_bytes(self, path: Path) -> bytes:
+        if self._archive.stat().st_size > 100 * 1024 * 1024:
+            raise OSError("archive too large for content search")
+        internal = self._internal_path(path)
+        try:
+            if self._is_tar:
+                with tarfile.open(self._archive) as tf:
+                    f = tf.extractfile(tf.getmember(internal))
+                    return f.read() if f is not None else b""
+            else:
+                with zipfile.ZipFile(self._archive) as zf:
+                    return zf.read(internal)
+        except OSError:
+            raise
+        except Exception as exc:
+            raise OSError(str(exc)) from exc
+
+    @contextmanager
+    def open_file(self, path: Path) -> Generator[io.BytesIO, None, None]:
+        """Return a file-like object for reading an archive entry."""
+        internal = self._internal_path(path)
+        if self._is_tar:
+            with tarfile.open(self._archive) as tf:
+                f = tf.extractfile(tf.getmember(internal))
+                yield io.BytesIO(f.read() if f is not None else b"")
+        else:
+            with zipfile.ZipFile(self._archive) as zf:
+                yield io.BytesIO(zf.read(internal))
 
     def stat(self, path: Path) -> FileItem:
         internal = self._internal_path(path)

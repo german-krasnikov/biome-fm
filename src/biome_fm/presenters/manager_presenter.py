@@ -87,6 +87,10 @@ class ManagerPresenter:
         return self._active
 
     @property
+    def inactive_pane(self) -> PanePresenter:
+        return self._panes[_OTHER[self._active]]
+
+    @property
     def can_undo(self) -> bool:
         return self._history.can_undo
 

@@ -45,13 +45,39 @@ class VFSRouter:
         vfs, p = self._resolve(path)
         return vfs.stat(p)
 
+    def read_bytes(self, path: Path) -> bytes:
+        vfs, p = self._resolve(path)
+        return vfs.read_bytes(p)
+
     def exists(self, path: Path) -> bool:
         vfs, p = self._resolve(path)
         return vfs.exists(p)
 
+    def open_file(self, path: Path):
+        vfs, p = self._resolve(path)
+        return vfs.open_file(p)
+
     def copy(self, src: Path, dst: Path) -> None:
         vfs, _ = self._resolve(src)
-        vfs.copy(src, dst)
+        if isinstance(vfs, ArchiveVFS):
+            self._extract(vfs, src, dst)
+        else:
+            vfs.copy(src, dst)
+
+    def _extract(self, vfs: ArchiveVFS, src: Path, dst: Path) -> None:
+        try:
+            info = vfs.stat(src)
+            is_dir = info.is_dir
+        except (KeyError, OSError):
+            is_dir = False
+        if is_dir:
+            dst.mkdir(parents=True, exist_ok=True)
+            for item in vfs.listdir(src):
+                self._extract(vfs, item.path, dst / item.name)
+        else:
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            with vfs.open_file(src) as f:
+                dst.write_bytes(f.read())
 
     def move(self, src: Path, dst: Path) -> None:
         vfs, _ = self._resolve(src)

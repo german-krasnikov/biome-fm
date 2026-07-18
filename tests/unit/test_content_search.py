@@ -32,10 +32,9 @@ def test_content_regex_invalid_no_crash(src_file: Path) -> None:
     assert results == []
 
 
-def test_line_number_in_context(src_file: Path) -> None:
+def test_match_line_in_context(src_file: Path) -> None:
     results = SearchPresenter(LocalVFS(), src_file).search(
         r"def \w+", mode=SearchMode.CONTENT_REGEX
     )
     assert len(results) == 1
-    # context must contain line number prefix ":N:"
-    assert results[0].context.startswith(":2:")
+    assert "def foo" in results[0].context

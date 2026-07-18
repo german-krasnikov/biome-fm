@@ -116,9 +116,27 @@ src/biome_fm/
 │   ├── user_actions.py     # UserActionsStore + UserAction(label, command, extensions);
 │   │                        #   add/update/remove/all/actions_for(suffix)/save/load;
 │   │                        #   JSON persistence; filtered by extension list or all if empty
-│   └── volume_watcher.py   # VolumeWatcher (QObject) — polls OS for hot-plug volumes (3s timer);
-│                            #   volume_added/volume_removed Signals(Path);
-│                            #   macOS: /Volumes; Linux: /proc/mounts; Windows: drive letters
+│   ├── volume_watcher.py   # VolumeWatcher (QObject) — polls OS for hot-plug volumes (3s timer);
+│   │                       #   volume_added/volume_removed Signals(Path);
+│   │                       #   macOS: /Volumes; Linux: /proc/mounts; Windows: drive letters
+│   ├── archive_7z.py       # SevenZipVFS: read-only VFS for .7z via py7zr (optional dep);
+│   │                       #   RarVFS: read-only VFS for .rar via rarfile (optional dep);
+│   │                       #   both reuse _child_of() from archive_vfs.py; listdir + read_bytes
+│   ├── fsspec_vfs.py       # FsspecVFS: VFS adapter for any fsspec protocol (S3, FTP, WebDAV);
+│   │                       #   __init__(url, **storage_options) — protocol extracted from url;
+│   │                       #   listdir/stat/exists/read_bytes/copy/put/get/move/delete/mkdir;
+│   │                       #   guards against missing fsspec with ImportError on construction
+│   ├── opener_rules.py     # Declarative file-opener rules loaded from TOML;
+│   │                       #   OpenerRule(match, cmd) — glob pattern + command template with {};
+│   │                       #   load_rules(path) → list[OpenerRule]; find_opener(rules, filename)
+│   │                       #   → first matching cmd | None (case-insensitive fnmatch)
+│   ├── ssh_profiles.py     # SSHProfile(name, host, port, user, key_path) — no passwords stored;
+│   │                       #   SSHProfileStore: TOML-backed add/get/delete/list_all/save/load;
+│   │                       #   import_ssh_config(path) parses OpenSSH config Host entries
+│   │                       #   (skips wildcard hosts); TOML: [profiles.<name>] sections
+│   └── sync_profiles.py    # SyncProfile(name, src, dst, exclude, mirror) dataclass;
+│                            #   SyncProfileStore: TOML-backed add/get/delete/list_all/save/load;
+│                            #   TOML: [profiles.<name>] sections; _esc() escapes TOML strings
 │
 ├── presenters/
 │   ├── pane_presenter.py     # Drives one pane (cd, select, sort, current_item);
@@ -175,9 +193,59 @@ src/biome_fm/
 │   ├── info_presenter.py     # InfoPresenter(view) — updates InfoPanel on cursor change;
 │   │                         #   on_cursor_changed(item | None) → view.update_fields(dict);
 │   │                         #   fields: name, size_str, mtime, permissions, mime type
-│   └── fuzzy_presenter.py    # FuzzyPresenter — Qt-free fuzzy file finder;
-│                               #   scan(root, cancel, on_done) walks MAX_DEPTH=5, MAX_FILES=10k;
-│                               #   filter(query, paths) → top 100 by difflib.SequenceMatcher score
+│   ├── fuzzy_presenter.py    # FuzzyPresenter — Qt-free fuzzy file finder;
+│   │                         #   scan(root, cancel, on_done) walks MAX_DEPTH=5, MAX_FILES=10k;
+│   │                         #   filter(query, paths) → top 100 by difflib.SequenceMatcher score
+│   ├── ai_diff_summary.py    # diff_summary_prompt(diff) → str; async summarize_diff(diff, ai_call)
+│   │                         #   → summary string; truncates diff at 4000 chars before sending
+│   ├── ai_group_rename.py    # async group_rename(names, ai_call) → list[str]; builds prompt asking
+│   │                         #   AI to rename list coherently; parse_group_response validates count
+│   ├── column_state.py       # ColumnState — tracks hidden columns (Name always visible);
+│   │                         #   is_visible/set_visible/toggle/visible_columns; 4 columns: Name/Size/Modified/Kind
+│   ├── copy_filter.py        # filter_by_mask(paths, mask) → list[Path];
+│   │                         #   comma-separated glob patterns (e.g. "*.py,*.js"); case-insensitive fnmatch
+│   ├── cross_marks.py        # CrossDirMarks — aggregated marks across multiple directories (no Qt);
+│   │                         #   add/remove per directory; all_paths() flattens; count(); clear()
+│   ├── drive_list.py         # VolumeInfo(root, name, free_bytes, total_bytes) dataclass;
+│   │                         #   list_volumes() → list[VolumeInfo] via QStorageInfo.mountedVolumes()
+│   ├── hotlist.py            # Hotlist(store) — thin wrapper over FrecencyStore.top();
+│   │                         #   items(limit=10) → deduplicated list[Path] ordered by frecency score
+│   ├── leader_handler.py     # LeaderHandler — vim-style leader key sequence dispatcher (no Qt);
+│   │                         #   register(sequence, action); feed(key) → 'pending'|'triggered'|'reset';
+│   │                         #   available() → [(remaining_keys, sequence)] for current prefix
+│   ├── miller_state.py       # MillerState — columns navigation state (max MAX_COLUMNS=4);
+│   │                         #   select_dir(path) appends column, evicts oldest when full;
+│   │                         #   go_back() → bool; active_column property; columns property
+│   ├── path_yank.py          # yank_component(path, key) → str | None;
+│   │                         #   keys: n=name, p=full path, d=parent dir, e=extension
+│   ├── predictive_dest.py    # suggest_destination(file_path, frecency, current_dir) → Path | None;
+│   │                         #   finds frecency-ranked dir containing files with same extension
+│   ├── project_actions.py    # ProjectAction(label, command) dataclass;
+│   │                         #   detect_actions(directory) → list[ProjectAction]; checks for .git,
+│   │                         #   pyproject.toml, package.json, go.mod; returns relevant commands
+│   ├── quick_view_state.py   # QuickViewState — saves/restores splitter sizes for quick-view mode;
+│   │                         #   toggle(current_sizes) → new_sizes; active property;
+│   │                         #   expand: sets right pane to 0; restore: returns saved sizes
+│   ├── rename_template.py    # TC-style multi-rename token expander;
+│   │                         #   expand_template(template, path, index, counter_start) → str;
+│   │                         #   tokens: [N]=stem, [E]=ext, [C]/[C:n]=counter (zero-padded 3), [YMD]=mtime
+│   ├── semantic_search.py    # Keyword-based semantic search (no Qt, no ML);
+│   │                         #   extract_keywords(query) strips stopwords; score_path(path, kws);
+│   │                         #   search_by_keywords(paths, query) → list[(path, score)] sorted desc
+│   ├── sync_conflict.py      # SyncConflict(path, left_mtime, right_mtime) dataclass;
+│   │                         #   SyncSnapshot: JSON-backed per-pair {filename: {left_mtime, right_mtime}};
+│   │                         #   find_conflicts(entries, snapshot) → entries where both sides changed;
+│   │                         #   update_snapshot(entries, snapshot) records current mtimes
+│   ├── sync_executor.py      # SyncExecutor — VFS-agnostic sync op runner;
+│   │                         #   execute(ops) → int (done count); cancel threading.Event checked per op;
+│   │                         #   progress(done, total, name) callback; delete_orphan ops skipped (planned)
+│   ├── sync_presenter.py     # SyncOp(action, src, dst, size) dataclass;
+│   │                         #   Direction = "left_to_right" | "right_to_left" | "newer_wins";
+│   │                         #   preview_sync(entries, direction, left_root, right_root, exclude, mirror)
+│   │                         #   → list[SyncOp] (no filesystem access); build_sync_commands() → SyncPair list
+│   └── uri_parser.py         # ParsedURI(scheme, host, port, path, username) dataclass;
+│                              #   detect_scheme(text) → scheme | None; known: sftp/ssh/s3/ftp/ftps/webdav;
+│                              #   parse_uri(text) → ParsedURI via urllib.parse.urlparse
 │
 ├── views/
 │   ├── main_window.py    # QMainWindow: splitter, closeEvent, splitter_sizes persistence,
@@ -339,17 +407,34 @@ src/biome_fm/
 │   ├── new_file_cmd.py     # NewFileCmd(path, content=b"") — creates file, undo=unlink; undoable
 │   ├── symlink_cmd.py      # SymlinkCmd(target, link) — symlink_to; undo=unlink; undoable;
 │   │                        #   HardlinkCmd(target, link) — os.link; undo=unlink; undoable
-│   └── trash_cmd.py        # TrashCmd(paths) — send2trash per path; not undoable;
-│                            #   graceful degradation: warns + unlink if send2trash unavailable
+│   ├── trash_cmd.py        # TrashCmd(paths) — send2trash per path; not undoable;
+│   │                       #   graceful degradation: warns + unlink if send2trash unavailable
+│   └── replace_cmd.py      # ReplaceCmd(path, query, replacement, regex=False) — in-place text replace;
+│                            #   atomic write: .bak backup → .tmp write → rename; undoable via .bak restore;
+│                            #   execute() → ReplaceResult(path, count, preview); uses _decode_content;
+│                            #   search_replace(paths, query, replacement, regex, dry_run) batch helper
 │
 ├── git/
 │   ├── status_cache.py     # GitStatusCache — TTL=10s dict[repo_path → RepoStatus];
 │   │                       #   thread-safe (RLock); find_repo(path) walks to .git;
 │   │                       #   RepoStatus(statuses: dict[Path, XY_code], dirty_dirs, fetched_at);
 │   │                       #   invalidate(repo) clears cache entry for forced refresh
-│   └── worker.py           # GitStatusWorker (QObject) — fetches git status off main thread;
-│                            #   request(dir_path): deduplicates by repo, submits to ThreadPoolExecutor;
-│                            #   100ms QTimer drains queue.SimpleQueue → emits status_ready(RepoStatus)
+│   ├── worker.py           # GitStatusWorker (QObject) — fetches git status off main thread;
+│   │                       #   request(dir_path): deduplicates by repo, submits to ThreadPoolExecutor;
+│   │                       #   100ms QTimer drains queue.SimpleQueue → emits status_ready(RepoStatus)
+│   ├── branch_ops.py       # Pure-Python git branch ops (no Qt);
+│   │                       #   list_branches(repo) → list[str]; current_branch(repo) → name |
+│   │                       #   '(detached)' | '' on error; switch_branch(repo, branch) raises
+│   │                       #   RuntimeError on dirty tree or timeout
+│   ├── commit_ops.py       # Pure-Python git staging/commit (no Qt);
+│   │                       #   stage_files/unstage_files(repo, paths); staged_files(repo) → list[str];
+│   │                       #   commit(repo, message) → short hash; raises ValueError (empty msg)
+│   │                       #   or RuntimeError on git failure
+│   └── conflict_ops.py     # ConflictMarker(line, marker, label) frozen dataclass;
+│                            #   ConflictRegion(start, separator, end, ours, theirs) dataclass;
+│                            #   conflicted_files(repo) → list[str] (git diff --diff-filter=U);
+│                            #   find_conflict_markers(path) → list[ConflictMarker];
+│                            #   parse_conflict_regions(path) → list[ConflictRegion]
 │
 ├── operations/
 │   ├── queue.py          # OpQueue: asyncio + ThreadPoolExecutor;
@@ -393,8 +478,22 @@ src/biome_fm/
 │       ├── script.py     # ScriptPreviewProvider + ScriptSpec(extensions, command, priority);
 │       │                 #   load_script_providers(dir) reads *.toml to build providers;
 │       │                 #   command uses %f placeholder for file path; 5s timeout
-│       └── sqlite_preview.py # SqlitePreviewProvider (priority=5); .db/.sqlite/.sqlite3;
-│                             #   opens read-only (URI mode); lists up to 5 tables × 20 rows as HTML
+│       ├── sqlite_preview.py # SqlitePreviewProvider (priority=5); .db/.sqlite/.sqlite3;
+│       │                     #   opens read-only (URI mode); lists up to 5 tables × 20 rows as HTML
+│       ├── csv_preview.py    # CsvTableProvider (priority=6); .csv/.tsv; 10MB limit; 50 row cap;
+│       │                     #   _detect_delim() sniffs ,/;/tab from first 4KB; renders HTML table
+│       ├── dotenv.py         # EnvFileProvider (priority=8); .env and .env.* files;
+│       │                     #   masks values with *** via regex (KEY=*** format); returns TEXT kind
+│       ├── json_tree.py      # JsonTreeProvider (priority=5); .json/.xml/.yaml/.yml/.toml; 512KB limit;
+│       │                     #   collapsible HTML <details> tree; YAML needs pyyaml (falls back to TEXT);
+│       │                     #   XML via stdlib ET; TOML via tomllib/tomli
+│       ├── notebook.py       # NotebookProvider (priority=4); .ipynb; 4MB limit;
+│       │                     #   renders code/markdown/raw cells + first 10 output lines as HTML;
+│       │                     #   no nbconvert dependency — pure JSON parse
+│       └── office.py         # OfficeProvider (priority=3); .docx/.xlsx/.pptx; 2MB limit;
+│                             #   requires optional: python-docx, openpyxl, python-pptx;
+│                             #   _docx: paragraph text; _xlsx: first 50 rows as table;
+│                             #   _pptx: text per slide with slide numbers
 │
 ├── themes/
 │   ├── _base.qss.tmpl    # string.Template QSS; uses $base $surface $accent etc (10 tokens)
@@ -472,8 +571,11 @@ src/biome_fm/
     │                     #   check → set_status instead of show_error); passed to TabsPresenter as opener=
     ├── encoding.py       # detect_encoding(data) → str (chardet if available, else "utf-8");
     │                     #   decode_smart(data) → (text, enc_name); never raises
-    └── panelize.py       # parse_shell_output(stdout, cwd) → list[FileItem];
-                          #   parses stdout lines as paths; resolves relative to cwd; skips non-existent
+    ├── panelize.py       # parse_shell_output(stdout, cwd) → list[FileItem];
+    │                     #   parses stdout lines as paths; resolves relative to cwd; skips non-existent
+    └── transfer_stats.py # TransferStats — EWMA-smoothed (α=0.3) transfer speed tracker (no Qt);
+                          #   update(t, bytes_done, bytes_total); speed_bps() → float; eta_seconds();
+                          #   format_speed(bps) → "1.2 MB/s"; format_eta(secs) → "2m 30s"
 ```
 
 ## Patterns
@@ -670,8 +772,14 @@ Provider priority (ascending = higher wins; first `can_handle` match used):
 | ImagePreviewProvider | 0 | jpg/png/gif/webp/svg/bmp/tiff/ico | 50 MB |
 | GitBlamePreviewProvider | 2 | any file in git repo (mode: Blame) | — |
 | GitLogPreviewProvider | 2 | any file in git repo (mode: Log) | — |
+| OfficeProvider | 3 | .docx/.xlsx/.pptx | 2 MB |
+| NotebookProvider | 4 | .ipynb | 4 MB |
+| JsonTreeProvider | 5 | .json/.xml/.yaml/.yml/.toml | 512 KB |
 | MarkdownPreviewProvider | 5 | .md/.markdown/.mdx/.mdown | 200 KB |
 | SqlitePreviewProvider | 5 | .db/.sqlite/.sqlite3 | — |
+| CsvTableProvider | 6 | .csv/.tsv | 10 MB |
+| EnvFileProvider | 8 | .env / .env.* | — |
+| CodePreviewProvider | 8 | Pygments-supported (not TextLexer) | 512 KB |
 | TextPreviewProvider | 10 | .py/.js/.ts/.toml/.json + 20 more | 256 KB |
 | ScriptPreviewProvider | 50 (default) | configured extensions (.toml spec) | — |
 | FallbackProvider | 999 | * (always) | — |

@@ -1,6 +1,8 @@
 """Application configuration — TOML persistence."""
 from __future__ import annotations
 
+import shutil
+import time
 import tomllib
 from dataclasses import dataclass, field, fields
 from pathlib import Path
@@ -100,3 +102,14 @@ def save_config(cfg: Config, path: Path) -> None:
         else:
             lines.append(f"{f.name} = {val}")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _rotate_config_backup(cfg_path: Path, keep: int = 7) -> None:
+    """Copy cfg_path to a timestamped .bak file, keeping at most `keep` backups."""
+    if not cfg_path.exists():
+        return
+    backups = sorted(cfg_path.parent.glob(f"{cfg_path.stem}.bak.*"))
+    # delete oldest first to stay under the cap after the new backup is added
+    for old in backups[: max(0, len(backups) - keep + 1)]:
+        old.unlink()
+    shutil.copy2(cfg_path, cfg_path.parent / f"{cfg_path.stem}.bak.{int(time.time())}")

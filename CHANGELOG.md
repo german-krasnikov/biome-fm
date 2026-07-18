@@ -3,6 +3,73 @@
 All notable changes to Biome FM are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.21.0] — 2026-07-18
+
+### Added
+
+**Search**
+- Exclusion patterns (`-pattern` prefix) in search queries
+- Case-sensitive and whole-word match toggles
+- Multi-pattern AND search (space-separated terms all must match)
+- Context lines: show N lines before/after each match (like `grep -C`)
+- Archive content search: search inside zip/tar/7z members
+- Search scope selector: current directory, subtree, or all open tabs
+
+**Sync**
+- Dry-run preview mode: shows what would change before executing
+- Mirror mode: delete destination files not present in source
+- Exclude-pattern list: skip files by glob during sync
+- Conflict detection with per-file Overwrite / Skip / Auto-Rename resolution
+- Session profiles: save and reload sync configurations (`SyncProfiles`)
+
+**Git**
+- Branch switcher dialog: list, checkout, and create branches in-app (`git/branch_ops.py`)
+- In-app commit dialog: stage files, write message, push (`git/commit_ops.py`)
+- Conflict navigator: step through merge conflicts with inline accept/reject (`git/conflict_ops.py`)
+
+**Preview**
+- `.env` files: secret values masked (`***`) by default; click to reveal (`preview/providers/dotenv.py`)
+- CSV: rendered as sortable HTML table with column headers (`preview/providers/csv_preview.py`)
+- JSON / XML: collapsible tree view (`preview/providers/json_tree.py`)
+- Jupyter notebooks: cells rendered with code and outputs (`preview/providers/notebook.py`)
+- Office documents (`.docx` / `.xlsx` / `.pptx`): text extraction preview (`preview/providers/office.py`)
+
+**Navigation**
+- URI navigation in breadcrumb: type `sftp://user@host/path` or `s3://bucket/key` to navigate (`uri_parser.py`)
+- Numbered bookmarks: `Ctrl+1`–`Ctrl+9` jump to slot; `Alt+Ctrl+1`–`9` assign current path
+- Hotlist (`Ctrl+D`): TC-style persistent path shortcuts (`presenters/hotlist.py`)
+- Path yank leader sequences: `y n` (name), `y p` (full path), `y d` (directory), `y e` (extension)
+- Quick view (`Ctrl+Q`): inline preview overlay without opening the preview pane (`quick_view_state.py`)
+- Drive bar `Alt+F1` / `Alt+F2`: volume picker for left / right pane (`presenters/drive_list.py`)
+
+**Developer**
+- Project action bar: detected project type (Python/Node/Rust/…) shows contextual actions (`project_actions.py`)
+- Panelize: pipe any shell command's stdout into the active pane as a virtual file list (`utils/panelize.py`)
+- Leader key sequences: multi-key bindings configurable per-user (`presenters/leader_handler.py`)
+
+**Configuration**
+- Config backup: 7 rolling backups on every save (`~/.config/biome-fm/config.toml.bak.N`)
+- External diff tool: `Config.diff_tool` — command invoked by the Diff dialog instead of the built-in viewer
+- Opener rules TOML: `~/.config/biome-fm/opener_rules.toml` — glob → command mapping with priority (`models/opener_rules.py`)
+- Column visibility: hide/show Name/Size/Modified/Ext/Git per-pane; persisted in config (`presenters/column_state.py`)
+
+**Archives**
+- 7z and RAR read support via `py7zr` / `rarfile` (`models/archive_7z.py`)
+- fsspec-backed VFS: browse S3 (`s3://`), FTP (`ftp://`), WebDAV (`webdav://`) as local directories (`models/fsspec_vfs.py`)
+
+**AI**
+- Semantic search: natural-language query over file-index (`presenters/semantic_search.py`)
+- Group rename: AI suggests cohesive filenames for a multi-file selection (`presenters/ai_group_rename.py`)
+- Diff summary: one-sentence AI description of uncommitted git changes on the focused file (`presenters/ai_diff_summary.py`)
+- Predictive destination: AI pre-fills the copy/move target path based on recent usage (`presenters/predictive_dest.py`)
+
+**Advanced**
+- Multi-file find & replace: regex replace across all marked files with per-file preview (`commands/editor_rename_cmd.py`)
+- Selective copy by mask: copy only files matching a glob from the current selection (`presenters/copy_filter.py`)
+- Rename templates: `{date}`, `{name}`, `{ext}`, `{n}`, `{parent}` placeholders in batch rename (`presenters/rename_template.py`)
+- Miller columns: optional third column shows contents of focused directory's first child (`presenters/miller_state.py`)
+- Cross-directory marks: marks persist across directory changes; `Ctrl+Shift+M` opens marked list (`presenters/cross_marks.py`)
+
 ## [v0.20.0] — 2026-07-17
 
 ### Added

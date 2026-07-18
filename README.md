@@ -195,15 +195,25 @@ Full architecture: [`AI/architecture.md`](AI/architecture.md)
 ## Recent Changes
 
 <details>
-<summary><strong>Unreleased</strong> — 75 killer features (Sprints 1–10)</summary>
+<summary><strong>v0.21.0</strong> — 2026-07-18 — 62 New Features</summary>
 
-- Built-in text editor (`F4`), zoomable image viewer (zoom/rotate), SQLite preview, Git log + blame in preview panel
+- Search: exclusion patterns, multi-pattern AND, context lines, archive content search, scope selector
+- Sync: dry-run preview, mirror mode, exclude patterns, conflict detection, session profiles
+- Git: branch switcher, in-app commit, conflict navigator
+- Preview: `.env` masking, CSV table, JSON/XML tree, Jupyter notebooks, Office documents
+- Navigation: URI breadcrumb (`sftp://`, `s3://`), numbered bookmarks (`Ctrl+1-9`), hotlist (`Ctrl+D`), quick view (`Ctrl+Q`), drive bar (`Alt+F1/F2`), path yank (`y n/p/d/e`)
+- AI: semantic search, group rename, diff summary, predictive destination
+
+</details>
+
+<details>
+<summary><strong>v0.20.0</strong> — 2026-07-17 — Script providers, editors, more</summary>
+
+- Built-in text editor (`F4`), zoomable image viewer, SQLite preview, Git log + blame
 - Clipboard cut/copy/paste (`Ctrl+X/C/V`), trash (`Delete`), spring-loaded DnD folders, persistent marks
-- Frecency jump dialog (`Ctrl+J`), per-directory view state, Git status badges, volume watcher
-- SFTP VFS (paramiko), content diff/compare, swap panes (`Ctrl+U`), move tab to other pane
-- New dialogs: Properties, Open With, Diff view, Dir tree panel, Git stash, Shortcut help (`F1`)
-- New commands: `NewFileCmd`, `SymlinkCmd`/`HardlinkCmd`, `EditorRenameCmd`, `ExportListingCmd`, `TrashCmd`
-- MCP server removed; `mcp/` renamed to `cli/`
+- Frecency jump (`Ctrl+J`), per-directory view state, Git status badges, volume watcher
+- Preview script providers, custom file associations, user actions/context menu, script runner
+- New commands: `NewFileCmd`, `SymlinkCmd`, `HardlinkCmd`, `EditorRenameCmd`, `TrashCmd`
 
 </details>
 
@@ -216,7 +226,6 @@ Full architecture: [`AI/architecture.md`](AI/architecture.md)
 - AI rename suggestions, natural-language file operations
 - 8 new preview providers (PDF, video, audio, hex, git diff, archive, Quick Look)
 - File tags, macOS Finder tags, highlight rules, custom columns
-- 10 bug fixes
 
 </details>
 
@@ -233,13 +242,6 @@ Full architecture: [`AI/architecture.md`](AI/architecture.md)
 - TC-style bookmark tree, confirmation dialogs
 - Glass opacity slider, breadcrumb scrolling, TC-style selection
 - Toolbar converted to menu bar, per-pane tab creation
-
-</details>
-
-<details>
-<summary><strong>v0.16.0</strong> — Glass + search</summary>
-
-- Glass effect (macOS vibrancy), global search, DnD improvements, bookmarks
 
 </details>
 

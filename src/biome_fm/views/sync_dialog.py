@@ -1,15 +1,21 @@
 """SyncDialog — show directory diff and let the user sync."""
 from __future__ import annotations
 
+import fnmatch
 from pathlib import Path
 
 from PySide6.QtWidgets import QTableWidget, QTableWidgetItem
 
 from biome_fm.presenters.compare_presenter import CompareEntry, CompareStatus
+from biome_fm.presenters.sync_presenter import preview_sync
 from biome_fm.qt import (
+    QCheckBox,
     QColor,
     QDialog,
     QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
     QPushButton,
     Qt,
     QVBoxLayout,
@@ -40,7 +46,7 @@ def _fmt_size(item) -> str:
 
 
 class SyncDialog(QDialog):
-    sync_requested = Signal(list, str)  # (list[CompareEntry], direction)
+    sync_requested = Signal(list, str, bool)  # (list[CompareEntry], direction, mirror)
 
     def __init__(
         self,
@@ -58,8 +64,30 @@ class SyncDialog(QDialog):
         self._setup_ui()
         self._populate()
 
+    def _exclude_patterns(self) -> list[str]:
+        raw = self._exclude_edit.text().strip()
+        return [p.strip() for p in raw.split(",") if p.strip()] if raw else []
+
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
+
+        excl_row = QHBoxLayout()
+        excl_row.addWidget(QLabel("Exclude:"))
+        self._exclude_edit = QLineEdit()
+        self._exclude_edit.setPlaceholderText("e.g. *.log, node_modules, .git")
+        excl_row.addWidget(self._exclude_edit)
+        layout.addLayout(excl_row)
+
+        mirror_row = QHBoxLayout()
+        self._mirror_chk = QCheckBox("Delete files not in source (mirror)")
+        mirror_row.addWidget(self._mirror_chk)
+        self._mirror_warning = QLabel("⚠ Orphan files in destination will be permanently deleted")
+        self._mirror_warning.setStyleSheet("color: #e53935;")
+        self._mirror_warning.setVisible(False)
+        mirror_row.addWidget(self._mirror_warning)
+        mirror_row.addStretch()
+        self._mirror_chk.toggled.connect(self._mirror_warning.setVisible)
+        layout.addLayout(mirror_row)
 
         self._table = QTableWidget(0, 5)
         self._table.setHorizontalHeaderLabels(["✓", "Name", "Status", "Left Size", "Right Size"])
@@ -70,26 +98,59 @@ class SyncDialog(QDialog):
         layout.addWidget(self._table)
 
         btn_row = QHBoxLayout()
+        for label, tip, direction in [
+            ("Preview →", "Preview left → right", "left_to_right"),
+            ("Preview ←", "Preview right → left", "right_to_left"),
+            ("Preview Newer", "Preview newer wins", "newer_wins"),
+        ]:
+            b = QPushButton(label)
+            b.setToolTip(tip)
+            b.clicked.connect(lambda _=False, d=direction: self._show_preview(d))
+            btn_row.addWidget(b)
+
+        btn_row.addStretch()
+
         self._btn_ltr = QPushButton("Sync →")
         self._btn_ltr.setToolTip("Copy left → right")
         self._btn_ltr.clicked.connect(lambda: self._emit("left_to_right"))
+        btn_row.addWidget(self._btn_ltr)
 
         self._btn_rtl = QPushButton("← Sync")
         self._btn_rtl.setToolTip("Copy right → left")
         self._btn_rtl.clicked.connect(lambda: self._emit("right_to_left"))
+        btn_row.addWidget(self._btn_rtl)
 
         self._btn_newer = QPushButton("Sync Newer")
         self._btn_newer.setToolTip("Copy newer file to the other side")
         self._btn_newer.clicked.connect(lambda: self._emit("newer_wins"))
+        btn_row.addWidget(self._btn_newer)
 
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.reject)
-
-        for b in (self._btn_ltr, self._btn_rtl, self._btn_newer):
-            btn_row.addWidget(b)
-        btn_row.addStretch()
         btn_row.addWidget(close_btn)
         layout.addLayout(btn_row)
+
+    def _show_preview(self, direction: str = "newer_wins") -> None:
+        """Show planned ops for given direction in a modal dialog."""
+        entries = self._checked_entries()
+        ops = preview_sync(entries, direction, self._left_root, self._right_root, exclude=self._exclude_patterns(), mirror=self._mirror_chk.isChecked())
+        labels = {"left_to_right": "→", "right_to_left": "←", "newer_wins": "Newer"}
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"Sync Preview ({labels.get(direction, direction)})")
+        dlg.resize(500, 300)
+        vl = QVBoxLayout(dlg)
+        vl.addWidget(QLabel(f"{len(ops)} operation(s) planned:"))
+        lst = QListWidget()
+        for op in ops:
+            lst.addItem(f"[{op.action}]  {op.src.name}  ({op.size:,} bytes)")
+        if not ops:
+            lst.addItem("Nothing to do — all files are in sync.")
+        vl.addWidget(lst)
+        ok = QPushButton("OK")
+        ok.clicked.connect(dlg.accept)
+        vl.addWidget(ok)
+        dlg.exec()
 
     def _populate(self) -> None:
         self._table.setRowCount(len(self._entries))
@@ -123,4 +184,9 @@ class SyncDialog(QDialog):
         return result
 
     def _emit(self, direction: str) -> None:
-        self.sync_requested.emit(self._checked_entries(), direction)
+        excl = self._exclude_patterns()
+        entries = [
+            e for e in self._checked_entries()
+            if not excl or not any(fnmatch.fnmatch(e.name, p) for p in excl)
+        ]
+        self.sync_requested.emit(entries, direction, self._mirror_chk.isChecked())

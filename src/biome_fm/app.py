@@ -1,6 +1,7 @@
 """Application bootstrap and DI wiring."""
 from __future__ import annotations
 
+import os
 import shlex
 import subprocess
 from collections.abc import Callable
@@ -61,6 +62,7 @@ from biome_fm.preview.providers.image import ImagePreviewProvider
 from biome_fm.preview.providers.markdown import MarkdownPreviewProvider
 from biome_fm.preview.providers.metadata import MetadataPreviewProvider
 from biome_fm.preview.providers.pdf import PDFPreviewProvider
+from biome_fm.preview.providers.json_tree import JsonTreeProvider
 from biome_fm.preview.providers.text import TextPreviewProvider
 from biome_fm.preview.providers.video import VideoPreviewProvider
 from biome_fm.preview.registry import PreviewRegistry
@@ -171,6 +173,20 @@ class _AppContext:
 
 # ── Module-level build functions (construction only, no signal wiring) ────────
 
+def _write_last_dir(path: Path | None) -> None:
+    """Write *path* to the file named by BIOME_LAST_DIR_FILE (shell cd-on-exit helper)."""
+    dest = os.environ.get("BIOME_LAST_DIR_FILE")
+    if not dest or not path:
+        return
+    s = str(path)
+    if ":/" in s:  # VFS / non-local path (Path normalises sftp:// → sftp:/)
+        return
+    try:
+        Path(dest).write_text(s)
+    except OSError:
+        pass
+
+
 def _config_dir() -> Path:
     loc = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppConfigLocation)
     return Path(loc) / "biome-fm" if loc else Path.home() / ".config" / "biome-fm"
@@ -205,7 +221,7 @@ def _build_preview(cfg):
     preview_registry = PreviewRegistry()
     for _p in [
         ImagePreviewProvider(), MarkdownPreviewProvider(), VideoPreviewProvider(),
-        CodePreviewProvider(), TextPreviewProvider(), FallbackProvider(),
+        JsonTreeProvider(), CodePreviewProvider(), TextPreviewProvider(), FallbackProvider(),
     ]:
         preview_registry.register(_p)
     preview_panel = PreviewPanel()
@@ -784,6 +800,7 @@ def create_app() -> MainWindow:
     search_panel.navigate_to_file.connect(sc.navigate_to)
     search_panel.close_requested.connect(lambda: coord.toggle("search", manager.active_pane_id))
     search_panel.detach_requested.connect(lambda: coord.detach("search"))
+    search_panel.preview_requested.connect(preview_presenter.render_item)
 
     search_timer = QTimer(window)
     search_timer.setInterval(50)
@@ -1523,7 +1540,7 @@ def create_app() -> MainWindow:
 
     def _open_sync_dialog() -> None:
         from biome_fm.presenters.compare_presenter import ComparePresenter
-        from biome_fm.presenters.sync_presenter import build_sync_commands
+        from biome_fm.presenters.sync_presenter import preview_sync
         from biome_fm.views.sync_dialog import SyncDialog
         try:
             left_items = vfs.listdir(left_tabs.current_path)
@@ -1533,14 +1550,18 @@ def create_app() -> MainWindow:
         entries = ComparePresenter(left_items, right_items).compare()
         dlg = SyncDialog(entries, left_tabs.current_path, right_tabs.current_path, parent=window)
 
-        def _on_sync(checked_entries, direction) -> None:
-            pairs = build_sync_commands(
+        def _on_sync(checked_entries, direction, mirror: bool = False) -> None:
+            ops = preview_sync(
                 checked_entries, direction,
                 left_tabs.current_path, right_tabs.current_path,
+                mirror=mirror,
             )
-            for src, dest_dir in pairs:
+            for op in ops:
                 try:
-                    vfs.copy(src, dest_dir / src.name)
+                    if op.action == "delete_orphan":
+                        vfs.delete(op.src)
+                    else:
+                        vfs.copy(op.src, op.dst / op.src.name)
                 except OSError:
                     pass
             manager._refresh_both()

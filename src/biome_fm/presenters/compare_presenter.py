@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import difflib
 import hashlib
+import subprocess
+import threading
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -158,3 +161,58 @@ class ComparePresenter:
         }
         parts = [f"{counts[s]} {labels[s]}" for s in CompareStatus if counts[s]]
         return ", ".join(parts)
+
+
+_CHUNK = 256 * 1024
+
+
+def content_compare_async(
+    left: Path,
+    right: Path,
+    cancel: threading.Event,
+    progress: Callable[[int, int], None] | None = None,
+) -> bool:
+    """Chunked SHA256 compare with cancel support. Returns True if identical."""
+    try:
+        ls, rs = left.stat().st_size, right.stat().st_size
+    except OSError:
+        return False
+    if ls != rs:
+        return False
+    total = ls + rs
+    done = 0
+    lh, rh = hashlib.sha256(), hashlib.sha256()
+    try:
+        with open(left, "rb") as lf, open(right, "rb") as rf:
+            while True:
+                if cancel.is_set():
+                    return False
+                lc, rc = lf.read(_CHUNK), rf.read(_CHUNK)
+                if not lc and not rc:
+                    break
+                lh.update(lc)
+                rh.update(rc)
+                done += len(lc) + len(rc)
+                if progress is not None:
+                    progress(done, total)
+    except OSError:
+        return False
+    return lh.digest() == rh.digest()
+
+
+_DIFF_CANDIDATES = ["code --diff", "meld", "opendiff"]
+
+
+def launch_external_diff(left: Path, right: Path, tool: str | None = None) -> None:
+    """Launch an external diff tool (fire-and-forget)."""
+    if tool:
+        subprocess.Popen([*tool.split(), str(left), str(right)])
+        return
+    for candidate in _DIFF_CANDIDATES:
+        parts = candidate.split()
+        try:
+            subprocess.Popen([*parts, str(left), str(right)])
+            return
+        except FileNotFoundError:
+            continue
+    raise RuntimeError("No diff tool found")
