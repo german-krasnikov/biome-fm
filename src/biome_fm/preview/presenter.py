@@ -3,9 +3,12 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Protocol
+
+_CACHE_TTL = 60.0
 
 from biome_fm.models.file_item import FileItem
 from biome_fm.preview.provider import ContentKind, PreviewMode, PreviewRequest, PreviewResult
@@ -32,6 +35,7 @@ class PreviewViewProtocol(Protocol):
     def set_busy(self, busy: bool) -> None: ...
     def set_visible(self, visible: bool) -> None: ...
     def is_panel_visible(self) -> bool: ...
+    def scroll_to_bottom(self) -> None: ...
 
 
 class PreviewPresenter:
@@ -43,13 +47,17 @@ class PreviewPresenter:
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="preview")
         self._queue: queue.SimpleQueue[PreviewResult] = queue.SimpleQueue()
         self._current: Path | None = None
-        self._cache: dict[tuple[Path, float, bool], PreviewResult] = {}
+        self._cache: dict[tuple[Path, float, bool], tuple[PreviewResult, float]] = {}
         self._cache_lock = threading.Lock()
         self._dark = True  # theme hint; updated via set_dark()
         self._forced_mode: PreviewMode = PreviewMode.AUTO
+        self._tail_mode: bool = False
 
     def set_dark(self, dark: bool) -> None:
         self._dark = dark
+
+    def set_tail_mode(self, enabled: bool) -> None:
+        self._tail_mode = enabled
 
     def set_mode(self, mode: PreviewMode) -> None:
         self._forced_mode = mode
@@ -103,7 +111,8 @@ class PreviewPresenter:
         self._current = item.path
         cache_key = (item.path, item.modified, self._dark)
         with self._cache_lock:
-            hit = self._cache.get(cache_key)
+            entry = self._cache.get(cache_key)
+            hit = entry[0] if entry and (time.monotonic() - entry[1]) < _CACHE_TTL else None
         if hit is not None:
             self._view.show_result(hit)
             return
@@ -144,7 +153,7 @@ class PreviewPresenter:
         with self._cache_lock:
             if len(self._cache) >= self._CACHE_MAX:
                 self._cache.pop(next(iter(self._cache)))
-            self._cache[cache_key] = result
+            self._cache[cache_key] = (result, time.monotonic())
         if req.path == self._current and req.dark == self._dark:
             self._queue.put(result)
 
@@ -155,6 +164,8 @@ class PreviewPresenter:
                 result = self._queue.get_nowait()
                 self._view.set_busy(False)
                 self._view.show_result(result)
+                if self._tail_mode:
+                    self._view.scroll_to_bottom()
         except queue.Empty:
             pass
 

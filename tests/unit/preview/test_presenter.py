@@ -70,10 +70,11 @@ def test_update_if_visible_noop_none():
 
 
 def test_cache_hit_skips_thread():
+    import time
     presenter, view = _make_presenter(is_visible=False)
     item = _make_item()
     cached = PreviewResult(ContentKind.HTML, "<p>cached</p>")
-    presenter._cache[(item.path, item.modified, presenter._dark)] = cached
+    presenter._cache[(item.path, item.modified, presenter._dark)] = (cached, time.monotonic())
     presenter.toggle_item(item)
     view.show_result.assert_called_once_with(cached)
     view.set_busy.assert_not_called()

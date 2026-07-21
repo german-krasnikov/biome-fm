@@ -65,3 +65,13 @@ def open_terminal(path: Path) -> None:
         term = os.environ.get("TERMINAL", "xterm")
         subprocess.Popen(shlex.split(term), cwd=str(d),
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def share_files(paths: list[Path]) -> None:
+    """Open macOS Share Sheet for given paths. No-op on non-macOS."""
+    if not IS_MAC or not paths:
+        return
+    subprocess.Popen(
+        ["open", "--share"] + [str(p) for p in paths],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )

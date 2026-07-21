@@ -131,3 +131,9 @@ class RemoteSyncing:
     scheme: str
     host: str
     active: bool
+
+
+@dataclass(frozen=True)
+class IPCCommandReceived:
+    """An IPC command arrived from an external process."""
+    payload: dict

@@ -6,6 +6,8 @@ import contextlib
 import fnmatch
 import os
 import re
+import subprocess
+import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -34,6 +36,36 @@ class SearchScope(Enum):
     SELECTED_FILES = "selected"
     BOTH_PANES = "both_panes"
     DUPLICATE_NAMES = "duplicate_names"
+    SYSTEM_INDEX = "system_index"
+
+
+def system_index_search(query: str, root: Path | None = None) -> list[Path]:
+    """Sub-second search via mdfind (macOS) or locate (Linux)."""
+    if sys.platform == "darwin":
+        cmd = ["mdfind", "-name", query]
+        if root:
+            cmd += ["-onlyin", str(root)]
+    else:
+        cmd = ["locate", "-i", f"*{query}*"]
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        paths = [Path(line.strip()) for line in out.stdout.splitlines() if line.strip()]
+        if root and sys.platform != "darwin":
+            paths = [p for p in paths if p.is_relative_to(root)]
+        return paths
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return []
+
+
+def remote_search(vfs: object, remote_dir: str, pattern: str) -> list[Path]:
+    """Search remote VFS via server-side find. Returns list of Path."""
+    if not hasattr(vfs, "exec_find"):
+        return []
+    try:
+        results = vfs.exec_find(remote_dir, f"*{pattern}*")
+        return [Path(p) for p in results]
+    except Exception:
+        return []
 
 
 def find_duplicate_names(

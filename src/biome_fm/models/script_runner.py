@@ -25,6 +25,7 @@ class ScriptRunner:
         selected: list[Path],
         cwd: Path,
         timeout: float = 30,
+        ipc_port: int = 0,
     ) -> subprocess.CompletedProcess:
         if not script.resolve().is_relative_to(self._dir.resolve()):
             raise ValueError(f"Script {script} is outside {self._dir}")
@@ -33,6 +34,8 @@ class ScriptRunner:
             "BIOME_SELECTED": "\n".join(str(p) for p in selected),
             "BIOME_CWD": str(cwd),
         }
+        if ipc_port:
+            env["BIOME_IPC_PORT"] = str(ipc_port)
         cmd = [sys.executable, str(script)] if script.suffix == ".py" else [str(script)]
         return subprocess.run(
             cmd, env=env, capture_output=True, text=True, timeout=timeout

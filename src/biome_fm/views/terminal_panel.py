@@ -9,6 +9,8 @@ from pathlib import Path
 
 _OSC7_RE = re.compile(r"\x1b\]7;file://[^/]*(/.+?)\x07")
 
+from PySide6.QtCore import QProcessEnvironment
+
 from biome_fm.qt import (
     QHBoxLayout,
     QLabel,
@@ -61,11 +63,16 @@ class TerminalPanel(QWidget):
 
         self._proc: QProcess | None = None
 
-    def start(self, cwd: Path) -> None:
+    def start(self, cwd: Path, *, selected: list[Path] | None = None, cursor: Path | None = None) -> None:
         if self._proc is not None:
             return
         self._proc = QProcess(self)
         self._proc.setWorkingDirectory(str(cwd))
+        env = QProcessEnvironment.systemEnvironment()
+        env.insert("BIOME_CWD", str(cwd))
+        env.insert("BIOME_SELECTED", "\n".join(str(p) for p in (selected or [])))
+        env.insert("BIOME_CURSOR", str(cursor) if cursor else "")
+        self._proc.setProcessEnvironment(env)
         self._proc.readyReadStandardOutput.connect(self._read_out)
         self._proc.readyReadStandardError.connect(self._read_err)
         self._proc.start(_default_shell(), [])

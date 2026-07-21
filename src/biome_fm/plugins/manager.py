@@ -108,3 +108,7 @@ class PluginManager:
 
     def on_file_operation(self, op: str, src: Path, dst: Path | None = None) -> None:
         self._pm.hook.on_file_operation(op=op, src=src, dst=dst)
+
+    def get_preview_providers(self) -> list[object]:
+        results = self._pm.hook.provide_preview_providers()
+        return [p for sublist in results for p in sublist]

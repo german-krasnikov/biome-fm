@@ -36,7 +36,7 @@ def test_copy_with_src_vfs_reads_from_vfs(tmp_path: Path) -> None:
     dst = tmp_path / "dst"
     dst.mkdir()
 
-    mock_vfs = MagicMock()
+    mock_vfs = MagicMock(spec=["read_bytes"])
     mock_vfs.read_bytes.return_value = b"vfs-data"
 
     fake_src = Path("/archive/file.txt")  # non-existent locally

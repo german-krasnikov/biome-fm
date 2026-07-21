@@ -2,6 +2,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from biome_fm.preview.provider import PreviewProvider
 
 import pluggy
 
@@ -47,3 +51,17 @@ class BiomeFMSpec:
     @hookspec(firstresult=True)
     def provide_vfs(self, path: str) -> object | None:
         """Return a VFS for the given path prefix, or None to pass through."""
+
+    @hookspec
+    def provide_preview_providers(self) -> list["PreviewProvider"]:
+        """Return list of PreviewProvider instances this plugin contributes.
+
+        THREADING: render() is called on a background ThreadPoolExecutor thread.
+        Must not instantiate QWidget, QTextDocument, or any other Qt object.
+        Return only plain PreviewResult dataclasses.
+        """
+
+    @hookspec(firstresult=True)
+    def column_value(self, item: object, column_id: str) -> str | None:
+        """Return display value for plugin column `column_id` for the given FileItem.
+        Return None to leave cell empty. First non-None result wins."""

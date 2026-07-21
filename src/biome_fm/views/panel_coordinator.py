@@ -36,6 +36,9 @@ class PanelCoordinator(QObject):
         self._saved_sizes: dict[QWidget, int] | None = None
         self._hidden_widget: QWidget | None = None
         self._overlay_side: str = "right"  # "left" or "right" — which side the overlay occupies
+        self._shell_mode: bool = False
+        self._pre_shell_sizes: list[int] | None = None
+        self._pre_shell_visible: dict[str, bool] = {}
 
     def toggle(self, name: str, active_side: str = "left") -> None:
         self._overlay_side = "right" if active_side == "left" else "left"
@@ -177,6 +180,40 @@ class PanelCoordinator(QObject):
         if name == "terminal" and not self._in_splitter.get("search", True):
             base -= 1
         return min(base, self._splitter.count())
+
+    def toggle_fullscreen_shell(self) -> None:
+        if self._shell_mode:
+            self._exit_fullscreen_shell()
+        else:
+            self._enter_fullscreen_shell()
+
+    def _enter_fullscreen_shell(self) -> None:
+        self._pre_shell_sizes = self._splitter.sizes()
+        self._pre_shell_visible = {n: w.isVisible() for n, w in self._panels.items()}
+        self._left.hide()
+        self._right.hide()
+        for name, w in self._panels.items():
+            if name != "terminal":
+                w.hide()
+        terminal = self._panels.get("terminal")
+        if terminal:
+            terminal.show()
+        self._shell_mode = True
+
+    def _exit_fullscreen_shell(self) -> None:
+        self._left.show()
+        self._right.show()
+        for name, was_visible in self._pre_shell_visible.items():
+            panel = self._panels.get(name)
+            if panel:
+                panel.setVisible(was_visible)
+        if self._pre_shell_sizes:
+            self._splitter.setSizes(self._pre_shell_sizes)
+        self._shell_mode = False
+
+    @property
+    def shell_mode(self) -> bool:
+        return self._shell_mode
 
     def pane_sizes(self) -> list[int]:
         """Return logical pane sizes — reads _saved_sizes when overlay is active."""

@@ -25,8 +25,9 @@ class SyncExecutor:
             if self._cancel.is_set():
                 break
             if op.action == "delete_orphan":
-                continue  # mirror deletes not yet implemented — planned ops are skipped
-            self._vfs.copy(op.src, op.dst)
+                self._vfs.delete(op.src)
+            else:
+                self._vfs.copy(op.src, op.dst)
             done += 1
             if self._progress:
                 self._progress(done, total, op.src.name)

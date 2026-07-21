@@ -8,11 +8,23 @@ from pathlib import Path
 _CASE_MODS = frozenset({"upper", "lower", "title"})
 
 
-def expand_template(template: str, path: Path, index: int, counter_start: int = 1) -> str:
+def expand_template(
+    template: str,
+    path: Path,
+    index: int,
+    counter_start: int = 1,
+    metadata: dict[str, str] | None = None,
+) -> str:
     """Expand TC-style tokens: [N] name, [E] ext, [C] counter, [C:n] offset counter, [YMD] mtime.
 
     Supports [TOKEN:modifier] where modifier is upper/lower/title.
+    Supports [META:key] for EXIF/audio metadata when metadata dict provided.
     """
+    if metadata:
+        def _meta(m: re.Match) -> str:
+            return metadata.get(m.group(1).lower(), m.group(0))
+        template = re.sub(r"\[META:([A-Za-z]+)\]", _meta, template)
+
     mtime = datetime.fromtimestamp(path.stat().st_mtime)
     _tokens: dict[str, str] = {
         "N": path.stem,

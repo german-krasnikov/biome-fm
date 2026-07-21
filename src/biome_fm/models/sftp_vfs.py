@@ -29,6 +29,14 @@ class SFTPSession:
     user: str = ""
     remote_path: str = "/"
     auto_add_host_key: bool = False
+    proxy_command: str = ""
+
+
+def make_jump_proxy_command(
+    jump_host: str, jump_port: int, jump_user: str, target_host: str, target_port: int
+) -> str:
+    user_prefix = f"{jump_user}@" if jump_user else ""
+    return f"ssh -W {target_host}:{target_port} -p {jump_port} {user_prefix}{jump_host}"
 
 
 def parse_sftp_uri(uri: str) -> SFTPSession | None:
@@ -88,10 +96,16 @@ class SFTPVfs:
             client.set_missing_host_key_policy(_paramiko.AutoAddPolicy())
         else:
             client.set_missing_host_key_policy(_paramiko.RejectPolicy())
+        sock = (
+            _paramiko.ProxyCommand(self._session.proxy_command)
+            if self._session.proxy_command
+            else None
+        )
         client.connect(
             self._session.host,
             port=self._session.port,
             username=self._session.user or None,
+            sock=sock,
         )
         self._client = client
         transport = client.get_transport()
@@ -174,6 +188,22 @@ class SFTPVfs:
 
         return self._with_reconnect(_do, path)
 
+    def stat(self, path: PurePosixPath) -> "FileItem":
+        from biome_fm.models.file_item import FileItem
+
+        def _do(sftp, p):
+            a = sftp.stat(str(p))
+            is_dir = bool(a.st_mode and stat.S_ISDIR(a.st_mode))
+            return FileItem(
+                name=PurePosixPath(p).name,
+                path=Path(str(p)),
+                is_dir=is_dir,
+                size=a.st_size or 0,
+                modified=float(a.st_mtime or 0.0),
+            )
+
+        return self._with_reconnect(_do, path)
+
     def read_bytes(self, path: PurePosixPath) -> bytes:
         def _do(sftp, p):
             with sftp.open(str(p), "rb") as f:
@@ -208,6 +238,39 @@ class SFTPVfs:
             sftp.chmod(str(p), m)
 
         self._with_reconnect(_do, path, mode)
+
+    def utime(self, path: PurePosixPath, mtime: float) -> None:
+        def _do(sftp, p, t):
+            sftp.utime(str(p), (t, t))
+
+        self._with_reconnect(_do, path, mtime)
+
+    def open_read(self, path: PurePosixPath, offset: int = 0):
+        import contextlib
+
+        @contextlib.contextmanager
+        def _cm():
+            def _do(sftp, p):
+                return sftp.open(str(p), "rb")
+
+            fh = self._with_reconnect(_do, path)
+            try:
+                if offset:
+                    fh.seek(offset)
+                yield fh
+            finally:
+                fh.close()
+
+        return _cm()
+
+    def exec_find(self, remote_dir: str, name_pattern: str, timeout: int = 30) -> list[str]:
+        """Run `find` on server, return list of absolute remote paths."""
+        import shlex
+        if self._client is None:
+            raise RuntimeError("Not connected — call connect() first")
+        cmd = f"find {shlex.quote(remote_dir)} -name {shlex.quote(name_pattern)} -maxdepth 20 2>/dev/null"
+        _, stdout, _ = self._client.exec_command(cmd, timeout=timeout)
+        return [line.strip() for line in stdout if line.strip()]
 
     def disconnect(self) -> None:
         with self._lock:

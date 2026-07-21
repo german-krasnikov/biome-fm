@@ -39,6 +39,18 @@ def staged_files(repo: Path) -> list[str]:
         return []
 
 
+def staged_diff(repo: Path) -> str:
+    """Return full staged diff. Empty string if not a git repo or no changes."""
+    try:
+        r = subprocess.run(
+            ["git", "diff", "--cached"],
+            cwd=repo, capture_output=True, text=True, timeout=_TIMEOUT,
+        )
+        return r.stdout
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return ""
+
+
 def commit(repo: Path, message: str) -> str:
     """Commit staged files. Returns short hash. Raises ValueError/RuntimeError."""
     if not message.strip():

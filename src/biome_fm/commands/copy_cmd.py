@@ -55,6 +55,9 @@ class CopyCmd(Command):
         n = len(self._sources)
         return f"Copy {n} item{'s' if n != 1 else ''}"
 
+    def preview(self) -> list[str]:
+        return [f"Copy {s.name}  →  {self._dest_dir / s.name}" for s in self._sources]
+
 
 class ProgressCopyCmd(Command):
     """Chunk-based copy with per-byte progress reporting and cancel support."""
@@ -160,12 +163,41 @@ class ProgressCopyCmd(Command):
                 self._copy_archive_file(item.path, dst / item.name)
 
     def _copy_cross_vfs(self, src: Path, dst: Path, files_done: int = 0, files_total: int = 0) -> None:
+        import os
         dst.parent.mkdir(parents=True, exist_ok=True)
-        data = self._src_vfs.read_bytes(src)  # type: ignore[union-attr]
-        if self._cancel.is_set():
-            raise Cancelled()
-        dst.write_bytes(data)
-        self._report(files_done + 1, files_total, len(data), len(data), src.name)
+        offset = 0
+        if dst.exists() and hasattr(self._src_vfs, "open_read") and hasattr(self._src_vfs, "stat"):
+            try:
+                remote_size = self._src_vfs.stat(src).size
+                local_size = dst.stat().st_size
+                if 0 < local_size < remote_size:
+                    offset = local_size
+            except Exception:
+                pass
+        if hasattr(self._src_vfs, "open_read"):
+            mode = "ab" if offset else "wb"
+            done = offset
+            with self._src_vfs.open_read(src, offset=offset) as fin, open(dst, mode) as fout:
+                while data := fin.read(self._chunk):
+                    if self._cancel.is_set():
+                        raise Cancelled()
+                    fout.write(data)
+                    done += len(data)
+                    self._report(files_done, files_total, done, 0, src.name)
+        else:
+            raw = self._src_vfs.read_bytes(src)  # type: ignore[union-attr]
+            if self._cancel.is_set():
+                raise Cancelled()
+            dst.write_bytes(raw)
+            done = len(raw)
+        if hasattr(self._src_vfs, "stat"):
+            try:
+                fi = self._src_vfs.stat(src)
+                if fi.modified:
+                    os.utime(dst, (fi.modified, fi.modified))
+            except Exception:
+                pass
+        self._report(files_done + 1, files_total, done, done, src.name)
 
     def _copy_archive_file(self, src: Path, dst: Path, files_done: int = 0, files_total: int = 0) -> None:
         dst.parent.mkdir(parents=True, exist_ok=True)

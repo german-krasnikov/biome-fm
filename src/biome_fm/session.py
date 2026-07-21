@@ -15,6 +15,7 @@ class TabState:
 class PaneSideState:
     tabs: list[TabState] = field(default_factory=lambda: [TabState(str(Path.home()))])
     active_idx: int = 0
+    view_mode: str = "detail"
 
 
 @dataclass
@@ -39,10 +40,12 @@ def load_session(path: Path) -> SessionState | None:
         left = PaneSideState(
             tabs=[TabState(**t) for t in data["left"]["tabs"]],
             active_idx=data["left"]["active_idx"],
+            view_mode=data["left"].get("view_mode", "detail"),
         )
         right = PaneSideState(
             tabs=[TabState(**t) for t in data["right"]["tabs"]],
             active_idx=data["right"]["active_idx"],
+            view_mode=data["right"].get("view_mode", "detail"),
         )
         if not left.tabs or not right.tabs:
             return None

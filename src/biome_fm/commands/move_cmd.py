@@ -34,6 +34,9 @@ class MoveCmd(Command):
         n = len(self._sources)
         return f"Move {n} item{'s' if n != 1 else ''}"
 
+    def preview(self) -> list[str]:
+        return [f"Move {s.name}  →  {self._dest_dir / s.name}" for s in self._sources]
+
 
 class ProgressMoveCmd(Command):
     """Move with progress reporting and cancel support."""

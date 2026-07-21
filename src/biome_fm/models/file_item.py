@@ -16,6 +16,8 @@ class FileItem:
     atime: float = 0.0
     ctime: float = 0.0
     owner: str = ""
+    symlink_target: Path | None = None
+    is_broken: bool = False
 
     @property
     def size_str(self) -> str:

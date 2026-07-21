@@ -199,6 +199,22 @@ def _build_tray(window: object) -> object:
 
 # ── Module-level build functions (construction only, no signal wiring) ────────
 
+def _apply_zoom(app: object, cfg: object, cfg_path: "Path", system_pt: int, delta: int) -> None:
+    """F408 — Adjust app font size by delta pts; delta=0 resets to system default."""
+    if delta == 0:
+        pt = system_pt
+    else:
+        current = app.font().pointSize()  # type: ignore[union-attr]
+        if current <= 0:
+            current = 11
+        pt = max(7, min(32, current + delta))
+    f = app.font()  # type: ignore[union-attr]
+    f.setPointSize(pt)
+    app.setFont(f)  # type: ignore[union-attr]
+    cfg.ui_font_size = 0 if pt == system_pt else pt  # type: ignore[union-attr]
+    save_config(cfg, cfg_path)  # type: ignore[arg-type]
+
+
 def _write_last_dir(path: Path | None) -> None:
     """Write *path* to the file named by BIOME_LAST_DIR_FILE (shell cd-on-exit helper)."""
     dest = os.environ.get("BIOME_LAST_DIR_FILE")
@@ -370,8 +386,10 @@ def create_app() -> MainWindow:
     session = load_session(cfg_dir / "session.json")
 
     # F308 — apply configurable font size before any widgets are created
+    # F408 — capture system default before any override
+    _app = QApplication.instance()
+    _system_pt = (_app.font().pointSize() if _app is not None and _app.font().pointSize() > 0 else 11)
     if cfg.ui_font_size > 0:
-        _app = QApplication.instance()
         if _app is not None:
             _f = _app.font()
             _f.setPointSize(cfg.ui_font_size)
@@ -416,6 +434,8 @@ def create_app() -> MainWindow:
     from biome_fm.preview.providers.script import load_script_providers
     for _sp in load_script_providers(cfg_dir / "preview_scripts"):
         preview_registry.register(_sp)
+    for _pp in plugins.get_preview_providers():
+        preview_registry.register(_pp)
 
     coord: PanelCoordinator | None = None  # late-bound; set after window creation
 
@@ -673,6 +693,7 @@ def create_app() -> MainWindow:
     preview_panel.detach_requested.connect(lambda: coord.detach("preview"))
     preview_panel.close_requested.connect(lambda: coord.toggle("preview"))
     preview_panel.mode_changed.connect(preview_presenter.set_mode)
+    preview_panel.tail_toggled.connect(preview_presenter.set_tail_mode)
     preview_panel.summarize_requested.connect(
         lambda: ai_presenter.summarize_file(_active().current_item()) if _active().current_item() is not None else None  # noqa: E501
     )
@@ -991,9 +1012,13 @@ def create_app() -> MainWindow:
             manager.rename(item, name.strip())
 
     def _copy_path() -> None:
-        item = _active().current_item()
-        path = str(item.path) if item is not None else str(_active().current_path)
-        QApplication.clipboard().setText(path)
+        items = _active().marked_items
+        if items:
+            QApplication.clipboard().setText("\n".join(str(i.path) for i in items))
+        else:
+            item = _active().current_item()
+            path = str(item.path) if item is not None else str(_active().current_path)
+            QApplication.clipboard().setText(path)
 
     def _copy_names() -> None:
         QApplication.clipboard().setText("\n".join(i.name for i in _op_items()))
@@ -1134,6 +1159,11 @@ def create_app() -> MainWindow:
                     if result is not None:
                         cmd = TagCmd([i.path for i in marked], add_tags=result, remove_tags=[], store=tag_store)
                         history.execute(cmd)
+            elif action == "remove_quarantine":
+                from biome_fm.commands.quarantine_cmd import RemoveQuarantineCmd
+                cmd = RemoveQuarantineCmd([i.path for i in _op_items()])
+                history.execute(cmd)
+                _active().refresh()
         sig = getattr(view, "context_action_requested", None)
         if sig is not None:
             sig.connect(_dispatch)
@@ -1548,6 +1578,16 @@ def create_app() -> MainWindow:
         manager.chmod_selected(items, mode, recursive)
 
     QShortcut(QKeySequence("Ctrl+Shift+P"), window).activated.connect(_set_permissions)
+
+    # F408 — live zoom shortcuts
+    def _zoom(delta: int) -> None:
+        _apply_zoom(QApplication.instance(), cfg, cfg_dir / "config.toml", _system_pt, delta)
+
+    QShortcut(QKeySequence("Ctrl+="), window).activated.connect(lambda: _zoom(+1))
+    QShortcut(QKeySequence("Ctrl++"), window).activated.connect(lambda: _zoom(+1))
+    QShortcut(QKeySequence("Ctrl+-"), window).activated.connect(lambda: _zoom(-1))
+    QShortcut(QKeySequence("Ctrl+0"), window).activated.connect(lambda: _zoom(0))
+
     QShortcut(QKeySequence("F3"),           window).activated.connect(_toggle_preview_f3)
 
     def _open_in_editor_f4() -> None:

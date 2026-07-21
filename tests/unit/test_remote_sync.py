@@ -28,14 +28,14 @@ def test_execute_sync_copies_files():
     assert vfs.copy.call_args_list == [call(_A, _DST), call(_B, _DST)]
 
 
-def test_execute_sync_skips_delete_orphan():
+def test_execute_sync_deletes_orphan():
     vfs = MagicMock()
     cancel = threading.Event()
     ops = [_op("delete_orphan"), _op("copy_left_to_right", _B)]
     count = SyncExecutor(vfs, cancel).execute(ops)
-    assert count == 1
+    assert count == 2
+    vfs.delete.assert_called_once_with(_A)
     vfs.copy.assert_called_once_with(_B, _DST)
-    vfs.delete.assert_not_called()
 
 
 def test_execute_sync_with_cancel():

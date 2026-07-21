@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import datetime
+import re
 from enum import Enum
 from pathlib import Path
 from typing import Any
 
 from biome_fm.models.file_item import FileItem
+from biome_fm.utils.encoding import normalize_filename
 from biome_fm.models.highlight_rules import HighlightRule, match_highlight
 from biome_fm.qt import (
     QAbstractTableModel,
@@ -136,6 +138,14 @@ class DirectoryModel(QAbstractTableModel):
         self._tag_store: object | None = None  # TagStore, duck-typed
         self._dir_sizes: dict[Path, int] = {}
         self._compare_result: dict[str, str] = {}  # filename → "left_only"|"right_only"|"differs"|"same"
+        self._plugin_columns: list = []
+        self._plugin_manager: object | None = None
+
+    def set_plugin_manager(self, pm: object) -> None:
+        self._plugin_manager = pm
+        if hasattr(pm, "hook") and hasattr(pm.hook, "extra_columns"):
+            results = pm.hook.extra_columns()
+            self._plugin_columns = [col for sub in results for col in sub] if results else []
 
     def set_tag_store(self, store: object | None) -> None:
         self._tag_store = store
@@ -240,14 +250,18 @@ class DirectoryModel(QAbstractTableModel):
         return 0 if parent.isValid() else len(self._items)
 
     def columnCount(self, parent: _Idx = QModelIndex()) -> int:  # noqa: B008
-        return 0 if parent.isValid() else len(HEADERS)
+        return 0 if parent.isValid() else len(HEADERS) + len(self._plugin_columns)
 
     def headerData(
         self, section: int, orientation: Qt.Orientation,
         role: int = Qt.ItemDataRole.DisplayRole,
     ) -> Any:
         if orientation == Qt.Orientation.Horizontal and role == Qt.ItemDataRole.DisplayRole:
-            return HEADERS[section] if 0 <= section < len(HEADERS) else None
+            if 0 <= section < len(HEADERS):
+                return HEADERS[section]
+            plugin_idx = section - len(HEADERS)
+            if 0 <= plugin_idx < len(self._plugin_columns):
+                return self._plugin_columns[plugin_idx].title
         return None
 
     def data(self, index: _Idx, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
@@ -263,6 +277,8 @@ class DirectoryModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.ForegroundRole:
             if item.path in self._cut_paths:
                 return QBrush(QColor(128, 128, 128, 100))
+            if item.is_broken:
+                return QBrush(QColor("#cc3333"))
             if self._compare_result:
                 status = self._compare_result.get(item.name)
                 if status == "left_only":
@@ -309,6 +325,8 @@ class DirectoryModel(QAbstractTableModel):
             return None
         col = index.column()
         if col == COL_NAME:
+            if item.is_symlink and item.symlink_target is not None:
+                return f"{item.name} → {item.symlink_target}"
             return item.name
         if col == COL_SIZE:
             if item.is_dir and item.path in self._dir_sizes:
@@ -326,6 +344,10 @@ class DirectoryModel(QAbstractTableModel):
             return datetime.datetime.fromtimestamp(item.atime).strftime("%Y-%m-%d %H:%M")
         if col == COL_OWNER:
             return item.owner
+        plugin_idx = col - len(HEADERS)
+        if 0 <= plugin_idx < len(self._plugin_columns) and self._plugin_manager:
+            col_def = self._plugin_columns[plugin_idx]
+            return self._plugin_manager.hook.column_value(item=item, column_id=col_def.id)
         return None
 
 
@@ -364,6 +386,12 @@ def _fuzzy_match(pattern: str, text: str) -> bool:
     return all(c in it for c in pattern.lower())
 
 
+def _nat_key(name: str) -> list:
+    """Natural sort key: splits on digit runs so IMG_2 < IMG_10."""
+    parts = re.split(r"(\d+)", normalize_filename(name).lower())
+    return [int(p) if p.isdigit() else p for p in parts]
+
+
 class DirSortFilterProxy(QSortFilterProxyModel):
     """Keeps '..' pinned first, dirs before files, then default sort."""
 
@@ -375,7 +403,7 @@ class DirSortFilterProxy(QSortFilterProxyModel):
         self._tag_store: object | None = None
         self._invert: bool = False
         self._group_mode: GroupByMode = GroupByMode.NONE
-        self._sort_key_cache: dict[int, str] = {}
+        self._sort_key_cache: dict[int, list] = {}
         self._type_filter: str = "all"
         self._show_only_marked: bool = False
         self._marked_paths: set[Path] = set()
@@ -398,11 +426,11 @@ class DirSortFilterProxy(QSortFilterProxyModel):
         self._sort_key_cache.clear()
         super().sort(column, order)
 
-    def _sort_key(self, row: int) -> str:
+    def _sort_key(self, row: int) -> list:
         if row not in self._sort_key_cache:
             model = self.sourceModel()
             item: FileItem | None = model.data(model.index(row, COL_NAME), Qt.ItemDataRole.UserRole)
-            self._sort_key_cache[row] = item.name.lower() if item else ""
+            self._sort_key_cache[row] = _nat_key(item.name) if item else [""]
         return self._sort_key_cache[row]
 
     def set_tag_filter(self, tag: str | None, store: object | None = None) -> None:

@@ -18,6 +18,10 @@ class Command(ABC):
     def description(self) -> str:
         return self.__class__.__name__
 
+    def preview(self) -> list[str]:
+        """Human-readable lines describing what execute() will do."""
+        return [self.description]
+
 
 class CommandHistory:
     def __init__(self, max_depth: int = 50) -> None:

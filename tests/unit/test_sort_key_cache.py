@@ -1,4 +1,4 @@
-"""F326 — Sort-Key Pre-computation: cache name.lower() in DirSortFilterProxy."""
+"""F326/F400 — Sort-Key Pre-computation: cache natural sort key in DirSortFilterProxy."""
 
 from __future__ import annotations
 
@@ -37,9 +37,9 @@ class TestSortKeyCache:
         # After sorting, cache should be populated
         assert hasattr(proxy, "_sort_key_cache")
         assert len(proxy._sort_key_cache) > 0
-        # Keys are lowercased names
+        # Keys are natural sort key lists (F400)
         for key in proxy._sort_key_cache.values():
-            assert key == key.lower()
+            assert isinstance(key, list)
 
     def test_cache_cleared_on_model_reset(self, qapp):
         from biome_fm.models.directory_model import DirectoryModel, DirSortFilterProxy

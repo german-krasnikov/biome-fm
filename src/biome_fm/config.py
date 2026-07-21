@@ -42,6 +42,8 @@ class Config:
     reduce_motion: bool = False
     high_contrast: bool = False
     global_hotkey: str = ""  # F321 — e.g. "<ctrl>+<alt>+b"
+    toolbar_actions: list[str] = field(default_factory=list)
+    toolbar_visible: bool = False
 
     def save_layout(self, name: str, data: dict) -> None:
         self.layout_profiles[name] = data

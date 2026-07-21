@@ -41,6 +41,20 @@ class ZoomableImageWidget(QScrollArea):
         self._angle = 0
         self._update()
 
+    def fit_to_window(self) -> None:
+        if self._px.isNull():
+            return
+        vp = self.viewport().size()
+        if not vp.width() or not vp.height():
+            return
+        w, h = (self._px.height(), self._px.width()) if self._angle % 180 else (self._px.width(), self._px.height())
+        self._scale = min(vp.width() / w, vp.height() / h)
+        self._update()
+
+    def actual_size(self) -> None:
+        self._scale = 1.0
+        self._update()
+
     def _update(self) -> None:
         if self._px.isNull():
             return
@@ -69,5 +83,9 @@ class ZoomableImageWidget(QScrollArea):
         if event.key() == Qt.Key.Key_R:
             self._angle = (self._angle + 90) % 360
             self._update()
+        elif event.key() == Qt.Key.Key_0:
+            self.fit_to_window()
+        elif event.key() == Qt.Key.Key_1:
+            self.actual_size()
         else:
             super().keyPressEvent(event)

@@ -21,6 +21,13 @@ from typing import Protocol
 from biome_fm.models.file_item import FileItem
 
 
+def _readlink(path: str) -> Path | None:
+    try:
+        return Path(os.readlink(path))
+    except OSError:
+        return None
+
+
 class VFSProtocol(Protocol):
     def listdir(self, path: Path) -> list[FileItem]: ...
     def stat(self, path: Path) -> FileItem: ...
@@ -37,7 +44,7 @@ class LocalVFS:
         items = []
         for entry in os.scandir(path):
             try:
-                st = entry.stat()
+                st = entry.stat(follow_symlinks=False)
                 items.append(FileItem(
                     name=entry.name,
                     path=Path(entry.path),
@@ -45,6 +52,8 @@ class LocalVFS:
                     size=st.st_size if not entry.is_dir() else 0,
                     modified=st.st_mtime,
                     is_symlink=entry.is_symlink(),
+                    symlink_target=_readlink(entry.path) if entry.is_symlink() else None,
+                    is_broken=entry.is_symlink() and not Path(entry.path).exists(),
                     atime=st.st_atime,
                     ctime=st.st_ctime,
                     owner=_owner(st.st_uid),

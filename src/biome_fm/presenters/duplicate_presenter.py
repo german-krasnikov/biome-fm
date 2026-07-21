@@ -30,9 +30,22 @@ def find_duplicates(root: Path | list[Path], cancel: list[bool]) -> list[DupGrou
                 except OSError:
                     pass
 
+    # Stage 2: partial hash (4 KB) — filters out ~90% of full reads
+    by_partial: dict[tuple[int, str], list[Path]] = defaultdict(list)
+    for sz, paths in by_size.items():
+        if len(paths) < 2:
+            continue
+        if cancel[0]:
+            return []
+        for p in paths:
+            h = _partial_hash(p)
+            if h:
+                by_partial[(sz, h)].append(p)
+
+    # Stage 3: full hash only on partial-hash matches
     by_hash: dict[str, list[Path]] = defaultdict(list)
     sizes: dict[str, int] = {}
-    for sz, paths in by_size.items():
+    for (sz, _), paths in by_partial.items():
         if len(paths) < 2:
             continue
         if cancel[0]:
@@ -54,5 +67,14 @@ def _file_hash(p: Path) -> str | None:
             for chunk in iter(lambda: f.read(65536), b""):
                 h.update(chunk)
         return h.hexdigest()
+    except OSError:
+        return None
+
+
+def _partial_hash(p: Path, n: int = 4096) -> str | None:
+    """Hash only the first *n* bytes of *p*."""
+    try:
+        with open(p, "rb") as f:
+            return hashlib.md5(f.read(n), usedforsecurity=False).hexdigest()
     except OSError:
         return None

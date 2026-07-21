@@ -1,5 +1,11 @@
 """Encoding detection — chardet if available, UTF-8 fallback."""
 from __future__ import annotations
+import unicodedata
+
+
+def normalize_filename(name: str) -> str:
+    """Normalize filename to NFC — reconciles macOS NFD with Linux NFC."""
+    return unicodedata.normalize("NFC", name)
 
 
 def detect_encoding(data: bytes) -> str:

@@ -13,6 +13,8 @@ class SSHProfile:
     port: int = 22
     user: str = ""
     key_path: str = ""
+    jump_host: str = ""
+    jump_user: str = ""
 
 
 class SSHProfileStore:
@@ -31,6 +33,8 @@ class SSHProfileStore:
                 port=int(vals.get("port", 22)),
                 user=vals.get("user", ""),
                 key_path=vals.get("key_path", ""),
+                jump_host=vals.get("jump_host", ""),
+                jump_user=vals.get("jump_user", ""),
             )
 
     def save(self) -> None:
@@ -41,6 +45,8 @@ class SSHProfileStore:
             lines.append(f"port = {p.port}")
             lines.append(f'user = "{p.user}"')
             lines.append(f'key_path = "{p.key_path}"')
+            lines.append(f'jump_host = "{p.jump_host}"')
+            lines.append(f'jump_user = "{p.jump_user}"')
             lines.append("")
         self._path.write_text("\n".join(lines))
 

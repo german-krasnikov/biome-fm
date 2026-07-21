@@ -25,3 +25,6 @@ class DeleteCmd(Command):
     def description(self) -> str:
         n = len(self._paths)
         return f"Delete {n} item{'s' if n != 1 else ''}"
+
+    def preview(self) -> list[str]:
+        return [f"Delete {p}" for p in self._paths]

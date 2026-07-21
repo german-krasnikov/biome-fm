@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QEasingCurve, QEvent, QPropertyAnimation, Qt, Signal
-from PySide6.QtGui import QKeyEvent, QPixmap
+from PySide6.QtGui import QKeyEvent, QPixmap, QWheelEvent
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -25,6 +25,7 @@ class PreviewPanel(QWidget):
     close_requested = Signal()
     mode_changed = Signal(object)  # emits PreviewMode
     summarize_requested = Signal()
+    tail_toggled = Signal(bool)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -39,6 +40,7 @@ class PreviewPanel(QWidget):
         self._text_view = QTextBrowser()
         self._text_view.setReadOnly(True)
         self._text_view.setOpenExternalLinks(True)
+        self._text_view.setLineWrapMode(QTextBrowser.LineWrapMode.NoWrap)
         self._dark = True
         self._code_alpha = 140
 
@@ -78,6 +80,17 @@ class PreviewPanel(QWidget):
             btn.setFixedHeight(20)
             btn.clicked.connect(lambda _checked=False, m=mode: self.mode_changed.emit(m))
             mode_bar.addWidget(btn)
+        wrap_btn = QPushButton("Wrap")
+        wrap_btn.setFixedHeight(20)
+        wrap_btn.setCheckable(True)
+        wrap_btn.toggled.connect(self._set_wrap)
+        mode_bar.addWidget(wrap_btn)
+        self._tail_btn = QPushButton("Tail")
+        self._tail_btn.setFixedHeight(20)
+        self._tail_btn.setCheckable(True)
+        self._tail_btn.setToolTip("Auto-scroll to end on file change")
+        self._tail_btn.toggled.connect(self.tail_toggled.emit)
+        mode_bar.addWidget(self._tail_btn)
         mode_bar.addStretch()
         layout.addLayout(mode_bar)
 
@@ -98,6 +111,7 @@ class PreviewPanel(QWidget):
         layout.addWidget(self._find_bar)
 
         layout.addWidget(self._stack)
+        self._text_view.installEventFilter(self)
 
     # ── PreviewViewProtocol ──────────────────────────────────────────────
 
@@ -128,6 +142,12 @@ class PreviewPanel(QWidget):
 
     def set_code_alpha(self, alpha: int) -> None:
         self._code_alpha = alpha
+
+    def scroll_to_bottom(self) -> None:
+        if self._stack.currentWidget() is not self._text_view:
+            return
+        sb = self._text_view.verticalScrollBar()
+        sb.setValue(sb.maximum())
 
     def set_busy(self, busy: bool) -> None:
         if busy:
@@ -180,6 +200,13 @@ class PreviewPanel(QWidget):
             super().keyPressEvent(event)
 
     def eventFilter(self, obj: object, event: object) -> bool:
+        if obj is self._text_view and isinstance(event, QWheelEvent):
+            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                if event.angleDelta().y() > 0:
+                    self._text_view.zoomIn()
+                elif event.angleDelta().y() < 0:
+                    self._text_view.zoomOut()
+                return True
         if obj is self._find_edit and isinstance(event, QEvent):
             if event.type() == QEvent.Type.KeyPress:
                 assert isinstance(event, QKeyEvent)
@@ -230,6 +257,10 @@ class PreviewPanel(QWidget):
             found = self._text_view.find(text, QTextDocument.FindFlag.FindBackward)
         self._find_label.setText("Found" if found else "Not found")
         return found
+
+    def _set_wrap(self, on: bool) -> None:
+        mode = QTextBrowser.LineWrapMode.WidgetWidth if on else QTextBrowser.LineWrapMode.NoWrap
+        self._text_view.setLineWrapMode(mode)
 
     # ── Animation ────────────────────────────────────────────────────────
 

@@ -1,6 +1,8 @@
 """Archive creation and extraction commands."""
 from __future__ import annotations
 
+import shutil
+import subprocess
 import tarfile
 import threading
 import zipfile
@@ -148,6 +150,42 @@ class VerifyArchiveCmd(Command):
     @property
     def description(self) -> str:
         return f"Verify {self._path.name}"
+
+
+class Encrypted7zCmd(Command):
+    """Create AES-256 encrypted 7z via system 7z binary."""
+
+    undoable = True
+
+    def __init__(self, sources: list[Path], archive_path: Path, password: str) -> None:
+        self._sources = sources
+        self._archive_path = archive_path
+        self._password = password
+
+    def execute(self) -> None:
+        bin7z = shutil.which("7z") or shutil.which("7za")
+        if bin7z is None:
+            raise RuntimeError("7z binary not found. Install p7zip.")
+        cmd = [bin7z, "a", "-p", "-mhe=on",
+               str(self._archive_path)] + [str(s) for s in self._sources]
+        try:
+            result = subprocess.run(
+                cmd,
+                input=f"{self._password}\n{self._password}\n",
+                capture_output=True, text=True, timeout=300,
+            )
+        except subprocess.TimeoutExpired:
+            self.undo()
+            raise RuntimeError("7z timed out after 300 seconds")
+        if result.returncode != 0:
+            raise RuntimeError(f"7z failed: {result.stderr.strip()}")
+
+    def undo(self) -> None:
+        self._archive_path.unlink(missing_ok=True)
+
+    @property
+    def description(self) -> str:
+        return f"Encrypted archive {self._archive_path.name}"
 
 
 _ZIP_EXTS = frozenset((".zip", ".jar", ".whl"))

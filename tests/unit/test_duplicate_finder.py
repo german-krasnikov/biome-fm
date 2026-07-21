@@ -1,11 +1,11 @@
-"""Tests for cross-directory duplicate finder (F332)."""
+"""Tests for cross-directory duplicate finder (F332/F432)."""
 from __future__ import annotations
 
 from pathlib import Path
 
 import pytest
 
-from biome_fm.presenters.duplicate_presenter import DupGroup, find_duplicates
+from biome_fm.presenters.duplicate_presenter import DupGroup, _partial_hash, find_duplicates
 
 
 def _write(p: Path, content: bytes) -> Path:
@@ -52,3 +52,35 @@ def test_single_path_list_same_as_scalar(tmp_path):
     _write(tmp_path / "y.txt", content)
     groups = find_duplicates([tmp_path], [False])
     assert len(groups) == 1
+
+
+# F432 — partial hash stage tests
+
+def test_partial_hash_reads_only_n_bytes(tmp_path):
+    """_partial_hash(p, n) hashes only first n bytes; two files that differ after n bytes share same partial hash."""
+    n = 4096
+    prefix = b"X" * n
+    a = _write(tmp_path / "a.bin", prefix + b"AAAA")
+    b_ = _write(tmp_path / "b.bin", prefix + b"BBBB")
+    assert _partial_hash(a, n) == _partial_hash(b_, n)
+
+
+def test_partial_hash_distinguishes_different_prefixes(tmp_path):
+    a = _write(tmp_path / "a.bin", b"alpha" + b"\x00" * 100)
+    b_ = _write(tmp_path / "b.bin", b"beta" + b"\x00" * 100)
+    assert _partial_hash(a) != _partial_hash(b_)
+
+
+def test_three_same_size_different_content_no_false_positive(tmp_path):
+    """3 files same size, all different content → no groups (partial hash must not cause false collisions)."""
+    for i, content in enumerate([b"aaa", b"bbb", b"ccc"]):
+        _write(tmp_path / f"f{i}.txt", content)
+    assert find_duplicates([tmp_path], [False]) == []
+
+
+def test_cancel_in_partial_hash_stage(tmp_path):
+    """cancel[0]=True before partial hash stage → returns []."""
+    for i in range(3):
+        _write(tmp_path / f"f{i}.txt", b"same content here")
+    cancel = [True]
+    assert find_duplicates([tmp_path], cancel) == []

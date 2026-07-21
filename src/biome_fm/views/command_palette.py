@@ -104,5 +104,6 @@ class CommandPalette(QFrame):
 
     def _run_item(self, item: QListWidgetItem) -> None:
         entry: CommandEntry = item.data(Qt.ItemDataRole.UserRole)
+        self._registry.record_hit(entry.name)
         self.hide()
         entry.callback()

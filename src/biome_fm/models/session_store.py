@@ -13,10 +13,12 @@ def _decode(data: dict) -> SessionState | None:
         left = PaneSideState(
             tabs=[TabState(**t) for t in data["left"]["tabs"]],
             active_idx=data["left"].get("active_idx", 0),
+            view_mode=data["left"].get("view_mode", "detail"),
         )
         right = PaneSideState(
             tabs=[TabState(**t) for t in data["right"]["tabs"]],
             active_idx=data["right"].get("active_idx", 0),
+            view_mode=data["right"].get("view_mode", "detail"),
         )
         if not left.tabs or not right.tabs:
             return None

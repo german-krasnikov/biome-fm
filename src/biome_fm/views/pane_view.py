@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from PySide6.QtGui import QAccessible, QAccessibleEvent
+from PySide6.QtGui import QAccessible, QAccessibleEvent, QNativeGestureEvent
 
 from biome_fm.models.directory_model import (
     COL_EXT,
@@ -248,6 +248,21 @@ class _PaneTableView(QTableView):
                 ts.activated.emit()
             event.accept()  # type: ignore[attr-defined]
             return True
+        # F417 — two-finger trackpad swipe back/forward (macOS NativeGesture)
+        if (hasattr(event, "type") and
+                event.type() == QEvent.Type.NativeGesture and
+                hasattr(event, "gestureType") and hasattr(event, "delta")):
+            ge: QNativeGestureEvent = event  # type: ignore[assignment]
+            if ge.gestureType() == Qt.NativeGestureType.SwipeNativeGesture:  # type: ignore[attr-defined]
+                pane = self.parent()
+                if isinstance(pane, PaneView):
+                    dx = ge.delta().x()
+                    if dx < 0:
+                        pane.back_requested.emit()
+                    elif dx > 0:
+                        pane.forward_requested.emit()
+                    event.accept()  # type: ignore[attr-defined]
+                    return True
         return super().event(event)  # type: ignore[arg-type]
 
     def keyPressEvent(self, event: object) -> None:
@@ -403,6 +418,15 @@ class _PaneTableView(QTableView):
         super().keyPressEvent(event)  # type: ignore[arg-type]
 
     def mousePressEvent(self, event: object) -> None:
+        if hasattr(event, "button"):
+            btn = event.button()  # type: ignore[attr-defined]
+            parent = self.parent()
+            if btn == Qt.MouseButton.BackButton and isinstance(parent, PaneView):
+                parent.back_requested.emit()
+                return
+            if btn == Qt.MouseButton.ForwardButton and isinstance(parent, PaneView):
+                parent.forward_requested.emit()
+                return
         if (hasattr(event, "modifiers") and
                 hasattr(event, "button") and
                 event.button() == Qt.MouseButton.LeftButton):  # type: ignore[attr-defined]
@@ -594,6 +618,9 @@ class _PaneTableView(QTableView):
         menu.addSeparator()
         menu.addAction("Add to Bookmarks", lambda: p.context_action_requested.emit("add_bookmark"))
         menu.addAction("Tag Files…", lambda: p.tag_requested.emit())
+        if sys.platform == "darwin" and item and not item.is_dir:
+            menu.addAction("Remove Quarantine Flag",
+                           lambda: p.context_action_requested.emit("remove_quarantine"))
         menu.addAction("AI Rename Suggestions…", lambda: p.ai_rename_requested.emit())
         # AI Actions submenu
         from biome_fm.ai.context_actions import builtin_actions

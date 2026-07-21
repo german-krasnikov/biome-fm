@@ -3,6 +3,166 @@
 All notable changes to Biome FM are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.31.0] — 2026-07-21
+
+### Added
+
+**Session & State**
+- Session Save/Restore: `view_mode` field on `PaneSideState` persists gallery/list mode per pane across restarts (F456; `session.py`, `models/session_store.py`)
+
+**Clipboard**
+- Clipboard History Ring (F446) — `ClipboardEntry` dataclass; `deque(maxlen=20)` history; `history()` + `restore_history(entry)` on `ClipboardService` (`models/clipboard_service.py`)
+
+**Macros**
+- Keyboard Macro Recorder (F457) — `MacroStore` (JSON-backed, `~/.config/biome-fm/macros.json`); `MacroRecorder` + `MacroPlayer` in `presenters/macro_recorder.py`; new `models/macro_store.py`
+
+**Remote Control**
+- REST API for Remote Control (F445) — `ipc/rest_server.py`; stdlib `HTTPServer` in daemon thread; Bearer token auth; JSON command dispatch to EventBus; `GET /health` + `POST /command`
+
+**Scripting**
+- Python Scripting Engine (F440) — new `scripting/` package: `BiomeContext` (sandboxed VFS API), `ScriptingEngine` (exec runner + `ScriptError`); `models/script_runner.py` now injects `BIOME_IPC_PORT` env var
+
+**Views**
+- Directory Comparison View (F453) — `views/compare_panel.py`: `CompareModel(QAbstractTableModel)` + `ComparePanel(QWidget)` with left/right sync signals and `diff_requested`
+- Custom Toolbar Builder (F455) — `views/toolbar.py` (`CustomToolBar`) + `views/toolbar_builder_dialog.py` (`ToolbarBuilderDialog`); `get_entry(id)` added to `CommandRegistry`; `toolbar_actions`/`toolbar_visible` added to `Config`
+- Touch Bar Support — `utils/touch_bar.py`: macOS stub with deferred `_touch_bar_impl` import; no-op guard on non-darwin (F452)
+
+---
+
+## [v0.30.0] — 2026-07-21
+
+### Added
+
+**Views & UI**
+- Thumbnail Gallery View (F404) — `GalleryView` / `ThumbnailLoader` in `views/gallery_view.py`; async 128×128 thumbnails via ThreadPoolExecutor; 500-entry dict LRU cache; 50ms drain timer; QListView in IconMode
+- Unified Omnibar (F411) — `OmniBar` popup + `OmnibarPresenter`; single entry point for path navigation (`/`), command dispatch (`>`), and keyword search (bare text); 150ms debounce; Spotlight-style overlay (`views/omnibar.py`, `presenters/omnibar_presenter.py`)
+- Operation Dry-Run Preview (F442) — `DryRunDialog(cmd, history)` renders `cmd.preview() → list[str]` before executing; `preview()` added to `Command` ABC with default implementation (`views/dry_run_dialog.py`, `commands/base.py`)
+- Full-screen Subshell Toggle (F406) — `Ctrl+O` calls `PanelCoordinator.toggle_fullscreen_shell()`; hides both pane sides and shows `TerminalPanel` full-window; second press restores layout (`views/panel_coordinator.py`)
+
+**Commands & Automation**
+- Batch Execute on Selection (F412) — `BatchExecCmd(template, paths, cancel, on_progress)`; `expand_template()` replaces `{f}` `{n}` `{e}` `{d}` placeholders; cancel-safe via threading.Event; not undoable (`commands/batch_exec_cmd.py`)
+- Folder Watch Rules (F422) — `WatchRule` / `WatchRuleStore` (TOML-backed) / `WatchRuleEngine` (snapshot-diff, fnmatch); fires shell command with `{file}` substitution on new-file arrival; `~/.config/biome-fm/watch_rules.toml` (`models/watch_rules.py`)
+
+**Models & Filtering**
+- Advanced Filter Bar with Attribute Predicates (F415) — `parse_filter(text) → FilterSpec`; supports `size:>10m mod:today ext:py` token syntax; `filter_accepts()` pure predicate; no Qt dep (`models/filter_predicate.py`)
+- Multi-Rename Metadata Fields (F428) — `[META:key]` token in rename templates reads EXIF (`piexif`, optional) for images and audio tags (`mutagen`, optional) for MP3/FLAC/etc.; empty string on missing dep or unreadable file (`models/metadata_reader.py`, `presenters/rename_template.py`)
+- Smart Space Reclaimer (F431) — `SpaceReclaimerPresenter(root, patterns, on_results)` scans via `scan_cleanup_dirs` (updated to accept `patterns` kwarg) and computes dir sizes; `ReclaimEntry(path, size)`; daemon thread with cancel (`presenters/space_reclaimer_presenter.py`, `models/deps_scanner.py`)
+
+**IPC**
+- External IPC Control Interface (F409) — `IPCServer` (QLocalServer, socket name `biome-fm`) publishes `IPCCommandReceived(payload)` to EventBus; stdlib `ipc/client.py` `send_command()` requires no Qt; AF_UNIX only (not Windows) (`ipc/server.py`, `ipc/client.py`, `event_bus.py`)
+
+---
+
+## [v0.29.0] — 2026-07-21
+
+### Added
+
+**Remote VFS / SSH**
+- Remote timestamp preservation — `utime(path, mtime)` on `SFTPVfs` (paramiko) and `FsspecVFS` (silent no-op if backend lacks support); called by `ProgressCopyCmd` after remote upload (`models/sftp_vfs.py`, `models/fsspec_vfs.py`, `commands/copy_cmd.py`)
+- SSH jump host / tunnel / proxy — `ProxyCommand` support in `SFTPVfs.connect()`; `make_jump_proxy_command()` helper builds `ssh -W` command; `jump_host` + `jump_user` fields on `SSHProfile` (`models/sftp_vfs.py`, `models/ssh_profiles.py`)
+- Remote file search (server-side find) — `SFTPVfs.exec_find(remote_dir, name_pattern)` runs `find` via SSH exec with `shlex.quote` injection protection; `remote_search()` free function for duck-typed VFS backends; integrated into `SearchPresenter` (`models/sftp_vfs.py`, `presenters/search_presenter.py`)
+- Cross-VFS transfer with streaming resume — `open_read(path, offset)` on `SFTPVfs` and `FsspecVFS`; `_copy_cross_vfs` resumes partial downloads by seeking to existing byte offset in 256 KB chunks; cancel-safe (`commands/copy_cmd.py`, `models/sftp_vfs.py`, `models/fsspec_vfs.py`)
+- FISH protocol VFS — `FISHVfs` uses SSH `exec_command` for `ls` listing and `cat` reading when SFTP subsystem unavailable; shlex-quoted commands; paramiko dependency (`models/fish_vfs.py`)
+
+**New VFS Backends**
+- extfs-style Script VFS — `ScriptVFS` / `ScriptVFSSpec` dataclass; delegates archive browsing to external shell scripts via TOML spec files; `load_script_vfs_specs(dir)` loads `*.toml`; supports RPM/DEB/ISO and custom formats (`models/script_vfs.py`)
+- ISO 9660 VFS — `IsoVFS` read-only browser via pycdlib (optional dep); `mount`-less: opens ISO directly (`models/iso_vfs.py`)
+- macOS DMG VFS — `DmgVFS` mounts/unmounts disc images via `hdiutil attach/detach`; macOS-only guard; plist output parsed to extract mount point (`models/dmg_vfs.py`)
+- Docker container VFS — `DockerVFS` browses container filesystem via `docker exec ls -la` + `docker cp`; parses long-format `ls` output; `docker_available()` guard (`models/docker_vfs.py`)
+- rsync backend — `RsyncCmd` (Command subclass) delta-transfers sources via rsync subprocess; cancel-safe (SIGTERM on `cancel.is_set()`); undo deletes created files; `rsync_available()` guard (`commands/rsync_cmd.py`)
+
+**File Listing**
+- Plugin-defined custom columns — `column_value` hookspec added; `DirectoryModel.set_plugin_manager(pm)` wires plugin columns at runtime via `extra_columns` (layout) + `column_value` (per-cell data) hooks (`models/directory_model.py`, `plugins/hookspecs.py`)
+
+**Views / Dialogs**
+- S3 object versioning browser — `S3VersionsDialog(path, versions)` lists versions in a 4-column table (Version ID / Last Modified / Size / Latest); `restore_requested Signal(version_id: str)` (`views/s3_versions_dialog.py`)
+
+### Tests
+- 11 new unit test files covering all Sprint 8 features
+
+---
+
+## [v0.28.0] — 2026-07-21
+
+### Added
+
+**Accessibility / Themes**
+- Color-blind safe theme `colorblind-dark` — Okabe-Ito palette (orange/blue instead of red/green); safe for deuteranopia, protanopia, and tritanopia (`themes/colorblind-dark.toml`)
+
+**File Operations / Commands**
+- `ChownCmd` — batch `os.chown` with full undo; saves previous uid/gid per file; POSIX-only (`commands/chown_cmd.py`)
+- File selection export to clipboard — `_copy_path` in `app.py` now exports all marked paths (newline-joined); falls back to cursor item when nothing marked (`app.py`)
+
+**Preview**
+- Preview cache TTL (60 s) — cache entries expire after 60 seconds using `time.monotonic`; stale entries re-render even on key match (`preview/presenter.py`)
+
+**macOS / Platform**
+- Finder Comments — `get_finder_comment`/`set_finder_comment` via `kMDItemFinderComment` xattr; non-macOS fallback: `.{name}.biome-meta.json` sidecar (`models/finder_tags.py`)
+- Extended Attrs (xattr) browser — new "Extended Attrs" tab in PropertiesDialog with Add/Remove/inline-edit via `os.listxattr`/`getxattr`/`setxattr` (`views/properties_dialog.py`)
+- macOS Share Sheet — `share_files(paths)` in `utils/platform.py` opens `open --share`; no-op on non-macOS (`utils/platform.py`)
+- Spotlight / mdfind integration — `SearchScope.SYSTEM_INDEX` + `system_index_search(query, root)`: macOS uses `mdfind`, Linux uses `locate`; 5 s timeout (`presenters/search_presenter.py`)
+
+**Git**
+- AI commit message suggestion — `GitCommitDialog` calls `staged_diff()` → `diff_summary_prompt()` → AI provider via `_AISuggestWorker` (QRunnable); async coroutine support (`git/commit_ops.py`, `views/git_commit_dialog.py`)
+- `staged_diff(repo)` — returns full `git diff --cached` output; pure-Python, no Qt (`git/commit_ops.py`)
+
+**Terminal**
+- Shell env vars `BIOME_CWD` / `BIOME_SELECTED` / `BIOME_CURSOR` — injected into terminal process environment on launch via `QProcessEnvironment` (`views/terminal_panel.py`)
+
+**Tooling / Analysis**
+- Dependency cleanup scanner — `scan_cleanup_dirs(root, cancel, max_depth=6)` finds `node_modules`, `__pycache__`, `.venv`, `target`, `dist`, etc.; Qt-free (`models/deps_scanner.py`)
+- Presigned URL generation — `sign_url(path, vfs, expiration=3600)` supports FsspecVFS (via `fs.sign()`) and RcloneVFS (via `rclone link`) (`models/url_signer.py`)
+
+### Tests
+- 12 new unit test files and 4 integration test files covering all Sprint 7 features
+
+---
+
+## [v0.27.0] — 2026-07-21
+
+### Added
+
+**File Listing**
+- Natural/version sort for filenames — `natsort_key()` in `directory_model.py` sorts `file10` after `file9` (`models/directory_model.py`)
+- Symlink target column — Name column shows `name → target` for symlinks; broken symlinks highlighted in red (`models/file_item.py`, `models/vfs.py`, `models/directory_model.py`)
+- Unicode NFC normalization — `normalize_filename(name)` in `utils/encoding.py` reconciles macOS NFD filenames with Linux NFC
+
+**Navigation**
+- Mouse back/forward button support — `Qt.MouseButton.BackButton` / `ForwardButton` in pane view (`views/pane_view.py`)
+- Trackpad two-finger swipe back/forward — horizontal `wheelEvent` on `_PaneTableView` triggers back/forward navigation (`views/pane_view.py`)
+- Global UI zoom — `Ctrl+=` / `Ctrl+-` / `Ctrl+0` scale all pane font sizes via `app.font()` (`app.py`)
+
+**Preview**
+- Word wrap toggle — Wrap button in preview panel toolbar toggles `QTextBrowser.setLineWrapMode` (`views/preview_panel.py`)
+- Text zoom via `Ctrl+Wheel` — mouse wheel + Ctrl zooms `QTextBrowser` in preview panel (`views/preview_panel.py`)
+- Lister tail mode — Tail button auto-scrolls preview to end on file change; `PreviewPresenter.set_tail_mode()` (`views/preview_panel.py`, `preview/presenter.py`, `app.py`)
+- Fit-to-window / 1:1 image preview — `ZoomableImageWidget` now supports fit-mode toggle (`views/_zoomable_image.py`)
+
+**Sync / Operations**
+- Mirror mode delete orphan fix — `SyncExecutor` now executes `delete_orphan` ops in mirror sync (`presenters/sync_executor.py`)
+- Remote file timestamp preservation — `sftp_vfs.py` preserves `mtime` via `SFTPClient.utime()`; `copy_cmd.py` applies mtime after remote copy (`models/sftp_vfs.py`, `commands/copy_cmd.py`)
+- Encrypted 7z archive creation — `ArchiveCmd` extended with password param; calls `7z a -p<password>` subprocess (`commands/archive_cmd.py`)
+
+**Duplicate Finder**
+- Progressive 3-stage hashing — size grouping → 4 KB partial hash → full SHA-256; skips ~90% of full reads (`presenters/duplicate_presenter.py`)
+
+**Plugins**
+- Preview plugin hookspec — `provide_preview(path, dark)` firstresult hookspec lets plugins supply custom preview content (`plugins/hookspecs.py`, `plugins/manager.py`, `app.py`)
+
+**Command Palette**
+- Frecency ranking — `CommandRegistry` tracks invocation frequency; palette sorts results by frecency score (`commands/registry.py`, `views/command_palette.py`)
+
+**macOS**
+- Quarantine flag manager — `RemoveQuarantineCmd` removes `com.apple.quarantine` xattr with undo; wired to context menu on macOS (`models/finder_tags.py`, `commands/quarantine_cmd.py`, `views/pane_view.py`, `app.py`)
+
+**Editor**
+- Find/replace and go-to-line — inline toolbar in `EditorDialog` with `QTextDocument.find()` + go-to-line jump (`views/editor_dialog.py`)
+
+### Tests
+- 9 new unit test files, 8 new integration test files covering all Sprint 6 features
+
+---
+
 ## [v0.26.0] — 2026-07-18
 
 ### Added

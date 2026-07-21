@@ -70,3 +70,28 @@ class FsspecVFS:
 
     def mkdir(self, path: Path) -> None:
         self._fs.makedirs(str(path), exist_ok=True)
+
+    def open_read(self, path: Path, offset: int = 0):
+        import contextlib
+
+        @contextlib.contextmanager
+        def _cm():
+            with self._fs.open(str(path), "rb") as f:
+                if offset:
+                    f.seek(offset)
+                yield f
+
+        return _cm()
+
+    def utime(self, path: Path, mtime: float) -> None:
+        if hasattr(self._fs, "utime"):
+            self._fs.utime(str(path), (mtime, mtime))
+
+    def list_versions(self, path: Path) -> list[dict]:
+        """Return S3 object versions. Returns [] on non-S3 backends."""
+        try:
+            if hasattr(self._fs, "object_version_info"):
+                return self._fs.object_version_info(str(path))
+            return []
+        except Exception:
+            return []

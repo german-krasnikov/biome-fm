@@ -40,8 +40,8 @@ class TestDirectoryModel:
         model.set_items(items)
         assert model.rowCount() == len(items)
 
-    def test_column_count_is_4(self, model):
-        assert model.columnCount() == 4
+    def test_column_count_is_6(self, model):
+        assert model.columnCount() == 6
 
     def test_data_name_column(self, model, items):
         model.set_items(items)
@@ -78,6 +78,55 @@ class TestDirectoryModel:
     def test_invalid_index_returns_none(self, model, items):
         model.set_items(items)
         assert model.data(model.index(99, 0)) is None
+
+
+class TestSymlinkDisplay:
+    def test_symlink_name_shows_target(self, qapp):
+        model = DirectoryModel()
+        item = FileItem(
+            name="link", path=Path("link"), is_dir=False, size=0, modified=0.0,
+            is_symlink=True, symlink_target=Path("/target/path"),
+        )
+        model.set_items([item])
+        assert model.data(model.index(0, COL_NAME)) == "link → /target/path"
+
+    def test_regular_file_name_unchanged(self, qapp):
+        model = DirectoryModel()
+        item = FileItem(name="file.txt", path=Path("file.txt"), is_dir=False, size=0, modified=0.0)
+        model.set_items([item])
+        assert model.data(model.index(0, COL_NAME)) == "file.txt"
+
+    def test_broken_symlink_foreground_red(self, qapp, tmp_path):
+        from biome_fm.qt import QBrush, QColor
+        model = DirectoryModel()
+        broken = tmp_path / "dead_link"
+        # path doesn't exist → broken symlink
+        item = FileItem(
+            name="dead_link", path=broken, is_dir=False, size=0, modified=0.0,
+            is_symlink=True, symlink_target=Path("/nonexistent"), is_broken=True,
+        )
+        model.set_items([item])
+        role = Qt.ItemDataRole.ForegroundRole
+        brush = model.data(model.index(0, COL_NAME), role)
+        assert isinstance(brush, QBrush)
+        assert brush.color() == QColor("#cc3333")
+
+    def test_valid_symlink_not_red(self, qapp, tmp_path):
+        from biome_fm.qt import QBrush
+        model = DirectoryModel()
+        real = tmp_path / "real.txt"
+        real.write_text("x")
+        item = FileItem(
+            name="real.txt", path=real, is_dir=False, size=1, modified=0.0,
+            is_symlink=True, symlink_target=Path("/somewhere/real.txt"),
+        )
+        model.set_items([item])
+        role = Qt.ItemDataRole.ForegroundRole
+        brush = model.data(model.index(0, COL_NAME), role)
+        # Should not be the broken-link red
+        from biome_fm.qt import QColor
+        if isinstance(brush, QBrush):
+            assert brush.color() != QColor("#cc3333")
 
 
 class TestDirSortFilterProxy:

@@ -1,0 +1,8 @@
+[meta]
+name     = "Colorblind Dark"
+inherits = "dark"
+
+# Okabe-Ito palette — safe for deuteranopia/protanopia/tritanopia
+[tokens]
+red   = "#E69F00"  # orange  — replaces red (deleted/removed/error)
+green = "#0072B2"  # blue    — replaces green (added/new/ok)

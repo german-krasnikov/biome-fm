@@ -13,7 +13,7 @@
   <!-- SPEC -->
   <img src="https://img.shields.io/badge/python-3.12%2B-3776AB?logo=python&logoColor=white" alt="Python 3.12+" />
   <img src="https://img.shields.io/badge/Qt-6.7%2B-41CD52?logo=qt&logoColor=white" alt="Qt 6.7+" />
-  <img src="https://img.shields.io/badge/version-0.19.1-informational" alt="v0.19.1" />
+  <img src="https://img.shields.io/badge/version-0.31.0-informational" alt="v0.31.0" />
   <br/>
   <!-- STACK -->
   <img src="https://img.shields.io/badge/PySide6-GUI-41CD52?logo=qt&logoColor=white" alt="PySide6" />
@@ -99,40 +99,75 @@ Optional extras: `ai` (Anthropic + embeddings), `perf` (Rust bindings for speed)
 - Async copy/move with progress bar + cancel
 - Conflict resolution dialog with per-file decisions
 - Transfer queue panel (pause, reorder, retry)
-- Create/extract archives (zip, tar + plugin extensions)
+- Create/extract archives (zip, tar, encrypted 7z + plugin extensions)
 - Checksum dialog (MD5, SHA-256)
 - Undo/redo — 50 levels, every mutation is a Command
+- Dry-run preview before destructive operations
+- Batch execute on selection with template substitution
+- Space reclaimer — find and remove large/duplicate files
+- Clipboard history ring (last 20 entries)
+- `ChownCmd` with full undo support
 
 **UI & Navigation**
 - Dual-pane, multi-tab layout with named workspaces
 - Breadcrumb bar with drag-and-drop path segments
 - Sidebar: volumes, bookmarks, recent locations
-- Embedded terminal (Ctrl+`)
-- Inline rename (F2), batch rename dialog
+- Embedded terminal (Ctrl+`), full-screen subshell toggle (Ctrl+O)
+- Inline rename (F2), batch rename with metadata fields (EXIF, MP3 tags)
 - Flat/recursive view, TC-style file marks
-- Command palette (Ctrl+P), command line, F1-F10 action bar
+- OmniBar — unified navigation, command, and search in one input
+- Command palette (Ctrl+P) with frecency ranking, F1-F10 action bar
+- Gallery view with async thumbnail loading
+- Directory comparison panel (side-by-side diff)
+- Custom toolbar builder
 - Per-directory view state, path autocomplete
+- Global UI zoom (Ctrl+=/Ctrl+-), word wrap and text zoom in preview
+- Mouse back/forward buttons + trackpad two-finger swipe
+- macOS Touch Bar stub
+- Session view mode persistence across restarts
 
 **Search & Filter**
 - Quick filter with character highlight
 - Select by pattern (glob/regex)
 - Fuzzy finder (Ctrl+P), virtual search pane
 - Reusable search templates
+- Advanced filter predicates: `size:>10m mod:today ext:py`
+- Spotlight/mdfind scope on macOS
 
 **Preview**
 - Syntax-highlighted code and Markdown (Pygments)
 - Images, video thumbnails (ffmpeg), audio metadata (mutagen)
 - Archive contents, hex dump, git diff, PDF text
 - macOS Quick Look fallback, fullscreen viewer (F11)
+- Preview cache with 60 s TTL
+- Finder Comments + xattr browser in PropertiesDialog
+
+**VFS Backends**
+- Local, SFTP/SSH (jump host, tunnel), S3 (with object versioning), WebDAV
+- ZIP/TAR/7z/RAR archive browsing
+- ISO 9660 and macOS DMG virtual filesystems
+- Docker container filesystem browser
+- FISH protocol VFS; extfs-style Script VFS (RPM, DEB, ISO)
+- rsync backend for delta-transfer; cross-VFS streaming resume
+- Plugin-defined custom VFS backends
+
+**Automation & Scripting**
+- Python scripting engine (`BiomeContext` + `ScriptingEngine`) — automate any UI action
+- Keyboard macro recorder/player with persistent macro store
+- Watch rules — auto-actions triggered on folder events
+- IPC: Unix socket server + REST API (Bearer token, EventBus dispatch)
 
 **AI Integration**
 - Multi-model chat: Claude, OpenAI, Ollama, CLI backends (Claude Code, Codex, OpenCode)
 - AI rename suggestions, context-aware file actions
 - Natural-language operations (Ctrl+Shift+N)
+- AI commit message suggestion from staged diff
+- Metadata-based renaming using EXIF/MP3 fields via AI
 - AI shell command detection
 
 **Themes & Appearance**
 - TOML token-based themes with inheritance
+- Color-blind safe theme (Okabe-Ito palette)
 - Glass/opacity effect, file-type coloring, active-pane highlight
 - Custom column visibility
 
@@ -140,6 +175,7 @@ Optional extras: `ai` (Anthropic + embeddings), `perf` (Rust bindings for speed)
 - 8 pluggy hookspecs: context menu, custom columns, archive formats, themes, and more
 - `entry_points` discovery + local drop-in plugins
 - Versioned plugin API
+- Plugin-defined custom columns and presigned URL generation
 
 <details>
 <summary>Plugin example</summary>
@@ -179,6 +215,8 @@ src/biome_fm/
 ├── preview/       # Provider protocol + renderer registry
 ├── plugins/       # pluggy hookspecs + entry_point discovery
 ├── ai/            # AIProvider protocol + concrete providers
+├── ipc/           # Unix socket server + REST API (Bearer token)
+├── scripting/     # BiomeContext + ScriptingEngine (Python automation)
 ├── cli/           # CLI installer (configure/doctor)
 └── themes/        # TOML color token resolution
 ```
@@ -195,59 +233,57 @@ Full architecture: [`AI/architecture.md`](AI/architecture.md)
 ## Recent Changes
 
 <details>
-<summary><strong>v0.26.0</strong> — 2026-07-18 — Sessions, task runner, VFS plugin hook</summary>
+<summary><strong>v0.31.0</strong> — 2026-07-21 — Sprint 10: 8 features</summary>
 
-- Named sessions: save/restore full pane layout by name (`SessionStore`, `SessionPickerDialog`)
-- Task runner: run Makefile/Justfile targets with live output (`TaskRunnerDialog`)
-- Path completion in command bar (`utils/path_completion.py`)
-- `provide_vfs` plugin hookspec — plugins can now supply a custom VFS for any path prefix
-- `CloudConnectionStore` for JSON-backed cloud URL persistence
-
-</details>
-
-<details>
-<summary><strong>v0.25.0</strong> — 2026-07-18 — Disk analysis, accessibility, desktop integration</summary>
-
-- Storage treemap: squarify disk usage visualization, click to navigate (`TreemapPanel`)
-- Large file finder: background scan with configurable threshold (`LargeFileDialog`)
-- High Contrast theme (`themes/high-contrast.toml`)
-- Global hotkey support via pynput (optional) (`utils/global_hotkey.py`)
-- macOS Automator Quick Action installer (`cli/automator.py`)
+- Session view mode persistence (`PaneSideState.view_mode`), Clipboard History Ring (`ClipboardEntry`, `deque(maxlen=20)`)
+- Keyboard Macro Recorder (`MacroRecorder` + `MacroPlayer`, `MacroStore`)
+- REST API for Remote Control (`ipc/rest_server.py`, Bearer token, EventBus dispatch)
+- Python Scripting Engine (`scripting/` package: `BiomeContext`, `ScriptingEngine`)
+- Directory Comparison View (`ComparePanel`), Custom Toolbar Builder (`CustomToolBar`, `ToolbarBuilderDialog`)
+- macOS Touch Bar stub (`utils/touch_bar.py`)
 
 </details>
 
 <details>
-<summary><strong>v0.24.0</strong> — 2026-07-18 — Search/preview/git/tags</summary>
+<summary><strong>v0.30.0</strong> — 2026-07-21 — Sprint 9: 10 features</summary>
 
-- `TagCmd`: batch tag assign/remove with undo
-- Git virtual pane: navigate all dirty files as a virtual directory (`git/virtual_pane.py`)
-- Git worktree navigator (`git/worktree_ops.py`)
-- Pygments syntax highlighting in built-in editor (`PygmentsHighlighter`)
-- Group header delegate in file list (`GroupDelegate`)
-
-</details>
-
-<details>
-<summary><strong>v0.23.0</strong> — 2026-07-18 — VFS & remote (19 features)</summary>
-
-- `RcloneVFS`: rclone-backed VFS for any cloud remote
-- `RemoteListCache`: TTL=30s thread-safe listing cache
-- `PreviewFileCache`: SHA1-keyed local cache for remote file preview
-- `CredentialStore`: keyring-backed credentials with fallback
-- Cloud profiles CRUD (`CloudProfileStore`, `CloudProfileDialog`, `QuickConnectBar`)
-- `RemoteEditCmd`: download → edit → re-upload workflow
+- Thumbnail Gallery View (`GalleryView` + `ThumbnailLoader`), Unified Omnibar (`OmniBar`, `OmnibarPresenter`)
+- Operation Dry-Run Preview (`DryRunDialog`, `Command.preview()`), Full-screen Subshell Toggle (Ctrl+O)
+- Batch Execute on Selection (`BatchExecCmd`), Folder Watch Rules (`WatchRuleEngine`)
+- Advanced Filter Bar (`parse_filter` / `FilterSpec`), Multi-Rename Metadata Fields (`[META:key]`, `metadata_reader.py`)
+- Smart Space Reclaimer (`SpaceReclaimerPresenter`), External IPC Interface (`ipc/server.py` + `ipc/client.py`)
 
 </details>
 
 <details>
-<summary><strong>v0.22.0</strong> — 2026-07-18 — Core ops & navigation (18 features)</summary>
+<summary><strong>v0.29.0</strong> — 2026-07-21 — Sprint 8: remote VFS + Docker</summary>
 
-- `CopyMoveDialog`: TC-style destination with history (`Alt+C` quick-CD)
-- `SelectCriteria`: multi-criteria selection (name glob, extension, size, age)
-- `FileCollector`: cherry-pick files across directories into a virtual panel
-- `PermissionsEditorDialog` + `ChmodCmd`: bulk chmod with undo
-- `WhichKeyPopup` + `LeaderFilter`: visual leader key hints
-- `UserMenuItem` + `load_user_menu()`: per-directory `.biome-menu.toml`
+- SSH jump host / tunnel, remote file search (server-side find), cross-VFS streaming resume
+- FISH protocol VFS, extfs-style Script VFS (RPM/DEB/ISO), ISO 9660 + macOS DMG VFS
+- Docker container filesystem browser, rsync backend for delta-transfer
+- S3 object versioning browser, plugin-defined custom columns
+
+</details>
+
+<details>
+<summary><strong>v0.28.0</strong> — 2026-07-21 — Sprint 7: 12 features</summary>
+
+- Color-blind safe theme (Okabe-Ito palette), `ChownCmd` with undo, file selection export to clipboard
+- Preview cache 60 s TTL; Finder Comments + xattr browser in PropertiesDialog
+- AI commit message suggestion in `GitCommitDialog` via `staged_diff()` + AI provider
+- Shell env vars `BIOME_CWD`/`BIOME_SELECTED`/`BIOME_CURSOR` injected into terminal on launch
+- Spotlight/mdfind search scope, dependency cleanup scanner, presigned URL generation, macOS Share Sheet
+
+</details>
+
+<details>
+<summary><strong>v0.27.0</strong> — 2026-07-21 — Sprint 6: 18 quick-win features</summary>
+
+- Natural sort, symlink target column, Unicode NFC normalization in file listing
+- Mouse back/forward buttons + trackpad two-finger swipe in pane navigation
+- Word wrap toggle, text zoom (Ctrl+Wheel), tail mode, fit-to-window image in preview
+- Global UI zoom (Ctrl+=/Ctrl+-/Ctrl+0), command palette frecency ranking
+- Encrypted 7z creation, macOS quarantine manager, remote timestamp preservation
 
 </details>
 
