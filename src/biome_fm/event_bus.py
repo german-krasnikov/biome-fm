@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import queue as _queue
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -18,6 +19,7 @@ class EventBus:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._handlers: dict[type, list[Callable[..., None]]] = {}
+        self._thread_queue: _queue.SimpleQueue = _queue.SimpleQueue()
 
     def subscribe(self, event_type: type, handler: Callable[..., None]) -> None:
         with self._lock:
@@ -37,6 +39,19 @@ class EventBus:
                 h(event)
             except Exception:
                 _log.exception("EventBus handler %r raised for %r", h, event)
+
+    def publish_from_thread(self, event: Any) -> None:
+        """Queue an event from a background thread; drain via drain_threaded()."""
+        self._thread_queue.put(event)
+
+    def drain_threaded(self) -> None:
+        """Drain thread-queued events. Call from main thread (e.g. QTimer slot)."""
+        while True:
+            try:
+                event = self._thread_queue.get_nowait()
+                self.publish(event)
+            except _queue.Empty:
+                break
 
 
 # Module-level singleton

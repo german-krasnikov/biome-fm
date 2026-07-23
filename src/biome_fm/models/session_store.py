@@ -1,10 +1,10 @@
 """SessionStore — JSON-backed named sessions (F267)."""
 from __future__ import annotations
 
-import json
 from dataclasses import asdict
 from pathlib import Path
 
+from biome_fm.models._store_base import atomic_write_json, read_json
 from biome_fm.session import PanelSession, PaneSideState, SessionState, TabState
 
 
@@ -34,14 +34,10 @@ class SessionStore:
         self._path = path
 
     def _load(self) -> dict[str, dict]:
-        try:
-            return json.loads(self._path.read_text(encoding="utf-8"))
-        except (FileNotFoundError, json.JSONDecodeError):
-            return {}
+        return read_json(self._path)  # type: ignore[return-value]
 
     def _save(self, data: dict[str, dict]) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        atomic_write_json(self._path, data)
 
     def save_named_session(self, name: str, state: SessionState) -> None:
         data = self._load()

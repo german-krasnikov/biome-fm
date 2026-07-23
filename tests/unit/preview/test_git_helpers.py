@@ -23,7 +23,7 @@ def test_find_repo_returns_none_outside_git(tmp_path):
 def test_run_git_success(tmp_path):
     from biome_fm.preview.providers._git_helpers import run_git
     fake = MagicMock(stdout="hello\n", returncode=0)
-    with patch("biome_fm.preview.providers._git_helpers.subprocess.run", return_value=fake):
+    with patch("biome_fm.git.run.subprocess.run", return_value=fake):
         assert run_git(["log", "--oneline"], tmp_path) == "hello\n"
 
 
@@ -31,7 +31,7 @@ def test_run_git_raises_on_nonzero(tmp_path):
     from biome_fm.preview.providers._git_helpers import run_git
     import subprocess
     with patch(
-        "biome_fm.preview.providers._git_helpers.subprocess.run",
+        "biome_fm.git.run.subprocess.run",
         side_effect=subprocess.CalledProcessError(1, "git"),
     ):
         with pytest.raises(subprocess.CalledProcessError):

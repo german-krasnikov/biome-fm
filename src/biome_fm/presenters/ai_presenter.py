@@ -79,6 +79,7 @@ class AIPresenter:
         self._selected: list[FileItem] = []
         self._summary_cache: dict[tuple[Path, float], str] = {}
         self._pending_summary_key: tuple[Path, float] | None = None
+        self._draining: bool = False  # True while events are in-flight
 
     @property
     def _provider(self) -> AIProviderProtocol:
@@ -101,6 +102,7 @@ class AIPresenter:
     def add_attachment(self, path: Path) -> None:
         if len(self._pending_attachments) >= MAX_ATTACHMENTS:
             return
+        self._draining = True
         self._pool.submit(self._load_attachment, path)
 
     def remove_attachment(self, index: int) -> None:
@@ -112,6 +114,7 @@ class AIPresenter:
         self._view.clear_attachment_chips()
 
     def send(self, text: str) -> None:
+        self._draining = True
         self._pending_summary_key = None
         if not self._provider.available:
             self._view.append_message("assistant", "(AI not configured — set API key)")
@@ -189,6 +192,8 @@ class AIPresenter:
         self._view.set_busy(False)
 
     def drain(self) -> None:
+        if not self._draining:
+            return
         try:
             while True:
                 ev = self._events.get_nowait()
@@ -211,17 +216,20 @@ class AIPresenter:
                     if blocks and hasattr(self._view, "show_shell_ops"):
                         self._view.show_shell_ops(blocks)
                     self._view.set_busy(False)
+                    self._draining = False
                 elif ev.kind == "error":
                     self._stream_buffer.clear()
                     self._view.append_message("error", ev.content)
                     self._view.set_busy(False)
+                    self._draining = False
                 elif ev.kind == "cancelled":
-                    pass  # UI already cleaned up in cancel()
+                    self._draining = False
                 elif ev.kind == "tool_call":
                     self._view.append_tool_event(ev.content)
                 elif ev.kind == "attachment_ready" and ev.attachment:
                     self._pending_attachments.append(ev.attachment)
                     self._view.add_attachment_chip(ev.attachment.display_name)
+                    self._draining = False  # attachment loaded, no more events expected
         except queue.Empty:
             pass
 

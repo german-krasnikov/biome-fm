@@ -74,24 +74,28 @@ def test_mkdir_invalid_name_raises() -> None:
         MkdirCmd(Path("/a") / "foo\\bar", SpyVFS())
 
 
-def test_mkdir_execute_creates_dir(tmp_path: Path) -> None:
+def test_mkdir_execute_delegates_to_vfs(tmp_path: Path) -> None:
     target = tmp_path / "newdir"
-    MkdirCmd(target, SpyVFS()).execute()
-    assert target.is_dir()
+    vfs = SpyVFS()
+    MkdirCmd(target, vfs).execute()
+    assert ("mkdir", target) in vfs.calls
 
 
-def test_mkdir_undo_removes_dir(tmp_path: Path) -> None:
+def test_mkdir_undo_delegates_to_vfs(tmp_path: Path) -> None:
     target = tmp_path / "newdir"
-    cmd = MkdirCmd(target, SpyVFS())
+    vfs = SpyVFS()
+    cmd = MkdirCmd(target, vfs)
     cmd.execute()
     cmd.undo()
-    assert not target.exists()
+    assert ("delete", target) in vfs.calls
 
 
-def test_mkdir_undo_noop_if_not_exists(tmp_path: Path) -> None:
-    # Should not raise even if dir was never created
-    cmd = MkdirCmd(tmp_path / "ghost", SpyVFS())
-    cmd.undo()  # no error
+def test_mkdir_undo_calls_vfs_delete(tmp_path: Path) -> None:
+    # MkdirCmd.undo() always calls vfs.delete — VFS is responsible for handling missing paths
+    vfs = SpyVFS()
+    cmd = MkdirCmd(tmp_path / "ghost", vfs)
+    cmd.undo()
+    assert ("delete", tmp_path / "ghost") in vfs.calls
 
 
 def test_mkdir_description() -> None:

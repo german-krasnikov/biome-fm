@@ -7,7 +7,6 @@ import stat
 import threading
 import time
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path, PurePosixPath
 
 try:
@@ -176,13 +175,12 @@ class SFTPVfs:
             items = []
             for a in attrs:
                 is_dir = bool(a.st_mode and stat.S_ISDIR(a.st_mode))
-                mtime = datetime.fromtimestamp(a.st_mtime or 0) if a.st_mtime else None
                 items.append(FileItem(
                     name=a.filename,
                     path=Path(str(p)) / a.filename,
                     is_dir=is_dir,
                     size=a.st_size or 0,
-                    modified=mtime,
+                    modified=float(a.st_mtime or 0.0),
                 ))
             return items
 
@@ -224,7 +222,7 @@ class SFTPVfs:
 
         self._with_reconnect(_do, path)
 
-    def remove(self, path: PurePosixPath) -> None:
+    def delete(self, path: PurePosixPath) -> None:
         def _do(sftp, p):
             try:
                 sftp.remove(str(p))

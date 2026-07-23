@@ -81,6 +81,7 @@ def test_cancel_clears_buffer():
 def test_stale_events_dropped():
     presenter, view, _ = _make()
     presenter._epoch = 2  # current epoch
+    presenter._draining = True  # simulate in-flight request
     # stale token (epoch=1) and current token (epoch=2)
     presenter._events.put(_AIEvent("token", "stale", epoch=1))
     presenter._events.put(_AIEvent("token", "current", epoch=2))

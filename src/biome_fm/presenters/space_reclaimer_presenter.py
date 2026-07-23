@@ -21,10 +21,12 @@ class SpaceReclaimerPresenter:
         root: Path,
         patterns: frozenset[str],
         on_results: Callable[[list[ReclaimEntry]], None],
+        marshal_fn: Callable[[Callable[[], None]], None] | None = None,
     ) -> None:
         self._root = root
         self._patterns = patterns
         self._on_results = on_results
+        self._marshal_fn = marshal_fn  # e.g. lambda fn: QTimer.singleShot(0, fn)
         self._cancel = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -49,4 +51,8 @@ class SpaceReclaimerPresenter:
             except OSError:
                 size = 0
             entries.append(ReclaimEntry(path=d, size=size))
-        self._on_results(entries)
+        call = lambda: self._on_results(entries)
+        if self._marshal_fn:
+            self._marshal_fn(call)
+        else:
+            call()

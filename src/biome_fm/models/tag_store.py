@@ -6,6 +6,8 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from biome_fm.models._store_base import toml_escape as _esc
+
 
 @dataclass
 class TagStore:
@@ -29,7 +31,7 @@ class TagStore:
         lines: list[str] = ["[tags]\n"]
         for p, tags in self._tags.items():
             tag_list = ", ".join(f'"{t}"' for t in tags)
-            lines.append(f'"{p}" = [{tag_list}]\n')
+            lines.append(f'"{_esc(p)}" = [{tag_list}]\n')
         lines.append("\n[colors]\n")
         for tag, color in self._colors.items():
             lines.append(f'{tag} = "{color}"\n')

@@ -5,10 +5,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-
-def _esc(v: str) -> str:
-    """Escape backslash and double-quote for a TOML basic string."""
-    return v.replace("\\", "\\\\").replace('"', '\\"')
+from biome_fm.models._store_base import toml_escape as _esc
 
 
 @dataclass
@@ -39,7 +36,6 @@ class SyncProfileStore:
             )
 
     def save(self) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
         lines: list[str] = []
         for p in self._profiles.values():
             lines.append(f"[profiles.{p.name}]")
@@ -49,7 +45,8 @@ class SyncProfileStore:
             lines.append(f"exclude = [{excl}]")
             lines.append(f"mirror = {str(p.mirror).lower()}")
             lines.append("")
-        self._path.write_text("\n".join(lines))
+        from biome_fm.utils.atomic_write import atomic_write
+        atomic_write(self._path, "\n".join(lines))
 
     def add(self, profile: SyncProfile) -> None:
         self._profiles[profile.name] = profile

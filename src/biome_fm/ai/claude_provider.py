@@ -88,3 +88,11 @@ class ClaudeProvider:
             else:
                 out.append({"role": msg["role"], "content": str(content)})
         return out
+
+    def terminate(self) -> None:
+        pass
+
+    def chat_stream_events(
+        self, messages: list[dict], system: str = ""
+    ) -> Iterator[tuple[str, str]]:
+        return iter([])

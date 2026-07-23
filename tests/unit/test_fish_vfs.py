@@ -10,7 +10,7 @@ import pytest
 # -- _parse_ls_line tests (pure, no mocks needed) ----------------------------
 
 def test_parse_ls_line_dir():
-    from biome_fm.models.fish_vfs import _parse_ls_line
+    from biome_fm.models.ls_parser import parse_ls_line as _parse_ls_line
     info = _parse_ls_line("drwxr-xr-x  2 user group  4096 2024-01-15 12:34 dirname")
     assert info == {"name": "dirname", "is_dir": True, "size": 4096, "mtime": pytest.approx(info["mtime"])}
     assert info["is_dir"] is True
@@ -19,7 +19,7 @@ def test_parse_ls_line_dir():
 
 
 def test_parse_ls_line_regular():
-    from biome_fm.models.fish_vfs import _parse_ls_line
+    from biome_fm.models.ls_parser import parse_ls_line as _parse_ls_line
     info = _parse_ls_line("-rw-r--r--  1 user group  1234 2024-06-20 09:15 file.txt")
     assert info is not None
     assert info["is_dir"] is False
@@ -28,7 +28,7 @@ def test_parse_ls_line_regular():
 
 
 def test_parse_ls_line_invalid():
-    from biome_fm.models.fish_vfs import _parse_ls_line
+    from biome_fm.models.ls_parser import parse_ls_line as _parse_ls_line
     assert _parse_ls_line("total 8") is None
     assert _parse_ls_line("") is None
 

@@ -16,6 +16,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from biome_fm.utils.format import format_size as _fmt
+
 
 def scan_large_files(
     root: Path, min_bytes: int = 0, limit: int = 100
@@ -133,11 +135,3 @@ class LargeFileDialog(QDialog):
         if isinstance(model, _FileModel):
             self.navigate_requested.emit(model.path_at(index.row()))
 
-
-def _fmt(n: int) -> str:
-    s = float(n)
-    for unit in ("B", "KB", "MB", "GB"):
-        if s < 1024:
-            return f"{s:.1f} {unit}"
-        s /= 1024
-    return f"{s:.1f} TB"

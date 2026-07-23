@@ -16,7 +16,8 @@ from typing import Protocol
 from biome_fm.models.dir_state_store import DirStateStore
 from biome_fm.models.file_item import FileItem
 from biome_fm.models.frecency_store import FrecencyStore
-from biome_fm.models.vfs import VFSProtocol
+from biome_fm.models.vfs import ReadableVFS, VFSProtocol  # VFSProtocol kept for compat
+from biome_fm.utils.format import format_size as _format_size
 
 _ARCHIVE_SUFFIXES = {".zip", ".tar"}
 _ARCHIVE_DOUBLE = {(".tar", ".gz"), (".tar", ".bz2"), (".tar", ".xz")}
@@ -45,6 +46,16 @@ class PaneViewProtocol(Protocol):
     def set_dir_size(self, path: Path, size: int) -> None: ...
 
 
+class RichPaneViewProtocol(PaneViewProtocol, Protocol):
+    """Extended view contract — implemented by full PaneView widget."""
+    def set_back_history(self, paths: list[Path]) -> None: ...
+    def set_forward_history(self, paths: list[Path]) -> None: ...
+    def set_sort_preset(self, col: int, ascending: bool) -> None: ...
+    def set_show_only_marked(self, enabled: bool) -> None: ...
+    def get_view_state(self) -> object: ...
+    def set_view_state(self, state: object) -> None: ...
+
+
 def _sort(items: list[FileItem]) -> list[FileItem]:
     # ponytail: sort here for unit testability; DirSortFilterProxy also sorts for
     # column-click UX -- unify if they drift
@@ -59,7 +70,7 @@ class PanePresenter:
     def __init__(
         self,
         view: PaneViewProtocol,
-        vfs: VFSProtocol,
+        vfs: ReadableVFS,
         home: Path | None = None,
         opener: Callable[[Path], None] | None = None,
         store: DirStateStore | None = None,
@@ -87,6 +98,21 @@ class PanePresenter:
         self._cwd_mtime: float = 0.0
         self._sort_preset: int = 0
         self._sticky_marks_enabled: bool = False
+        self._connections: list[tuple[object, object]] = []
+
+    def _track(self, signal: object, slot: object) -> object:
+        """Connect signal→slot and track for cleanup."""
+        signal.connect(slot)  # type: ignore[attr-defined]
+        self._connections.append((signal, slot))
+        return slot
+
+    def cleanup(self) -> None:
+        """Disconnect tracked signals and cancel background threads."""
+        self._size_cancel[0] = True
+        for signal, slot in self._connections:
+            with contextlib.suppress(RuntimeError):
+                signal.disconnect(slot)  # type: ignore[attr-defined]
+        self._connections.clear()
 
     @property
     def current_path(self) -> Path:
@@ -390,28 +416,19 @@ class PanePresenter:
             return
         if self._cwd:
             with contextlib.suppress(OSError):
-                self._free_space = f"Free: {self._fmt_size(shutil.disk_usage(self._cwd).free)}"
+                self._free_space = f"Free: {_format_size(shutil.disk_usage(self._cwd).free)}"
 
     def _update_status(self) -> None:
         total = len(self._items)
         parts = [f"{total} items"]
         if self._marks:
             size = sum(i.size for i in self._items if str(i.path) in self._marks and not i.is_dir)
-            parts.append(f"{len(self._marks)} marked ({self._fmt_size(size)})")
+            parts.append(f"{len(self._marks)} marked ({_format_size(size)})")
         if self._dir_size_result is not None:
-            parts.append(f"Dirs: {self._fmt_size(self._dir_size_result)}")
+            parts.append(f"Dirs: {_format_size(self._dir_size_result)}")
         if self._free_space:
             parts.append(self._free_space)
         self._view.set_status(" | ".join(parts))
-
-    @staticmethod
-    def _fmt_size(n: int) -> str:
-        s = float(n)
-        for unit in ("B", "KB", "MB", "GB", "TB"):
-            if s < 1024:
-                return f"{s:.0f} {unit}" if unit == "B" else f"{s:.1f} {unit}"
-            s /= 1024
-        return f"{s:.1f} PB"
 
     def toggle_flat_view(self) -> None:
         """Show all files under cwd recursively, or go back if already virtual."""

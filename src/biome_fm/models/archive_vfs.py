@@ -68,18 +68,6 @@ class ArchiveVFS:
         except (KeyError, OSError, ValueError):
             return False
 
-    def copy(self, src: Path, dst: Path) -> None:
-        raise NotImplementedError("ArchiveVFS is read-only")
-
-    def move(self, src: Path, dst: Path) -> None:
-        raise NotImplementedError("ArchiveVFS is read-only")
-
-    def delete(self, path: Path) -> None:
-        raise NotImplementedError("ArchiveVFS is read-only")
-
-    def mkdir(self, path: Path) -> None:
-        raise NotImplementedError("ArchiveVFS is read-only")
-
     # ------------------------------------------------------------------
     def _internal_path(self, path: Path) -> str:
         if path == self._archive:

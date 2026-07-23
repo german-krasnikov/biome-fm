@@ -75,3 +75,11 @@ class OpenAIProvider:
             else:
                 wire.append({"role": msg["role"], "content": str(content)})
         return wire
+
+    def terminate(self) -> None:
+        pass
+
+    def chat_stream_events(
+        self, messages: list[dict], system: str = ""
+    ) -> Iterator[tuple[str, str]]:
+        return iter([])

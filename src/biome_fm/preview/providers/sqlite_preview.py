@@ -1,6 +1,7 @@
 """SQLite/DuckDB preview provider."""
 from __future__ import annotations
 
+import html as _html
 import sqlite3
 from pathlib import Path
 
@@ -26,16 +27,17 @@ class SqlitePreviewProvider:
 
             parts: list[str] = []
             for tbl in tables[:_TABLE_LIMIT]:
-                cursor.execute(f"SELECT * FROM [{tbl}] LIMIT {_ROW_LIMIT}")
+                safe_id = tbl.replace('"', '""')
+                cursor.execute(f'SELECT * FROM "{safe_id}" LIMIT {_ROW_LIMIT}')
                 cols = [d[0] for d in cursor.description]
                 rows = cursor.fetchall()
-                thead = "".join(f"<th>{c}</th>" for c in cols)
+                thead = "".join(f"<th>{_html.escape(c)}</th>" for c in cols)
                 tbody = "".join(
-                    "<tr>" + "".join(f"<td>{cell}</td>" for cell in row) + "</tr>"
+                    "<tr>" + "".join(f"<td>{_html.escape(str(cell))}</td>" for cell in row) + "</tr>"
                     for row in rows
                 )
                 parts.append(
-                    f"<h3>{tbl}</h3>"
+                    f"<h3>{_html.escape(tbl)}</h3>"
                     f"<table border='1' cellpadding='3'>"
                     f"<thead><tr>{thead}</tr></thead>"
                     f"<tbody>{tbody}</tbody></table>"

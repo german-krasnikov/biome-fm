@@ -113,13 +113,7 @@ def _group_key(item: FileItem, mode: GroupByMode) -> str:
 _Idx = QModelIndex | QPersistentModelIndex
 
 
-def _fmt_size(size: int) -> str:
-    s = float(size)
-    for unit in ("B", "KB", "MB", "GB", "TB"):
-        if s < 1024:
-            return f"{s:.0f} {unit}" if unit == "B" else f"{s:.1f} {unit}"
-        s /= 1024
-    return f"{s:.1f} PB"
+from biome_fm.utils.format import format_size as _fmt_size
 
 
 class DirectoryModel(QAbstractTableModel):
@@ -350,34 +344,6 @@ class DirectoryModel(QAbstractTableModel):
             return self._plugin_manager.hook.column_value(item=item, column_id=col_def.id)
         return None
 
-
-def _scan_worker(
-    vfs: object,
-    path: Path,
-    cancel: threading.Event,
-    out_queue: queue.SimpleQueue,
-    batch_size: int = 50,
-) -> None:
-    """List *path* via *vfs* callable, emit batches into *out_queue*, sentinel None at end."""
-    if cancel.is_set():
-        return
-    try:
-        items = list(vfs(path))  # type: ignore[call-arg]
-    except Exception as exc:
-        if not cancel.is_set():
-            out_queue.put(str(exc))
-        return
-    batch: list = []
-    for item in items:
-        if cancel.is_set():
-            return
-        batch.append(item)
-        if len(batch) >= batch_size:
-            out_queue.put(batch)
-            batch = []
-    if batch:
-        out_queue.put(batch)
-    out_queue.put(None)
 
 
 def _fuzzy_match(pattern: str, text: str) -> bool:

@@ -27,11 +27,6 @@ from biome_fm.operations.task import (
 _id_gen = itertools.count(1)
 
 
-def make_upload_queue() -> OpQueue:
-    """Serial (single-worker) queue for remote uploads."""
-    return OpQueue(max_workers=1)
-
-
 def make_serial_queue() -> OpQueue:
     """Single-worker queue — ops run one at a time."""
     return OpQueue(max_workers=1)

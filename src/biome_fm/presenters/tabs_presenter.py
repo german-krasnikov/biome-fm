@@ -86,6 +86,7 @@ class TabsPresenter:
     def close_tab(self, idx: int) -> None:
         if self.tab_count <= 1 or idx in self._locked:
             return
+        self._tabs[idx].cleanup()
         self._tabs.pop(idx)
         self._views.pop(idx)
         self._tabs_view.remove_tab(idx)

@@ -8,32 +8,7 @@ import pluggy
 
 from biome_fm.plugins.hookspecs import BiomeFMSpec, hookimpl
 from biome_fm.plugins.manager import PluginManager
-from biome_fm.plugins.theme_registry import ThemeRegistry
 from biome_fm.plugins.types import ActionSpec, ColumnDef
-
-# ── ThemeRegistry ─────────────────────────────────────────────────────────────
-
-def test_theme_registry_fallback() -> None:
-    pm = pluggy.PluginManager("biome_fm")
-    pm.add_hookspecs(BiomeFMSpec)
-    tokens = ThemeRegistry(pm).resolve("nonexistent")
-    assert tokens["base"] == "#1c1c1e"
-    assert "text" in tokens
-
-
-def test_theme_plugin_partial_override() -> None:
-    class FakeTheme:
-        @hookimpl
-        def provide_theme(self, name: str):  # type: ignore[override]
-            return {"base": "#ff0000"} if name == "red" else None
-
-    pm = pluggy.PluginManager("biome_fm")
-    pm.add_hookspecs(BiomeFMSpec)
-    pm.register(FakeTheme())
-    tokens = ThemeRegistry(pm).resolve("red")
-    assert tokens["base"] == "#ff0000"
-    assert "text" in tokens  # merged from fallback
-
 
 # ── Historic register_commands ────────────────────────────────────────────────
 

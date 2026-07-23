@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import fnmatch
+import shlex
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -85,7 +86,7 @@ class WatchRuleEngine:
         for f in new_files:
             for rule in self._store.all():
                 if rule.watch_dir == watch_dir and fnmatch.fnmatch(f.name, rule.pattern):
-                    cmd = rule.command.replace("{file}", str(f))
+                    cmd = rule.command.replace("{file}", shlex.quote(str(f)))
                     subprocess.Popen(cmd, shell=True, cwd=f.parent)
                     fired.append((rule, f))
                     if self._on_fired:

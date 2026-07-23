@@ -3,6 +3,47 @@
 All notable changes to Biome FM are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.31.1] — 2026-07-23
+
+### Changed (Architectural Audit — 34 fixes)
+
+**VFS Protocol split**
+- `VFSProtocol` split into `ReadableVFS` (browse + read) and `WritableVFS(ReadableVFS)` (full r/w). `VFSProtocol` kept as a `WritableVFS` alias for backward compat.
+- `VFSReadOnlyError(OSError)` raised by `VFSRouter` when a write op is attempted on a read-only VFS (e.g. inside an archive).
+- `ArchiveVFS`: removed 4 dead write stubs (`copy`, `move`, `delete`, `mkdir`). Now correctly implements `ReadableVFS` only.
+
+**Shared utilities extracted**
+- `utils/atomic_write.py` — `atomic_write(path, content)`: write-to-tmp then rename; used by all stores.
+- `utils/format.py` — `format_size(n)`: single canonical bytes→human-readable formatter.
+- `models/_store_base.py` — `atomic_write_json()`, `read_json()`, `toml_escape()`: shared by every JSON/TOML store.
+- `models/ls_parser.py` — `parse_ls_line(line)`: `ls -la --time-style=long-iso` parser shared by `DockerVFS` and `FISHVfs`.
+- `git/run.py` — `run_git(*args, cwd)`: thin subprocess wrapper used by all git callers.
+- `utils/uri_parser.py` — moved from `presenters/`; `presenters/uri_parser.py` kept as a re-export shim.
+
+**Plugin isolation**
+- `PluginManager.on_navigate`, `on_file_operation`, and `get_preview_providers` now wrap hook calls in `try/except`; a crashing plugin logs via `_log.exception` and does not propagate.
+- `plugins/theme_registry.py` and `plugins/builtin/dark_theme.py` deleted; theme fallback lives in `plugins/types._DARK_FALLBACK`.
+
+**Config validation**
+- `Config.__post_init__` clamps and coerces all fields on load (no corrupt state after editing TOML by hand).
+- `save_config` debounced (300 ms) to avoid thundering-herd writes on rapid changes.
+
+**Presenter signal cleanup**
+- `PanePresenter._track(signal, slot)` registers connections; `cleanup()` disconnects all and cancels background threads. Call on tab close.
+- `EventBus.publish_from_thread(event)` + `drain_threaded()`: safe pattern for background-thread→main-thread event delivery.
+
+**Removed**
+- `scripting/` package (`BiomeContext`, `ScriptingEngine`) — replaced by `ScriptRunner` shell integration.
+- `utils/touch_bar.py` — macOS Touch Bar stub removed.
+- `models/markdown_renderer.py` shim — unused.
+
+**Shortcuts corrected**
+- `Ctrl+Shift+T` → flat view only (was ambiguous with treemap).
+- `Ctrl+Alt+M` → storage treemap (new dedicated binding).
+- `Ctrl+Alt+G` → large file finder (new dedicated binding).
+
+---
+
 ## [v0.31.0] — 2026-07-21
 
 ### Added

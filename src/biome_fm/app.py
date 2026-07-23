@@ -27,6 +27,7 @@ from biome_fm.event_bus import (
     ThemeChanged,
     bus,
 )
+from biome_fm.git.branch_ops import current_branch as _git_current_branch
 from biome_fm.git.status_cache import GitStatusCache, RepoStatus
 from biome_fm.git.worker import GitStatusWorker
 from biome_fm.models.bookmark_store import BookmarkStore
@@ -45,7 +46,6 @@ from biome_fm.models.workspace_store import WorkspaceStore
 from biome_fm.operations.queue import OpQueue, make_serial_queue
 from biome_fm.operations.task import OpCancelled, OpConflict, OpDone, OpError, OpProgress
 from biome_fm.panel_manager import PanelManager
-from biome_fm.plugins.builtin.dark_theme import BuiltinDarkTheme
 from biome_fm.plugins.manager import PluginManager
 from biome_fm.plugins.types import ActionSpec
 from biome_fm.presenters.ai_presenter import AIPresenter
@@ -149,17 +149,6 @@ class _OpsCounter:
         self._update(self._count)
 
 
-def _get_git_branch(path: Path) -> str:
-    """Return current git branch for path, or empty string if not in a repo."""
-    try:
-        r = subprocess.run(
-            ["git", "-C", str(path), "branch", "--show-current"],
-            capture_output=True, text=True, timeout=2,
-        )
-        return r.stdout.strip()
-    except Exception:
-        return ""
-
 
 @dataclass
 class _AppContext:
@@ -238,7 +227,6 @@ def _build_plugins(cfg):
     """Construct and configure PluginManager, apply initial theme."""
     from biome_fm.views.theme import apply_theme
     plugins = PluginManager()
-    plugins.register_plugin(BuiltinDarkTheme())
     plugins.load_entry_points()
     _loc = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppConfigLocation)
     plugins.load_local_plugins(Path(_loc) / "biome-fm" / "plugins" if _loc else None)
@@ -260,12 +248,25 @@ def _build_panes(vfs, store: DirStateStore | None = None, frecency: FrecencyStor
 
 def _build_preview(cfg):
     """Construct PreviewRegistry, PreviewPanel, PreviewPresenter."""
+    from biome_fm.preview.providers.csv_preview import CsvTableProvider
+    from biome_fm.preview.providers.dotenv import EnvFileProvider
     preview_registry = PreviewRegistry()
     for _p in [
+        CsvTableProvider(), EnvFileProvider(),
         ImagePreviewProvider(), MarkdownPreviewProvider(), VideoPreviewProvider(),
         JsonTreeProvider(), CodePreviewProvider(), TextPreviewProvider(), FallbackProvider(),
     ]:
         preview_registry.register(_p)
+    try:
+        from biome_fm.preview.providers.notebook import NotebookProvider
+        preview_registry.register(NotebookProvider())
+    except ImportError:
+        pass
+    try:
+        from biome_fm.preview.providers.office import OfficeProvider
+        preview_registry.register(OfficeProvider())
+    except ImportError:
+        pass
     preview_panel = PreviewPanel()
     preview_presenter = PreviewPresenter(view=preview_panel, registry=preview_registry)
     preview_presenter.set_dark("dark" in cfg.theme.lower())
@@ -567,7 +568,7 @@ def create_app() -> MainWindow:
 
     def _on_provider_changed(name: str) -> None:
         cfg.ai_default_provider = name
-        save_config(cfg, cfg_dir / "config.toml")
+        _schedule_save()
 
     ai_panel.provider_changed.connect(_on_provider_changed)
     ai_panel.model_changed.connect(ai_presenter.switch_model)
@@ -579,7 +580,7 @@ def create_app() -> MainWindow:
         field_name = _AI_MODEL_FIELDS.get(ai_presenter._active_key)
         if field_name:
             setattr(cfg, field_name, model)
-            save_config(cfg, cfg_dir / "config.toml")
+            _schedule_save()
 
     ai_panel.model_changed.connect(_on_ai_model_changed)
 
@@ -610,6 +611,15 @@ def create_app() -> MainWindow:
     window = MainWindow(left_side, right_side, ai_panel, preview_panel)
     _confirm_parent[0] = window
     _glass_active = cfg.glass  # actual enable happens in __main__ after show()
+
+    # Debounced config save — coalesces rapid changes into one disk write
+    _save_timer = QTimer(window)
+    _save_timer.setSingleShot(True)
+    _save_timer.setInterval(300)
+    _save_timer.timeout.connect(lambda: save_config(cfg, cfg_dir / "config.toml"))
+
+    def _schedule_save() -> None:
+        _save_timer.start()  # restarts timer if already running
     window._glass_cfg = cfg.glass
     if cfg.glass:
         from biome_fm.views.glass_style import mark_glass
@@ -825,7 +835,7 @@ def create_app() -> MainWindow:
     bus.subscribe(OperationFinished, _on_op_finished_sb)
 
     def _update_git_branch(path: Path) -> None:
-        window.update_git_branch(_get_git_branch(path))
+        window.update_git_branch(_git_current_branch(path))
 
     op_timer = QTimer(window)
     op_timer.setInterval(50)
@@ -888,7 +898,7 @@ def create_app() -> MainWindow:
 
     def _on_search_history_update(h: list[str]) -> None:
         cfg.search_history = h
-        save_config(cfg, cfg_dir / "config.toml")
+        _schedule_save()
         search_panel.set_history(h)
 
     sc = SearchCoordinator(
@@ -902,21 +912,20 @@ def create_app() -> MainWindow:
     search_panel.rerun_requested.connect(sc.request_search_with_query)
     window.search_requested.connect(sc.request_search)
 
+    def _nl_dispatch(op) -> None:
+        if op.op in ("copy", "move") and op.sources:
+            manager.drop_files(op.sources, manager.active_pane_id, op.op == "move", op.destination)
+        elif op.op == "delete" and op.sources:
+            items = [vfs.stat(p) for p in op.sources if p.exists()]
+            manager.delete_selected(items)
+        elif op.op == "mkdir" and op.destination:
+            manager.mkdir(op.destination.name)
+
     def _on_nl_op_requested() -> None:
         provider = ai_presenter._provider
         cwd = _active().current_path
         dlg = NLOpsDialog(provider=provider, cwd=cwd, parent=window)
-
-        def _dispatch(op) -> None:
-            if op.op in ("copy", "move") and op.sources:
-                manager.drop_files(op.sources, manager.active_pane_id, op.op == "move", op.destination)
-            elif op.op == "delete" and op.sources:
-                items = [vfs.stat(p) for p in op.sources if p.exists()]
-                manager.delete_selected(items)
-            elif op.op == "mkdir" and op.destination:
-                manager.mkdir(op.destination.name)
-
-        dlg.execute_requested.connect(_dispatch)
+        dlg.execute_requested.connect(_nl_dispatch)
         dlg.exec()
 
     window.nl_op_requested.connect(_on_nl_op_requested)
@@ -926,17 +935,7 @@ def create_app() -> MainWindow:
         cwd = _active().current_path
         dlg = NLOpsDialog(provider=provider, cwd=cwd,
                           prefill=cmds[0] if cmds else "", parent=window)
-
-        def _dispatch(op) -> None:
-            if op.op in ("copy", "move") and op.sources:
-                manager.drop_files(op.sources, manager.active_pane_id, op.op == "move", op.destination)
-            elif op.op == "delete" and op.sources:
-                items = [vfs.stat(p) for p in op.sources if p.exists()]
-                manager.delete_selected(items)
-            elif op.op == "mkdir" and op.destination:
-                manager.mkdir(op.destination.name)
-
-        dlg.execute_requested.connect(_dispatch)
+        dlg.execute_requested.connect(_nl_dispatch)
         dlg.exec()
 
     ai_panel.shell_ops_requested.connect(_on_shell_ops_requested)
@@ -1087,7 +1086,7 @@ def create_app() -> MainWindow:
             _pid = pane_id
             def _extras(_pid=_pid):
                 plugin_actions = [
-                    a for lst in plugins.hook.context_menu_actions(items=[], pane_id=_pid)
+                    a for lst in plugins.hook.context_menu_actions(items=_op_items(), pane_id=_pid)
                     for a in lst
                 ]
                 proj = [
@@ -1674,7 +1673,7 @@ def create_app() -> MainWindow:
     def _on_show_hidden(ev: ShowHiddenToggled) -> None:
         for proxy in _all_proxies():
             proxy.set_show_hidden(ev.enabled)
-        save_config(cfg, cfg_dir / "config.toml")
+        _schedule_save()
 
     bus.subscribe(ShowHiddenToggled, _on_show_hidden)
 
@@ -1768,7 +1767,7 @@ def create_app() -> MainWindow:
                 preview_panel.set_code_alpha(255)
             bus.publish(ShowHiddenToggled(enabled=cfg.show_hidden))
             _apply_hidden_columns(cfg.hidden_columns)
-            save_config(cfg, cfg_dir / "config.toml")
+            _schedule_save()
 
     # ── Command palette ───────────────────────────────────────────
     registry = CommandRegistry()
@@ -1839,7 +1838,7 @@ def create_app() -> MainWindow:
         result = HighlightRulesDialog.get_rules(cfg.highlight_rules, window)
         if result is not None:
             cfg.highlight_rules = result
-            save_config(cfg, cfg_dir / "config.toml")
+            _schedule_save()
             _apply_highlight_rules(result)
 
     window.highlight_rules_requested.connect(_open_highlight_rules)
@@ -1875,7 +1874,7 @@ def create_app() -> MainWindow:
         panel.scan(_active().current_path)
         panel.show()
 
-    QShortcut(QKeySequence("Ctrl+Shift+T"), window).activated.connect(_open_storage_treemap)
+    QShortcut(QKeySequence("Ctrl+Alt+M"), window).activated.connect(_open_storage_treemap)
 
     def _open_large_file_finder() -> None:
         from biome_fm.views.large_file_dialog import LargeFileDialog
@@ -1883,7 +1882,7 @@ def create_app() -> MainWindow:
         dlg.navigate_requested.connect(lambda p: _active().navigate_to(p.parent))
         dlg.show()
 
-    QShortcut(QKeySequence("Ctrl+Shift+L"), window).activated.connect(_open_large_file_finder)
+    QShortcut(QKeySequence("Ctrl+Alt+G"), window).activated.connect(_open_large_file_finder)
 
     def _open_panelize() -> None:
         from biome_fm.utils.panelize import parse_shell_output
@@ -1977,28 +1976,14 @@ def create_app() -> MainWindow:
 
     # ── Save on close ─────────────────────────────────────────────
     def _on_close() -> None:
-        panel_states = coord.save_state()
-        save_session(
-            SessionState(
-                left=PaneSideState(
-                    tabs=[TabState(str(p)) for p in left_tabs.paths()],
-                    active_idx=left_tabs.active_idx,
-                ),
-                right=PaneSideState(
-                    tabs=[TabState(str(p)) for p in right_tabs.paths()],
-                    active_idx=right_tabs.active_idx,
-                ),
-                preview=PanelSession(**panel_states.get("preview", {})),
-                ai=PanelSession(**panel_states.get("ai", {})),
-            ),
-            cfg_dir / "session.json",
-        )
+        save_session(_snapshot_session(), cfg_dir / "session.json")
         cfg.splitter_sizes = coord.pane_sizes()
         _close_field = _AI_MODEL_FIELDS.get(ai_presenter._active_key)
         if _close_field:
             setattr(cfg, _close_field, ai_presenter._provider.active_model)
         save_config(cfg, cfg_dir / "config.toml")
         ai_presenter.shutdown()
+        _save_timer.stop()
         drain_timer.stop()
         preview_presenter.shutdown()
         preview_timer.stop()
@@ -2010,6 +1995,7 @@ def create_app() -> MainWindow:
         left_watcher.stop()
         right_watcher.stop()
         op_queue.shutdown(wait=False)
+        git_worker.stop()
 
     # ── Leader key (which-key popup, F290) ───────────────────────
     from biome_fm.presenters.leader_handler import LeaderHandler

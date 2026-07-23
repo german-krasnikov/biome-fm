@@ -1,8 +1,6 @@
 """Application configuration — TOML persistence."""
 from __future__ import annotations
 
-import shutil
-import time
 import tomllib
 from dataclasses import dataclass, field, fields
 from pathlib import Path
@@ -44,6 +42,41 @@ class Config:
     global_hotkey: str = ""  # F321 — e.g. "<ctrl>+<alt>+b"
     toolbar_actions: list[str] = field(default_factory=list)
     toolbar_visible: bool = False
+
+    def __post_init__(self) -> None:
+        try:
+            self.glass_opacity = max(0, min(100, int(self.glass_opacity)))  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            self.glass_opacity = 47
+
+        try:
+            self.ui_font_size = max(0, min(72, int(self.ui_font_size)))  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            self.ui_font_size = 0
+
+        if not isinstance(self.theme, str):
+            self.theme = "dark"
+
+        if not isinstance(self.splitter_sizes, list) or len(self.splitter_sizes) != 2:
+            self.splitter_sizes = [600, 600]
+        else:
+            try:
+                self.splitter_sizes = [max(1, int(v)) for v in self.splitter_sizes]
+            except (TypeError, ValueError):
+                self.splitter_sizes = [600, 600]
+
+        for attr in ("recent_dirs", "highlight_rules", "hidden_columns", "toolbar_actions", "search_history"):
+            if not isinstance(getattr(self, attr), list):
+                setattr(self, attr, [])
+
+        if not isinstance(self.layout_profiles, dict):
+            self.layout_profiles = {}
+
+        for attr in ("editor_cmd", "global_hotkey", "window_geometry", "ai_default_provider",
+                     "ai_claude_key", "ai_claude_model", "ai_openai_key", "ai_openai_model",
+                     "ai_ollama_url", "ai_ollama_model"):
+            if not isinstance(getattr(self, attr), str):
+                setattr(self, attr, "")
 
     def save_layout(self, name: str, data: dict) -> None:
         self.layout_profiles[name] = data
@@ -109,14 +142,3 @@ def save_config(cfg: Config, path: Path) -> None:
         else:
             lines.append(f"{f.name} = {val}")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-
-def _rotate_config_backup(cfg_path: Path, keep: int = 7) -> None:
-    """Copy cfg_path to a timestamped .bak file, keeping at most `keep` backups."""
-    if not cfg_path.exists():
-        return
-    backups = sorted(cfg_path.parent.glob(f"{cfg_path.stem}.bak.*"))
-    # delete oldest first to stay under the cap after the new backup is added
-    for old in backups[: max(0, len(backups) - keep + 1)]:
-        old.unlink()
-    shutil.copy2(cfg_path, cfg_path.parent / f"{cfg_path.stem}.bak.{int(time.time())}")

@@ -2,43 +2,18 @@
 from __future__ import annotations
 
 import io
-import re
 import shutil
 import subprocess
 import tarfile
 from contextlib import contextmanager
-from datetime import datetime
 from pathlib import Path
 
 from biome_fm.models.file_item import FileItem
-
-_LS_RE = re.compile(
-    r'^([dl\-][rwx\-]{9})\s+\d+\s+\S+\s+\S+\s+(\d+)\s+'
-    r'(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})\s+(.+)$'
-)
+from biome_fm.models.ls_parser import parse_ls_line
 
 
 def _docker_available() -> bool:
     return shutil.which("docker") is not None
-
-
-def _parse_docker_ls(stdout: str, parent: Path) -> list[FileItem]:
-    items = []
-    for line in stdout.splitlines():
-        m = _LS_RE.match(line)
-        if not m:
-            continue
-        mode_str, size, date, time_, name = m.groups()
-        name = name.strip().split(" -> ")[0]
-        if name in (".", ".."):
-            continue
-        is_dir = mode_str[0] == "d"
-        mtime = datetime.strptime(f"{date} {time_}", "%Y-%m-%d %H:%M").timestamp()
-        items.append(FileItem(
-            name=name, path=parent / name,
-            is_dir=is_dir, size=int(size), modified=mtime,
-        ))
-    return items
 
 
 class DockerVFS:
@@ -58,7 +33,19 @@ class DockerVFS:
 
     def listdir(self, path: Path) -> list[FileItem]:
         out = self._exec("ls", "-la", "--time-style=long-iso", str(path))
-        return _parse_docker_ls(out, path)
+        items = []
+        for line in out.splitlines():
+            info = parse_ls_line(line)
+            if info is None:
+                continue
+            name = info["name"].split(" -> ")[0]  # strip symlink target
+            if name in (".", ".."):
+                continue
+            items.append(FileItem(
+                name=name, path=path / name,
+                is_dir=info["is_dir"], size=info["size"], modified=info["mtime"],
+            ))
+        return items
 
     def read_bytes(self, path: Path) -> bytes:
         result = subprocess.run(

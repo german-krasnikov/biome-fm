@@ -1,8 +1,9 @@
 """F303 — Simple JSON store for cloud connection URLs."""
 from __future__ import annotations
 
-import json
 from pathlib import Path
+
+from biome_fm.models._store_base import atomic_write_json, read_json
 
 
 class CloudConnectionStore:
@@ -13,12 +14,10 @@ class CloudConnectionStore:
         self._urls: list[str] = []
 
     def load(self) -> None:
-        if self._path.exists():
-            self._urls = json.loads(self._path.read_text())
+        self._urls = read_json(self._path, default=[])
 
     def save(self) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._path.write_text(json.dumps(self._urls))
+        atomic_write_json(self._path, self._urls)
 
     def add(self, url: str) -> None:
         if url not in self._urls:

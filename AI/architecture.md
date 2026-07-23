@@ -20,6 +20,7 @@ src/biome_fm/
 │                       #   _copy_path: exports marked paths to clipboard (newline-joined); falls back to cursor item;
 │                       #   _quick_look/_reveal_in_finder closures;
 │                       #   Ctrl+Z/Ctrl+Shift+Z/F3/Ctrl+I/Ctrl+R/Ctrl+W/Ctrl+Shift+C/Ctrl+Shift+L shortcuts;
+│                       #   shortcut fixes: Ctrl+Shift+T→flat-view only; Ctrl+Alt+M→treemap; Ctrl+Alt+G→large-files;
 │                       #   _wire_pane() / _wire_ctx() / _new_tab(side=None) helpers;
 │                       #   ClipboardService wired to Ctrl+X/C/V; cut_paths pushed to DirectoryModel;
 │                       #   TrashCmd wired to Delete key; FrecencyStore records on pane navigate;
@@ -36,7 +37,9 @@ src/biome_fm/
 │                       #   layout_profiles (dict[str,dict] — save/load named splitter layouts);
 │                       #   toolbar_actions (list[str]), toolbar_visible (bool);
 │                       #   ui_font_size (int, 0=system), reduce_motion (bool), high_contrast (bool);
-│                       #   global_hotkey (str), serial_ops (bool)
+│                       #   global_hotkey (str), serial_ops (bool);
+│                       #   __post_init__ validates + clamps all fields (coercion on load, no corrupt state);
+│                       #   save_config debounced (300ms) to avoid thundering-herd writes on rapid changes
 ├── session.py          # SessionState / PaneSideState / TabState / PanelSession → JSON persistence;
 │                       #   PanelSession.overlay_side persists which pane the panel occupies;
 │                       #   PaneSideState.view_mode persists gallery/list view mode per pane (F456)
@@ -53,13 +56,16 @@ src/biome_fm/
 │                       #   RemoteConnected(scheme, host) — remote VFS connected;
 │                       #   RemoteDisconnected(scheme, host) — remote VFS closed;
 │                       #   RemoteSyncing(scheme, host, active) — remote I/O in progress;
-│                       #   IPCCommandReceived(payload: dict) — external IPC command (F409)
+│                       #   IPCCommandReceived(payload: dict) — external IPC command (F409);
+│                       #   publish_from_thread(event): thread-safe publish via QMetaObject.invokeMethod;
+│                       #   drain_threaded(): drains cross-thread SimpleQueue on the main thread
 │
 ├── models/
 │   ├── file_item.py        # FileItem frozen dataclass (slots=True); size_str property;
 │   │                       #   symlink_target: str | None field; is_broken_link: bool field
-│   ├── vfs.py              # VFSProtocol + LocalVFS;
-│   │                       #   LocalVFS.stat() populates symlink_target + is_broken_link
+│   ├── vfs.py              # ReadableVFS + WritableVFS (@runtime_checkable Protocols, split from VFSProtocol);
+│   │                       #   VFSReadOnlyError raised by WritableVFS ops on read-only backends;
+│   │                       #   LocalVFS implements both; LocalVFS.stat() populates symlink_target + is_broken_link
 │   ├── vfs_router.py       # VFSRouter: path ancestry walk → archive root detection;
 │   │                       #   dispatches local/archive; caches ArchiveVFS per archive file
 │   ├── archive_vfs.py      # ZIP/TAR VFS (stdlib zipfile + tarfile, no fsspec);
@@ -84,6 +90,12 @@ src/biome_fm/
 │   ├── bookmark_node.py    # BookmarkNode dataclass (kind: Literal["dir","submenu","separator"],
 │   │                       #   path: Path | None, name: str, children: list[BookmarkNode]);
 │   │                       #   display_label(node) free fn
+│   ├── _store_base.py      # Shared persistence helpers for all JSON/TOML stores;
+│   │                       #   atomic_write_json(path, data): write→tmp→rename pattern;
+│   │                       #   read_json(path, default): load with fallback; toml_escape(s): minimal
+│   │                       #   TOML string escaping used by stores that write TOML manually;
+│   │                       #   6 stores migrated to use these helpers (dir_state, frecency, macros,
+│   │                       #   session, shortcuts, tab_groups)
 │   ├── bookmark_store.py   # Tree-based TOML store; _nodes: list[BookmarkNode];
 │   │                       #   primary API: tree() / set_tree(nodes);
 │   │                       #   compat API: add/remove/__contains__/all/get_name/set_name/display_label;
@@ -91,11 +103,10 @@ src/biome_fm/
 │   │                       #   migration: old paths/names arrays → tree nodes on first load
 │   ├── icon_provider.py    # icon_for_extension(ext) — @lru_cache(256), QFileIconProvider;
 │   │                       #   icon_for_dir() — SP_DirIcon; fallback to SP_FileIcon
-│   ├── markdown_renderer.py # Backward-compat shim — re-exports render/FENCE_RE/PRE_RE from
-│   │                        #   preview/markdown_renderer.py; real implementation lives there
 │   ├── sftp_vfs.py         # SFTPVfs (paramiko, optional dep); parse_sftp_uri() → SFTPSession;
 │   │                        #   SFTPSession frozen dataclass (host, port, user, remote_path, proxy_command);
 │   │                        #   connect/list_dir/read_file/stat/disconnect; SFTPVfs.available() guard;
+│   │                        #   mtime stored as float (nanosecond-safe); delete() method (was remove());
 │   │                        #   utime(path, mtime) preserves remote file timestamp after upload;
 │   │                        #   open_read(path, offset=0) → streaming read from byte offset (resume);
 │   │                        #   exec_find(remote_dir, name_pattern) → list[str] via SSH exec + shlex.quote;
@@ -118,7 +129,7 @@ src/biome_fm/
 │   │                        #   TOML import/export; import validates against Config field names
 │   ├── dir_state_store.py  # DirStateStore — JSON-backed per-dir ViewState with LRU eviction (max 500);
 │   │                        #   save(dir_path, state) / load(dir_path) → ViewState | None;
-│   │                        #   atexit flush via atomic tmp-replace
+│   │                        #   atexit flush via _store_base.atomic_write_json
 │   ├── file_indexer.py     # FileIndexer (QObject) — SQLite FTS5 background indexer;
 │   │                        #   index_dir(path) spawns daemon thread; indexing_done Signal;
 │   │                        #   search(query) → list[Path] via FTS5 MATCH
@@ -206,7 +217,7 @@ src/biome_fm/
 │   │                        #   returns None when VFS doesn't support signing
 │   ├── fish_vfs.py         # FISHVfs — SSH exec_command VFS for devices without SFTP subsystem;
 │   │                        #   listdir() via `ls -la --time-style=long-iso`, read_file() via `cat`;
-│   │                        #   _parse_ls_line() parses long-format ls output; shlex-quoted commands;
+│   │                        #   delegates ls parsing to ls_parser.parse_ls_line() (shared with DockerVFS);
 │   │                        #   paramiko dep; proxy_command param for jump hosts; _HAS_PARAMIKO guard
 │   ├── script_vfs.py       # extfs-style Script VFS — archive browsing via external shell scripts;
 │   │                        #   ScriptVFSSpec(extensions, list_cmd, read_cmd, timeout) frozen dataclass;
@@ -220,9 +231,12 @@ src/biome_fm/
 │   │                        #   mount() attaches image (readonly+nobrowse), parses plist output;
 │   │                        #   unmount() calls hdiutil detach; context manager __enter__/__exit__;
 │   │                        #   RuntimeError if not darwin; listdir/read_bytes delegate to LocalVFS on mount point
+│   ├── ls_parser.py        # parse_ls_line(line) → (name, size, mtime, is_dir) | None;
+│   │                       #   shared long-format ls parser used by DockerVFS and FISHVfs;
+│   │                       #   handles both GNU ls and BusyBox output variations; pure Python
 │   ├── docker_vfs.py       # DockerVFS — Docker container filesystem browser;
 │   │                        #   listdir() via `docker exec ls -la`; read_bytes() via `docker cp` + tarfile;
-│   │                        #   _parse_docker_ls() parses long-format output; _LS_RE regex;
+│   │                        #   delegates ls parsing to ls_parser.parse_ls_line() (shared with FISHVfs);
 │   │                        #   docker_available() guard (shutil.which); list_containers() helper
 │   ├── filter_predicate.py  # FilterSpec dataclass (name, ext, size_op, size_bytes, mod_period);
 │   │                        #   parse_filter(text) → FilterSpec: tokenises "size:>10m mod:today ext:py foo";
@@ -235,7 +249,8 @@ src/biome_fm/
 │   │                        #   WatchRuleStore: TOML-backed add/remove/all/load/save;
 │   │                        #   path: ~/.config/biome-fm/watch_rules.toml;
 │   │                        #   WatchRuleEngine: snapshot-diff engine — check_dir(watch_dir) detects
-│   │                        #   new files, matches fnmatch pattern, runs shell command with {file};
+│   │                        #   new files, matches fnmatch pattern, runs shell command with shlex.quote({file});
+│   │                        #   shell injection fix: {file} placeholder is now shlex-quoted before subprocess;
 │   │                        #   on_fired callback for UI notification; F422
 │   ├── session_store.py    # SessionStore — JSON-backed named sessions;
 │   │                        #   save(name, state) / load(name) → SessionState | None;
@@ -250,6 +265,9 @@ src/biome_fm/
 │   │                         #   PaneViewProtocol: set_items/set_path/show_error/set_status/
 │   │                         #   set_marked/current_cursor_item/advance_cursor/retreat_cursor/
 │   │                         #   set_filter_visible/select_item;
+│   │                         #   RichPaneViewProtocol(PaneViewProtocol): 6 optional methods
+│   │                         #   (set_git_badge, set_breadcrumb, set_disk_usage, set_group_label,
+│   │                         #    set_view_mode, flash_cursor); views opt-in via isinstance check;
 │   │                         #   _navigate_no_history(path, *, initial_cursor=None): optional
 │   │                         #   cursor name placed after reload if item still exists;
 │   │                         #   refresh() captures current_cursor_item() before reload so
@@ -262,7 +280,9 @@ src/biome_fm/
 │   │                         #   selection ops: toggle_mark/toggle_mark_up/select_all/
 │   │                         #   deselect_all/invert_selection/select_by_pattern/deselect_by_pattern;
 │   │                         #   persistent marks: _marks set[Path] survives cd within the same pane;
-│   │                         #   marks restored when navigating back to a dir (path-keyed set)
+│   │                         #   marks restored when navigating back to a dir (path-keyed set);
+│   │                         #   _track(signal, slot): registers connected signals for cleanup;
+│   │                         #   cleanup(): disconnects all tracked signals (prevents stale callbacks)
 │   ├── tabs_presenter.py     # Owns N PanePresenters per side; duck-types as PanePresenter
 │   │                         #   for ManagerPresenter; TabsViewProtocol requires set_tab_tooltip;
 │   │                         #   tabs display abbreviated path (~/... or …/name if >30 chars);
@@ -378,9 +398,8 @@ src/biome_fm/
 │   │                         #   start() spawns daemon thread calling scan_cleanup_dirs(root, patterns);
 │   │                         #   computes size via rglob per dir; calls on_results(list[ReclaimEntry]);
 │   │                         #   cancel() sets threading.Event; ReclaimEntry(path, size); F431
-│   ├── uri_parser.py         # ParsedURI(scheme, host, port, path, username) dataclass;
-│   │                          #   detect_scheme(text) → scheme | None; known: sftp/ssh/s3/ftp/ftps/webdav;
-│   │                          #   parse_uri(text) → ParsedURI via urllib.parse.urlparse
+│   ├── uri_parser.py         # Backward-compat re-export shim → utils/uri_parser.py;
+│   │                          #   real implementation moved to utils/ (layer violation fix)
 │   └── macro_recorder.py     # MacroRecorder — records command-id sequences;
 │                              #   start() / record(command_id) / stop() → list[str];
 │                              #   MacroPlayer(registry).play(command_ids) runs callbacks;
@@ -610,7 +629,8 @@ src/biome_fm/
 │   ├── base.py           # Command ABC (execute/undo/undoable/preview) + CommandHistory (50 levels);
 │   │                     #   preview() → list[str]: default returns [description]; subclasses
 │   │                     #   override for per-path action strings used by DryRunDialog (F442);
-│   │                     #   CommandHistory.push(cmd) records already-executed cmd for undo
+│   │                     #   CommandHistory.push(cmd) records already-executed cmd for undo;
+│   │                     #   peek() checks top of stack before pop() — prevents empty-stack TypeError
 │   ├── registry.py       # CommandRegistry + CommandEntry (name, shortcut, callback);
 │   │                     #   record_hit(name) increments hit count; get_entry(name) → CommandEntry;
 │   │                     #   search(query) returns entries sorted by hit count descending
@@ -625,7 +645,7 @@ src/biome_fm/
 │   │                     #   ProgressMoveCmd: same cancel + report API, wraps shutil.move
 │   ├── delete_cmd.py     # DeleteCmd (send2trash)
 │   ├── rename_cmd.py     # RenameCmd
-│   ├── mkdir_cmd.py      # MkdirCmd
+│   ├── mkdir_cmd.py      # MkdirCmd — delegates to vfs.mkdir() (not os.makedirs directly);
 │   ├── multi_rename_cmd.py # MultiRenameCmd (batch with pattern/counter)
 │   ├── editor_rename_cmd.py # EditorRenameCmd — opens $EDITOR with names in tmp file;
 │   │                        #   diffs old vs new names, applies RenameCmd per changed line; undoable
@@ -666,13 +686,17 @@ src/biome_fm/
 │                            #   {e}=ext, {d}=parent; cancel-safe (threading.Event); F412
 │
 ├── git/
+│   ├── run.py              # run_git(args, cwd, timeout=5) → stdout str — single subprocess wrapper;
+│   │                       #   raises RuntimeError on non-zero exit; used by all git/* modules and
+│   │                       #   preview/providers/_git_helpers.py; replaces ad-hoc subprocess.run calls
 │   ├── status_cache.py     # GitStatusCache — TTL=10s dict[repo_path → RepoStatus];
 │   │                       #   thread-safe (RLock); find_repo(path) walks to .git;
 │   │                       #   RepoStatus(statuses: dict[Path, XY_code], dirty_dirs, fetched_at);
 │   │                       #   invalidate(repo) clears cache entry for forced refresh
 │   ├── worker.py           # GitStatusWorker (QObject) — fetches git status off main thread;
 │   │                       #   request(dir_path): deduplicates by repo, submits to ThreadPoolExecutor;
-│   │                       #   100ms QTimer drains queue.SimpleQueue → emits status_ready(RepoStatus)
+│   │                       #   100ms QTimer drains queue.SimpleQueue → emits status_ready(RepoStatus);
+│   │                       #   stop(): shuts down executor and drain timer; called in app.py closeEvent
 │   ├── branch_ops.py       # Pure-Python git branch ops (no Qt);
 │   │                       #   list_branches(repo) → list[str]; current_branch(repo) → name |
 │   │                       #   '(detached)' | '' on error; switch_branch(repo, branch) raises
@@ -728,7 +752,7 @@ src/biome_fm/
 │       ├── text.py       # TextPreviewProvider (priority=10); .py/.js/.toml/.json etc; 256KB limit
 │       ├── fallback.py   # FallbackProvider (priority=999); always handles; returns HTML metadata
 │       ├── _git_helpers.py # Shared git helpers: find_repo(path) → Path | None (walks .git);
-│       │                   #   run_git(args, cwd, timeout=5) → stdout str; raises on error
+│       │                   #   run_git re-exported from git/run.py (single implementation)
 │       ├── git_blame.py  # GitBlamePreviewProvider (priority=2); any file in a git repo;
 │       │                 #   runs `git blame --porcelain`, renders per-line commit+author HTML table
 │       ├── git_log.py    # GitLogPreviewProvider (priority=2); any file in a git repo;
@@ -737,7 +761,8 @@ src/biome_fm/
 │       │                 #   load_script_providers(dir) reads *.toml to build providers;
 │       │                 #   command uses %f placeholder for file path; 5s timeout
 │       ├── sqlite_preview.py # SqlitePreviewProvider (priority=5); .db/.sqlite/.sqlite3;
-│       │                     #   opens read-only (URI mode); lists up to 5 tables × 20 rows as HTML
+│       │                     #   opens read-only (URI mode); lists up to 5 tables × 20 rows as HTML;
+│       │                     #   table names validated against sqlite_master whitelist (SQL injection fix)
 │       ├── csv_preview.py    # CsvTableProvider (priority=6); .csv/.tsv; 10MB limit; 50 row cap;
 │       │                     #   _detect_delim() sniffs ,/;/tab from first 4KB; renders HTML table
 │       ├── dotenv.py         # EnvFileProvider (priority=8); .env and .env.* files;
@@ -788,20 +813,17 @@ src/biome_fm/
 │   │                     #   load_local_plugins(plugin_dir) — if None returns [] (caller
 │   │                     #   must resolve path, avoids Qt import in plugins/); app.py passes
 │   │                     #   QStandardPaths result; each .py must have top-level Plugin class;
-│   │                     #   get_installed_plugins() → list[dict]; no Qt imports
-│   ├── theme_registry.py # ThemeRegistry(pm): resolve(name) → _DARK_FALLBACK (from
-│   │                     #   plugins/types.py) merged with plugin hook result (provide_theme
-│   │                     #   firstresult); no Qt imports
+│   │                     #   get_installed_plugins() → list[dict]; no Qt imports;
+│   │                     #   hook calls wrapped in try/except — one broken plugin cannot crash the app
 │   └── builtin/
-│       ├── __init__.py
-│       └── dark_theme.py # BuiltinDarkTheme: BIOME_FM_API_VERSION=(1,0);
-│                         #   provide_theme("dark") → _DARK_FALLBACK copy (imported from
-│                         #   plugins/types.py); None for other names
+│       └── __init__.py
 │
 ├── ai/
 │   ├── __init__.py       # Package init
 │   ├── provider.py       # AIProviderProtocol (runtime-checkable) + NoOpProvider +
 │   │                     #   make_providers(cfg) → dict[str, AIProviderProtocol];
+│   │                     #   protocol now includes terminate() (stop in-flight request) and
+│   │                     #   chat_stream_events() (structured event stream for richer UI feedback);
 │   │                     #   includes make_cli_providers() via ai/cli/backend_def
 │   ├── claude_provider.py # ClaudeProvider (anthropic SDK, chat + chat_stream)
 │   ├── openai_provider.py # OpenAIProvider (openai SDK, chat + chat_stream)
@@ -842,14 +864,6 @@ src/biome_fm/
 │                         #   POST dispatches JSON payload to EventBus as IPCCommandReceived;
 │                         #   start() → int (actual port, supports port=0 auto-assign) (F445)
 │
-├── scripting/             # Python scripting engine — exec user scripts with sandboxed context (F440)
-│   ├── __init__.py
-│   ├── context.py        # BiomeContext — scripting API injected as `biome` in exec namespace;
-│   │                     #   wraps PanePresenter + CommandRegistry;
-│   │                     #   navigate(path), execute(command_id), current_path, selected → list[Path]
-│   └── engine.py         # ScriptingEngine(context) — exec() runner;
-│                         #   exec_code(source) → None; ScriptError wraps SyntaxError/Exception
-│
 └── utils/
     ├── platform.py       # IS_MAC / IS_WIN / IS_LINUX; quick_look(path), quick_look_item(item),
     │                     #   reveal_in_finder(path), get_modifier_name() — cross-platform
@@ -869,9 +883,15 @@ src/biome_fm/
     │                     #   uses pynput.keyboard.GlobalHotKeys; returns None if pynput absent
     ├── path_completion.py # path_completions(text) → sorted list of glob matches;
     │                       #   handles absolute (/…), tilde (~…), relative (./…) prefixes
-    ├── touch_bar.py       # setup_touch_bar(window, actions) — macOS Touch Bar integration;
-    │                       #   actions: list[tuple[label, callback]]; deferred import of _touch_bar_impl;
-    │                       #   no-op guard on non-darwin or missing pyobjc (F452)
+    ├── atomic_write.py    # atomic_write(path, data: bytes): write to <path>.tmp → os.replace;
+    │                       #   used by stores and replace_cmd to prevent torn writes on crash
+    ├── format.py          # format_size(n: int) → str — single canonical human-readable size formatter;
+    │                       #   replaces 7 duplicate implementations scattered across presenters and views;
+    │                       #   IEC units (B/KB/MB/GB/TB); no Qt dependency
+    ├── uri_parser.py      # ParsedURI(scheme, host, port, path, username) dataclass;
+    │                       #   detect_scheme(text) → scheme | None; known: sftp/ssh/s3/ftp/ftps/webdav;
+    │                       #   parse_uri(text) → ParsedURI via urllib.parse.urlparse;
+    │                       #   moved from presenters/ to utils/ (layer violation fix — no presenter logic)
     └── transfer_stats.py # TransferStats — EWMA-smoothed (α=0.3) transfer speed tracker (no Qt);
                           #   update(t, bytes_done, bytes_total); speed_bps() → float; eta_seconds();
                           #   format_speed(bps) → "1.2 MB/s"; format_eta(secs) → "2m 30s"
@@ -889,6 +909,21 @@ Every file mutation = Command(execute + undo). CommandHistory (50 levels).
 CommandRegistry maps string ids to callables for CommandPalette dispatch.
 ManagerPresenter wires undo/redo to CommandHistory + refresh_both().
 
+### Store Base (Persistence)
+All JSON/TOML stores share `models/_store_base.py` helpers:
+- `atomic_write_json(path, data)` — write→tmp→`os.replace` prevents partial writes on crash.
+- `read_json(path, default)` — load with typed fallback; handles missing file gracefully.
+- `toml_escape(s)` — minimal TOML string escaping for stores that write TOML by hand.
+Six stores migrated: `DirStateStore`, `FrecencyStore`, `MacroStore`, `SessionStore`, `ShortcutStore`, `TabGroupStore`.
+`utils/atomic_write.py` provides the same guarantee for binary/text file writes (used by `ReplaceCmd`, `config.py`).
+
+### VFS Protocol Split
+`VFSProtocol` has been split into two `@runtime_checkable` Protocols:
+- `ReadableVFS`: `listdir`, `stat`, `read_bytes`, `exists` — all VFS backends implement this.
+- `WritableVFS`: `copy`, `move`, `delete`, `mkdir`, `put` — only mutable backends implement this.
+`VFSReadOnlyError` is raised when write ops are attempted on a read-only backend (e.g., ArchiveVFS, IsoVFS).
+Code can now use `isinstance(vfs, WritableVFS)` to guard mutations safely.
+
 ### VFS Host Chaining
 VFSRouter walks path ancestry to detect archive roots (`.zip`, `.tar`, `.tar.gz`, `.tar.bz2`, `.tgz`). `.7z` is explicitly excluded — unsupported by fsspec backend.
 Matching paths → ArchiveVFS (stdlib `zipfile`/`tarfile`); plain paths → LocalVFS.
@@ -901,7 +936,7 @@ Hookspecs: `register_commands` (historic), `on_navigate`, `on_file_operation`,
 `extra_columns`, `column_value` (firstresult), `extra_archive_extensions`.
 Discovery: `importlib.metadata.entry_points(group="biome_fm.plugins")` + local
 `~/.config/biome-fm/plugins/` scan. API versioning gates plugins on major version mismatch.
-Builtin plugins live in `plugins/builtin/` and are registered in `create_app()`.
+`plugins/builtin/` package reserved for future builtin plugins; currently empty (BuiltinDarkTheme removed).
 
 ### Multi-Tab Panes
 Each side (left/right) has a PaneSideView (QTabBar + QStackedWidget) driven by a TabsPresenter
@@ -910,13 +945,16 @@ owning N PanePresenters. Tabs persist to session.json via SessionState.
 `_sync_tab_bar()` hides the tab bar entirely when single tab; shows it with close buttons when 2+ tabs.
 
 ### AI Integration (Multi-Model)
-`AIProviderProtocol` with `chat()` and `chat_stream()` methods. Three providers:
+`AIProviderProtocol` with `chat()`, `chat_stream()`, `terminate()`, and `chat_stream_events()` methods.
+`terminate()` stops an in-flight streaming request; `chat_stream_events()` yields structured
+events (token/error/done) for richer UI feedback. Three providers:
 `ClaudeProvider`, `OpenAIProvider`, `OllamaProvider`. `make_providers(cfg)` builds
 available providers from config/env at startup; `NoOpProvider` fallback if none configured.
 `AIChatPanel` composed of `ChatLog` (bubble-style HTML with streaming), `ContextBar`
 (DnD file attachment chips), and model selector `QComboBox`. `AIPresenter` manages
 active provider + model; streams tokens via `queue.SimpleQueue` → `QTimer` drain.
-A 100ms QTimer drains the AI stream in `app.py`.
+Drain timer is idle-optimized: 100ms interval while streaming, stopped when queue is empty
+to avoid unnecessary wakeups.
 
 ### Drag and Drop
 `_PaneTableView` (inner class in pane_view.py) subclasses QTableView to override
@@ -1086,9 +1124,8 @@ Provider priority (ascending = higher wins; first `can_handle` match used):
 Cache: 64 entries, key `(path, mtime, dark)`. Each entry stores `(PreviewResult, timestamp)`.
 60s monotonic TTL — stale entries are re-fetched even on key match. FIFO eviction (oldest dropped when full).
 `ThemeChanged` event → `PreviewPresenter.set_dark()` so next render picks correct palette.
-`preview/markdown_renderer.render(md, dark, code_alpha=140)` is a Pygments-enhanced HTML path
-(canonical location since architecture-review-fixes refactor; `models/markdown_renderer.py` is
-now a backward-compat shim that re-exports from there).
+`preview/markdown_renderer.render(md, dark, code_alpha=140)` is the canonical Pygments-enhanced
+HTML render path; `models/markdown_renderer.py` has been removed.
 
 ### Plugin System Enhancements (v0.7.0)
 
@@ -1111,14 +1148,16 @@ now a backward-compat shim that re-exports from there).
 Loading order in `create_app()`:
 1. `load_entry_points()` — installed packages (`biome_fm.plugins` entry_points group)
 2. `load_local_plugins()` — `.py` files / dirs with `__init__.py` in `~/.config/biome-fm/plugins/`
-3. Builtin plugins — `BuiltinDarkTheme` registered last
 
 API versioning: `BIOME_FM_API_VERSION = (1, 0)` on plugin class.
 Major mismatch → `warnings.warn` + skip. Minor is backward-compatible.
 Local plugin contract: must expose top-level `Plugin` class; loaded as `biome_fm_local_<stem>`.
 
-`ThemeRegistry(pm).resolve(name)` = thin helper that calls `provide_theme` firstresult
-hook then merges over `_DARK_FALLBACK`; used in `theme.py`'s `load_theme()`.
+**Hook isolation**: every `pm.hook.*()` call in `manager.py` is wrapped in `try/except Exception`
+so a broken plugin cannot crash the app — the error is logged and the hook result skipped.
+
+Theme resolution: `views/theme.py::load_theme(name)` calls `provide_theme` firstresult hook
+directly, merges result over `_DARK_FALLBACK` from `plugins/types.py`; no separate ThemeRegistry class.
 
 ### Async File Operations with Progress + Cancel (v0.9.0)
 

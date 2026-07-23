@@ -1,8 +1,9 @@
 """ShortcutStore — JSON-backed {action: key_sequence} map."""
 from __future__ import annotations
 
-import json
 from pathlib import Path
+
+from biome_fm.models._store_base import atomic_write_json, read_json
 
 
 class ShortcutStore:
@@ -20,10 +21,7 @@ class ShortcutStore:
         return dict(self._data)
 
     def save(self) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._path.write_text(json.dumps(self._data, indent=2), encoding="utf-8")
+        atomic_write_json(self._path, self._data)
 
     def load(self) -> None:
-        if not self._path.exists():
-            return
-        self._data = json.loads(self._path.read_text(encoding="utf-8"))
+        self._data = read_json(self._path)

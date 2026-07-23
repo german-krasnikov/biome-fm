@@ -449,12 +449,12 @@ class TestMarks:
         assert len(p.marks) == 0
 
     def test_fmt_size_bytes(self):
-        from biome_fm.presenters.pane_presenter import PanePresenter
-        assert PanePresenter._fmt_size(500) == "500 B"
+        from biome_fm.utils.format import format_size
+        assert format_size(500) == "500 B"
 
     def test_fmt_size_mb(self):
-        from biome_fm.presenters.pane_presenter import PanePresenter
-        assert "MB" in PanePresenter._fmt_size(2_500_000)
+        from biome_fm.utils.format import format_size
+        assert "MB" in format_size(2_500_000)
 
 
 class TestNavHistory:

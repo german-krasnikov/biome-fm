@@ -233,14 +233,24 @@ Full architecture: [`AI/architecture.md`](AI/architecture.md)
 ## Recent Changes
 
 <details>
+<summary><strong>v0.31.1</strong> — 2026-07-23 — Architectural audit: 34 fixes</summary>
+
+- VFS Protocol split: `ReadableVFS` + `WritableVFS`; `VFSReadOnlyError` raised by router on write to archive
+- New shared utils: `atomic_write`, `format_size`, `_store_base` helpers, `ls_parser`, `git/run`
+- Plugin hook isolation: `on_navigate` / `on_file_operation` wrapped in try/except; crashing plugins log and skip
+- `Config.__post_init__` validates all fields; `save_config` debounced 300 ms
+- `PanePresenter.cleanup()` disconnects tracked signals on tab close; `EventBus.publish_from_thread` + `drain_threaded`
+- Removed: `scripting/`, `touch_bar.py`, `theme_registry.py`, `markdown_renderer.py` shim; shortcuts `Ctrl+Alt+M`/`Ctrl+Alt+G` disambiguated from `Ctrl+Shift+T`
+
+</details>
+
+<details>
 <summary><strong>v0.31.0</strong> — 2026-07-21 — Sprint 10: 8 features</summary>
 
 - Session view mode persistence (`PaneSideState.view_mode`), Clipboard History Ring (`ClipboardEntry`, `deque(maxlen=20)`)
 - Keyboard Macro Recorder (`MacroRecorder` + `MacroPlayer`, `MacroStore`)
 - REST API for Remote Control (`ipc/rest_server.py`, Bearer token, EventBus dispatch)
-- Python Scripting Engine (`scripting/` package: `BiomeContext`, `ScriptingEngine`)
 - Directory Comparison View (`ComparePanel`), Custom Toolbar Builder (`CustomToolBar`, `ToolbarBuilderDialog`)
-- macOS Touch Bar stub (`utils/touch_bar.py`)
 
 </details>
 
@@ -273,17 +283,6 @@ Full architecture: [`AI/architecture.md`](AI/architecture.md)
 - AI commit message suggestion in `GitCommitDialog` via `staged_diff()` + AI provider
 - Shell env vars `BIOME_CWD`/`BIOME_SELECTED`/`BIOME_CURSOR` injected into terminal on launch
 - Spotlight/mdfind search scope, dependency cleanup scanner, presigned URL generation, macOS Share Sheet
-
-</details>
-
-<details>
-<summary><strong>v0.27.0</strong> — 2026-07-21 — Sprint 6: 18 quick-win features</summary>
-
-- Natural sort, symlink target column, Unicode NFC normalization in file listing
-- Mouse back/forward buttons + trackpad two-finger swipe in pane navigation
-- Word wrap toggle, text zoom (Ctrl+Wheel), tail mode, fit-to-window image in preview
-- Global UI zoom (Ctrl+=/Ctrl+-/Ctrl+0), command palette frecency ranking
-- Encrypted 7z creation, macOS quarantine manager, remote timestamp preservation
 
 </details>
 

@@ -74,15 +74,15 @@
 | `Ctrl+W` | Close tab / close built-in editor |
 | `Ctrl+R` | Refresh |
 | `Ctrl+B` | Toggle sidebar |
-| `Ctrl+Shift+T` | Toggle flat view / Open storage treemap ⚠ |
+| `Ctrl+Shift+T` | Toggle flat view |
+| `Ctrl+Alt+M` | Open storage treemap |
+| `Ctrl+Alt+G` | Open large file finder |
 | `Ctrl+Shift+U` | Mirror active pane path to inactive pane |
 | `Ctrl+=` / `Ctrl++` | Zoom in |
 | `Ctrl+-` | Zoom out |
 | `Ctrl+0` | Reset zoom |
 | `Ctrl+Shift+M` | Open task runner |
 | `Ctrl+Shift+D` | Duplicate file finder |
-
-> ⚠ `Ctrl+Shift+T` is bound to both "Toggle flat view" and "Open storage treemap" in source — both will fire (Qt ambiguous shortcut). Fix pending.
 
 ## Preview / Editor
 

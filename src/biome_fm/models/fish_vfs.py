@@ -1,9 +1,7 @@
 """FISH VFS — Files over Shell. SSH exec_command fallback when SFTP unavailable."""
 from __future__ import annotations
 
-import re
 import shlex
-from datetime import datetime
 from pathlib import Path, PurePosixPath
 
 try:
@@ -14,21 +12,7 @@ except ImportError:
     _HAS_PARAMIKO = False
 
 from biome_fm.models.file_item import FileItem
-
-_LS_RE = re.compile(
-    r'^([dl\-][rwx\-]{9})\s+\d+\s+\S+\s+\S+\s+(\d+)\s+'
-    r'(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})\s+(.+)$'
-)
-
-
-def _parse_ls_line(line: str) -> dict | None:
-    """Parse `ls -la --time-style=long-iso` output line."""
-    m = _LS_RE.match(line)
-    if not m:
-        return None
-    mode_str, size, date, time_, name = m.groups()
-    mtime = datetime.strptime(f"{date} {time_}", "%Y-%m-%d %H:%M").timestamp()
-    return {"name": name.strip(), "is_dir": mode_str[0] == "d", "size": int(size), "mtime": mtime}
+from biome_fm.models.ls_parser import parse_ls_line
 
 
 class FISHVfs:
@@ -70,7 +54,7 @@ class FISHVfs:
         out = self._exec(f"ls -la --time-style=long-iso {shlex.quote(str(path))} 2>/dev/null")
         items = []
         for line in out.splitlines():
-            info = _parse_ls_line(line)
+            info = parse_ls_line(line)
             if info is None or info["name"] in (".", ".."):
                 continue
             items.append(FileItem(

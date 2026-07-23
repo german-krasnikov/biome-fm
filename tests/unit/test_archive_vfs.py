@@ -107,16 +107,14 @@ def test_exists_virtual_dir(zip_archive: Path) -> None:
     assert vfs.exists(zip_archive / "sub") is True
 
 
-def test_write_ops_raise(zip_archive: Path) -> None:
+def test_archive_vfs_is_read_only_not_writable(zip_archive: Path) -> None:
+    from biome_fm.models.vfs import ReadableVFS, WritableVFS
     vfs = ArchiveVFS(zip_archive)
-    with pytest.raises(NotImplementedError):
-        vfs.copy(zip_archive / "file1.txt", zip_archive / "file3.txt")
-    with pytest.raises(NotImplementedError):
-        vfs.move(zip_archive / "file1.txt", zip_archive / "file3.txt")
-    with pytest.raises(NotImplementedError):
-        vfs.delete(zip_archive / "file1.txt")
-    with pytest.raises(NotImplementedError):
-        vfs.mkdir(zip_archive / "newdir")
+    assert isinstance(vfs, ReadableVFS)
+    assert not isinstance(vfs, WritableVFS)
+    # Write methods are not present — router uses _require_writable guard
+    assert not hasattr(vfs, "copy")
+    assert not hasattr(vfs, "delete")
 
 
 def test_empty_dir_in_zip(tmp_path: Path) -> None:

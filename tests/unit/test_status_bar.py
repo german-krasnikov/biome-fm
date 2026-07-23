@@ -34,15 +34,16 @@ def test_ops_counter_clamps_at_zero() -> None:
 
 
 def test_git_branch_displayed() -> None:
-    from biome_fm.app import _get_git_branch
-    with patch("subprocess.run") as mock_run:
-        mock_run.return_value.stdout = "main\n"
-        branch = _get_git_branch(Path("/some/repo"))
+    from biome_fm.git.branch_ops import current_branch
+    mock_result = MagicMock()
+    mock_result.stdout = "main\n"
+    with patch("biome_fm.git.branch_ops.subprocess.run", return_value=mock_result):
+        branch = current_branch(Path("/some/repo"))
     assert branch == "main"
 
 
 def test_git_branch_no_repo() -> None:
-    from biome_fm.app import _get_git_branch
-    with patch("subprocess.run", side_effect=FileNotFoundError):
-        branch = _get_git_branch(Path("/tmp"))
+    from biome_fm.git.branch_ops import current_branch
+    with patch("biome_fm.git.branch_ops.subprocess.run", side_effect=FileNotFoundError):
+        branch = current_branch(Path("/tmp"))
     assert branch == ""

@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from biome_fm.presenters.duplicate_presenter import DupGroup, find_duplicates
+from biome_fm.utils.format import format_size as _fmt
 
 
 class DuplicateFinderDialog(QDialog):
@@ -95,10 +96,3 @@ class DuplicateFinderDialog(QDialog):
         super().closeEvent(event)
 
 
-def _fmt(n: int) -> str:
-    s = float(n)
-    for unit in ("B", "KB", "MB", "GB"):
-        if s < 1024:
-            return f"{s:.1f} {unit}"
-        s /= 1024
-    return f"{s:.1f} TB"

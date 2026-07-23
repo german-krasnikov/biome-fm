@@ -16,7 +16,7 @@ try:
 except ImportError:
     def _owner(uid: int) -> str:  # type: ignore[misc]
         return str(uid)
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from biome_fm.models.file_item import FileItem
 
@@ -28,15 +28,30 @@ def _readlink(path: str) -> Path | None:
         return None
 
 
-class VFSProtocol(Protocol):
+class VFSReadOnlyError(OSError):
+    """Raised when a write op is attempted on a read-only VFS."""
+
+
+@runtime_checkable
+class ReadableVFS(Protocol):
+    """Minimal contract: browse + read."""
     def listdir(self, path: Path) -> list[FileItem]: ...
     def stat(self, path: Path) -> FileItem: ...
     def read_bytes(self, path: Path) -> bytes: ...
+    def exists(self, path: Path) -> bool: ...
+
+
+@runtime_checkable
+class WritableVFS(ReadableVFS, Protocol):
+    """Full contract: read + write."""
     def copy(self, src: Path, dst: Path) -> None: ...
     def move(self, src: Path, dst: Path) -> None: ...
     def delete(self, path: Path) -> None: ...
     def mkdir(self, path: Path) -> None: ...
-    def exists(self, path: Path) -> bool: ...
+
+
+# Backward compatibility alias
+VFSProtocol = WritableVFS
 
 
 class LocalVFS:

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from biome_fm.models.archive_vfs import ArchiveVFS
 from biome_fm.models.file_item import FileItem
 from biome_fm.models.remote_cache import RemoteListCache
-from biome_fm.models.vfs import LocalVFS
+from biome_fm.models.vfs import LocalVFS, VFSReadOnlyError, WritableVFS
 
 if TYPE_CHECKING:
     from biome_fm.event_bus import EventBus
@@ -56,7 +56,7 @@ class VFSRouter:
         return self._cache[root], path
 
     def _get_remote_vfs(self, raw_path: str) -> tuple[object, Path]:
-        from biome_fm.presenters.uri_parser import detect_scheme, parse_uri
+        from biome_fm.utils.uri_parser import detect_scheme, parse_uri
 
         # Path("sftp://host/p") → "sftp:/host/p" on POSIX — restore double slash
         if "://" not in raw_path:
@@ -150,12 +150,17 @@ class VFSRouter:
         vfs, p = self._resolve(path)
         return vfs.open_file(p)
 
+    def _require_writable(self, vfs: object, path: Path) -> None:
+        if not isinstance(vfs, WritableVFS):
+            raise VFSReadOnlyError(f"VFS for {path} is read-only")
+
     def copy(self, src: Path, dst: Path) -> None:
         vfs, _ = self._resolve(src)
         if isinstance(vfs, ArchiveVFS):
             self._extract(vfs, src, dst)
-        else:
-            vfs.copy(src, dst)
+            return
+        self._require_writable(vfs, src)
+        vfs.copy(src, dst)
 
     def _extract(self, vfs: ArchiveVFS, src: Path, dst: Path) -> None:
         try:
@@ -174,6 +179,7 @@ class VFSRouter:
 
     def move(self, src: Path, dst: Path) -> None:
         vfs, _ = self._resolve(src)
+        self._require_writable(vfs, src)
         vfs.move(src, dst)
         if _URI_RE.match(str(src)):
             self._rcache.invalidate(src.parent)
@@ -182,12 +188,14 @@ class VFSRouter:
 
     def delete(self, path: Path) -> None:
         vfs, p = self._resolve(path)
+        self._require_writable(vfs, path)
         vfs.delete(p)
         if _URI_RE.match(str(path)):
             self._rcache.invalidate(path.parent)
 
     def mkdir(self, path: Path) -> None:
         vfs, p = self._resolve(path)
+        self._require_writable(vfs, path)
         vfs.mkdir(p)
         if _URI_RE.match(str(path)):
             self._rcache.invalidate(path.parent)

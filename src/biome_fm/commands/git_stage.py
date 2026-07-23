@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
 from biome_fm.commands.base import Command
+from biome_fm.git.run import run_git
 
 
 class GitStageCmd(Command):
@@ -14,10 +14,10 @@ class GitStageCmd(Command):
         self._repo = repo_root
 
     def execute(self) -> None:
-        subprocess.run(["git", "add", str(self._path)], cwd=self._repo, check=True, timeout=10)
+        run_git(["add", str(self._path)], cwd=self._repo, timeout=10)
 
     def undo(self) -> None:
-        subprocess.run(["git", "restore", "--staged", str(self._path)], cwd=self._repo, check=True, timeout=10)
+        run_git(["restore", "--staged", str(self._path)], cwd=self._repo, timeout=10)
 
 
 class GitUnstageCmd(Command):
@@ -28,7 +28,7 @@ class GitUnstageCmd(Command):
         self._repo = repo_root
 
     def execute(self) -> None:
-        subprocess.run(["git", "restore", "--staged", str(self._path)], cwd=self._repo, check=True, timeout=10)
+        run_git(["restore", "--staged", str(self._path)], cwd=self._repo, timeout=10)
 
     def undo(self) -> None:
-        subprocess.run(["git", "add", str(self._path)], cwd=self._repo, check=True, timeout=10)
+        run_git(["add", str(self._path)], cwd=self._repo, timeout=10)

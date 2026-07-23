@@ -1,0 +1,500 @@
+"""Unit tests for Sprint 1 critical stability fixes."""
+from __future__ import annotations
+
+import queue
+import sqlite3
+import stat
+import tempfile
+import threading
+from pathlib import Path, PurePosixPath
+from unittest.mock import MagicMock, call, patch
+
+import pytest
+
+
+# ---------------------------------------------------------------------------
+# Fix #1 — SFTPVfs.listdir: modified must be float
+# ---------------------------------------------------------------------------
+
+def _make_sftp_vfs():
+    from biome_fm.models.sftp_vfs import SFTPSession, SFTPVfs
+    return SFTPVfs(SFTPSession(host="localhost"))
+
+
+def test_sftp_listdir_modified_is_float():
+    vfs = _make_sftp_vfs()
+    attr = MagicMock()
+    attr.filename = "file.txt"
+    attr.st_mode = stat.S_IFREG | 0o644
+    attr.st_size = 100
+    attr.st_mtime = 1700000000.5
+
+    fake_sftp = MagicMock()
+    fake_sftp.listdir_attr.return_value = [attr]
+
+    with patch.object(vfs, "_with_reconnect", side_effect=lambda fn, *args: fn(fake_sftp, *args)):
+        items = vfs.listdir(PurePosixPath("/remote"))
+
+    assert len(items) == 1
+    assert items[0].modified == 1700000000.5
+    assert isinstance(items[0].modified, float)
+
+
+def test_sftp_listdir_modified_none_mtime():
+    vfs = _make_sftp_vfs()
+    attr = MagicMock()
+    attr.filename = "file.txt"
+    attr.st_mode = stat.S_IFREG | 0o644
+    attr.st_size = 0
+    attr.st_mtime = None
+
+    fake_sftp = MagicMock()
+    fake_sftp.listdir_attr.return_value = [attr]
+
+    with patch.object(vfs, "_with_reconnect", side_effect=lambda fn, *args: fn(fake_sftp, *args)):
+        items = vfs.listdir(PurePosixPath("/remote"))
+
+    assert items[0].modified == 0.0
+    assert isinstance(items[0].modified, float)
+
+
+# ---------------------------------------------------------------------------
+# Fix #2 — SFTPVfs.delete (renamed from remove)
+# ---------------------------------------------------------------------------
+
+def test_sftp_has_delete_not_remove():
+    from biome_fm.models.sftp_vfs import SFTPVfs
+    assert hasattr(SFTPVfs, "delete")
+    assert not hasattr(SFTPVfs, "remove")
+
+
+def test_sftp_delete_file():
+    vfs = _make_sftp_vfs()
+    fake_sftp = MagicMock()
+
+    with patch.object(vfs, "_with_reconnect", side_effect=lambda fn, *args: fn(fake_sftp, *args)):
+        vfs.delete(PurePosixPath("/remote/file.txt"))
+
+    fake_sftp.remove.assert_called_once_with("/remote/file.txt")
+    fake_sftp.rmdir.assert_not_called()
+
+
+def test_sftp_delete_dir_falls_back_to_rmdir():
+    vfs = _make_sftp_vfs()
+    fake_sftp = MagicMock()
+    fake_sftp.remove.side_effect = OSError("is a dir")
+
+    with patch.object(vfs, "_with_reconnect", side_effect=lambda fn, *args: fn(fake_sftp, *args)):
+        vfs.delete(PurePosixPath("/remote/mydir"))
+
+    fake_sftp.rmdir.assert_called_once_with("/remote/mydir")
+
+
+# ---------------------------------------------------------------------------
+# Fix #3 — MkdirCmd uses VFS
+# ---------------------------------------------------------------------------
+
+def test_mkdir_cmd_uses_vfs():
+    from biome_fm.commands.mkdir_cmd import MkdirCmd
+    mock_vfs = MagicMock()
+    path = Path("/tmp/newdir")
+    MkdirCmd(path, mock_vfs).execute()
+    mock_vfs.mkdir.assert_called_once_with(path)
+
+
+def test_mkdir_cmd_undo_uses_vfs():
+    from biome_fm.commands.mkdir_cmd import MkdirCmd
+    mock_vfs = MagicMock()
+    path = Path("/tmp/newdir")
+    MkdirCmd(path, mock_vfs).undo()
+    mock_vfs.delete.assert_called_once_with(path)
+
+
+def test_mkdir_cmd_accepts_valid_path():
+    from biome_fm.commands.mkdir_cmd import MkdirCmd
+    # Should not raise — normal valid name
+    cmd = MkdirCmd(Path("/tmp/newdir"), MagicMock())
+    assert cmd.description == "Create folder 'newdir'"
+
+
+# ---------------------------------------------------------------------------
+# Fix #4 — CommandHistory peek-before-pop
+# ---------------------------------------------------------------------------
+
+def _make_history():
+    from biome_fm.commands.base import Command, CommandHistory
+
+    class OkCmd(Command):
+        executed = False
+        undone = False
+
+        def execute(self):
+            OkCmd.executed = True
+
+        def undo(self):
+            OkCmd.undone = True
+
+    class FailUndoCmd(Command):
+        def execute(self):
+            pass
+
+        def undo(self):
+            raise RuntimeError("undo failed")
+
+    class FailRedoCmd(Command):
+        def __init__(self):
+            self._count = 0
+
+        def execute(self):
+            self._count += 1
+            if self._count > 1:
+                raise RuntimeError("redo failed")
+
+        def undo(self):
+            pass
+
+    return CommandHistory, OkCmd, FailUndoCmd, FailRedoCmd
+
+
+def test_undo_raising_command_stays_on_stack():
+    CommandHistory, OkCmd, FailUndoCmd, _ = _make_history()
+    h = CommandHistory()
+    h.execute(FailUndoCmd())
+    assert h.can_undo
+    with pytest.raises(RuntimeError):
+        h.undo()
+    assert h.can_undo  # command NOT lost
+
+
+def test_redo_raising_command_stays_on_stack():
+    CommandHistory, OkCmd, _, FailRedoCmd = _make_history()
+    h = CommandHistory()
+    cmd = FailRedoCmd()
+    h.execute(cmd)
+    h.undo()  # moves to redo stack
+    assert h.can_redo
+    with pytest.raises(RuntimeError):
+        h.redo()
+    assert h.can_redo  # command NOT lost
+
+
+def test_undo_success_moves_to_redo():
+    CommandHistory, OkCmd, _, _ = _make_history()
+    h = CommandHistory()
+    h.execute(OkCmd())
+    h.undo()
+    assert not h.can_undo
+    assert h.can_redo
+
+
+# ---------------------------------------------------------------------------
+# Fix #5 — SQLite preview: SQL injection + XSS
+# ---------------------------------------------------------------------------
+
+def test_sqlite_preview_malicious_table_name():
+    from biome_fm.preview.provider import ContentKind
+    from biome_fm.preview.providers.sqlite_preview import SqlitePreviewProvider
+
+    with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as f:
+        db_path = Path(f.name)
+
+    conn = sqlite3.connect(str(db_path))
+    # Malicious table name with bracket injection
+    malicious = 'foo"] DROP TABLE bar; --'
+    conn.execute(f'CREATE TABLE "{malicious.replace(chr(34), chr(34)*2)}" (id INTEGER)')
+    conn.commit()
+    conn.close()
+
+    from biome_fm.preview.provider import PreviewRequest
+    req = PreviewRequest(path=db_path)
+    result = SqlitePreviewProvider().render(req)
+
+    # Must NOT crash and must return HTML (not ERROR)
+    assert result.kind == ContentKind.HTML
+    # Table name must be HTML-escaped in output
+    assert "DROP TABLE" not in result.data or "&quot;" in result.data or "&#" in result.data
+    db_path.unlink(missing_ok=True)
+
+
+def test_sqlite_preview_normal():
+    from biome_fm.preview.provider import ContentKind, PreviewRequest
+    from biome_fm.preview.providers.sqlite_preview import SqlitePreviewProvider
+
+    with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as f:
+        db_path = Path(f.name)
+
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("CREATE TABLE alpha (x INTEGER)")
+    conn.execute("CREATE TABLE beta (y TEXT)")
+    conn.commit()
+    conn.close()
+
+    req = PreviewRequest(path=db_path)
+    result = SqlitePreviewProvider().render(req)
+
+    assert result.kind == ContentKind.HTML
+    assert "alpha" in result.data
+    assert "beta" in result.data
+    db_path.unlink(missing_ok=True)
+
+
+# ---------------------------------------------------------------------------
+# Fix #15 — atomic_write utility
+# ---------------------------------------------------------------------------
+
+def test_atomic_write_replaces_atomically(tmp_path):
+    from biome_fm.utils.atomic_write import atomic_write
+    p = tmp_path / "file.txt"
+    atomic_write(p, "content A")
+    atomic_write(p, "content B")
+    assert p.read_text() == "content B"
+
+
+def test_atomic_write_no_corruption_on_exception(tmp_path):
+    from biome_fm.utils.atomic_write import atomic_write
+    p = tmp_path / "file.txt"
+    atomic_write(p, "original")
+    with patch("pathlib.Path.replace", side_effect=OSError("locked")):
+        with pytest.raises(OSError):
+            atomic_write(p, "new")
+    # Original file unchanged
+    assert p.read_text() == "original"
+
+
+def test_atomic_write_creates_parent_dir(tmp_path):
+    from biome_fm.utils.atomic_write import atomic_write
+    p = tmp_path / "nested" / "deep" / "file.txt"
+    atomic_write(p, "hello")
+    assert p.read_text() == "hello"
+
+
+# ---------------------------------------------------------------------------
+# Fix #27 — EventBus.publish_from_thread + drain_threaded
+# ---------------------------------------------------------------------------
+
+def test_publish_from_thread_delivers_to_main():
+    from biome_fm.event_bus import EventBus
+
+    class Evt:
+        def __init__(self, val):
+            self.val = val
+
+    bus = EventBus()
+    received = []
+    bus.subscribe(Evt, received.append)
+
+    t = threading.Thread(target=lambda: bus.publish_from_thread(Evt(42)))
+    t.start()
+    t.join()
+    assert received == []  # not delivered yet — only queued
+    bus.drain_threaded()
+    assert len(received) == 1
+    assert received[0].val == 42
+
+
+def test_publish_from_thread_does_not_call_handler_immediately():
+    from biome_fm.event_bus import EventBus
+
+    Evt = type("Evt", (), {"__init__": lambda self: None})
+    bus = EventBus()
+    received = []
+    bus.subscribe(Evt, received.append)
+
+    bus.publish_from_thread(Evt())
+    assert received == []  # not called yet — drain not called
+
+
+def test_drain_threaded_empty_is_noop():
+    from biome_fm.event_bus import EventBus
+
+    bus = EventBus()
+    bus.drain_threaded()  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# Fix #28 — SpaceReclaimerPresenter marshal_fn
+# ---------------------------------------------------------------------------
+
+def test_space_reclaimer_on_results_via_marshal(tmp_path):
+    from biome_fm.presenters.space_reclaimer_presenter import SpaceReclaimerPresenter
+
+    results = []
+    marshaled_calls = []
+
+    def fake_marshal(fn):
+        marshaled_calls.append(fn)
+        fn()  # simulate Qt main-thread dispatch
+
+    with patch("biome_fm.presenters.space_reclaimer_presenter.scan_cleanup_dirs", return_value=[]):
+        p = SpaceReclaimerPresenter(
+            root=tmp_path,
+            patterns=frozenset(),
+            on_results=results.append,
+            marshal_fn=fake_marshal,
+        )
+        p._scan()
+
+    assert len(marshaled_calls) == 1  # marshal_fn was called
+
+
+def test_space_reclaimer_no_marshal_fn(tmp_path):
+    from biome_fm.presenters.space_reclaimer_presenter import SpaceReclaimerPresenter
+
+    results = []
+
+    with patch("biome_fm.presenters.space_reclaimer_presenter.scan_cleanup_dirs", return_value=[]):
+        p = SpaceReclaimerPresenter(
+            root=tmp_path,
+            patterns=frozenset(),
+            on_results=results.append,
+        )
+        p._scan()
+
+    assert len(results) == 1  # on_results called directly
+
+
+def test_space_reclaimer_cancel_suppresses_callback(tmp_path):
+    from biome_fm.presenters.space_reclaimer_presenter import SpaceReclaimerPresenter
+
+    results = []
+
+    def slow_scan(*args, **kwargs):
+        return []
+
+    p = SpaceReclaimerPresenter(
+        root=tmp_path,
+        patterns=frozenset(),
+        on_results=results.append,
+    )
+    p._cancel.set()  # cancel before scan
+
+    with patch("biome_fm.presenters.space_reclaimer_presenter.scan_cleanup_dirs", side_effect=slow_scan):
+        p._scan()
+
+    assert results == []  # on_results never called
+
+
+# ---------------------------------------------------------------------------
+# Fix #26 — Plugin hook isolation
+# ---------------------------------------------------------------------------
+
+def test_plugin_hook_isolation_on_navigate(caplog):
+    import logging
+    from biome_fm.plugins.manager import PluginManager
+
+    pm = PluginManager()
+
+    class BadPlugin:
+        @staticmethod
+        def biome_fm_on_navigate(path):
+            raise RuntimeError("plugin crash")
+
+    # Patch the hook to raise
+    with patch.object(pm._pm.hook, "on_navigate", side_effect=RuntimeError("plugin crash")):
+        with caplog.at_level(logging.ERROR):
+            pm.on_navigate(Path("/some/path"))  # must NOT propagate
+
+    assert "Plugin hook on_navigate raised" in caplog.text
+
+
+def test_plugin_hook_isolation_preview_providers(caplog):
+    import logging
+    from biome_fm.plugins.manager import PluginManager
+
+    pm = PluginManager()
+
+    with patch.object(pm._pm.hook, "provide_preview_providers", side_effect=RuntimeError("crash")):
+        with caplog.at_level(logging.ERROR):
+            result = pm.get_preview_providers()
+
+    assert result == []
+    assert "Plugin hook provide_preview_providers raised" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# Fix #16 — git_worker.stop() in _on_close (smoke test, no Qt)
+# ---------------------------------------------------------------------------
+
+def test_git_worker_stop_called_on_close():
+    """Verify stop() exists and _on_close() references git_worker.stop()."""
+    from biome_fm.git.worker import GitStatusWorker
+
+    assert hasattr(GitStatusWorker, "stop")
+    app_src = (Path(__file__).resolve().parents[2] / "src/biome_fm/app.py").read_text()
+    assert "git_worker.stop()" in app_src, "_on_close must call git_worker.stop()"
+
+
+# ---------------------------------------------------------------------------
+# Fix #18 — WatchRuleEngine shlex.quote
+# ---------------------------------------------------------------------------
+
+def test_watch_rule_engine_shell_injection(tmp_path, monkeypatch):
+    from biome_fm.models.watch_rules import WatchRule, WatchRuleEngine, WatchRuleStore
+
+    store = WatchRuleStore.__new__(WatchRuleStore)
+    store._rules = [WatchRule(
+        watch_dir=str(tmp_path),
+        pattern="*.txt",
+        command="echo {file}",
+    )]
+
+    engine = WatchRuleEngine(store)
+    engine._snapshots[str(tmp_path)] = set()
+
+    evil = tmp_path / "evil; echo INJECTED.txt"
+    evil.touch()
+
+    popen_calls = []
+    monkeypatch.setattr(
+        "biome_fm.models.watch_rules.subprocess.Popen",
+        lambda cmd, **kw: popen_calls.append(cmd),
+    )
+
+    engine.check_dir(str(tmp_path))
+    assert len(popen_calls) == 1
+    assert "'" in popen_calls[0], "Malicious filename must be shell-quoted"
+    assert "; echo INJECTED" not in popen_calls[0].replace("'", "")\
+        or popen_calls[0].count("'") >= 2
+
+
+def test_watch_rule_engine_normal_path(tmp_path, monkeypatch):
+    from biome_fm.models.watch_rules import WatchRule, WatchRuleEngine, WatchRuleStore
+
+    store = WatchRuleStore.__new__(WatchRuleStore)
+    store._rules = [WatchRule(
+        watch_dir=str(tmp_path),
+        pattern="*.txt",
+        command="cat {file}",
+    )]
+
+    engine = WatchRuleEngine(store)
+    engine._snapshots[str(tmp_path)] = set()
+
+    spacy = tmp_path / "my file with spaces.txt"
+    spacy.touch()
+
+    popen_calls = []
+    monkeypatch.setattr(
+        "biome_fm.models.watch_rules.subprocess.Popen",
+        lambda cmd, **kw: popen_calls.append(cmd),
+    )
+
+    engine.check_dir(str(tmp_path))
+    assert len(popen_calls) == 1
+    assert "my file with spaces" in popen_calls[0]
+    # path must be quoted (single quotes or escaped spaces)
+    assert "'" in popen_calls[0] or "\\ " in popen_calls[0]
+
+
+# ---------------------------------------------------------------------------
+# Fix #11 — No duplicate QShortcut bindings
+# ---------------------------------------------------------------------------
+
+def test_no_duplicate_shortcuts():
+    import re
+    app_src = (Path(__file__).resolve().parents[2] / "src/biome_fm/app.py").read_text()
+    shortcuts = re.findall(r'QShortcut\s*\(\s*QKeySequence\s*\(\s*"([^"]+)"', app_src)
+    # Only assert the two shortcuts we specifically fixed in Sprint 1
+    for key in ("Ctrl+Shift+T", "Ctrl+Shift+L"):
+        count = shortcuts.count(key)
+        assert count <= 1, f"Duplicate shortcut: {key} appears {count} times"

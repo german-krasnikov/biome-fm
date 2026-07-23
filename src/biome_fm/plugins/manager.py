@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import importlib.util
+import logging
 import sys
 import warnings
 from pathlib import Path
@@ -10,6 +11,8 @@ from pathlib import Path
 import pluggy
 
 from biome_fm.plugins.hookspecs import BiomeFMSpec
+
+_log = logging.getLogger(__name__)
 
 
 class PluginManager:
@@ -104,11 +107,21 @@ class PluginManager:
         self.call_register_commands(registry)
 
     def on_navigate(self, path: Path) -> None:
-        self._pm.hook.on_navigate(path=path)
+        try:
+            self._pm.hook.on_navigate(path=path)
+        except Exception:
+            _log.exception("Plugin hook on_navigate raised")
 
     def on_file_operation(self, op: str, src: Path, dst: Path | None = None) -> None:
-        self._pm.hook.on_file_operation(op=op, src=src, dst=dst)
+        try:
+            self._pm.hook.on_file_operation(op=op, src=src, dst=dst)
+        except Exception:
+            _log.exception("Plugin hook on_file_operation raised")
 
     def get_preview_providers(self) -> list[object]:
-        results = self._pm.hook.provide_preview_providers()
-        return [p for sublist in results for p in sublist]
+        try:
+            results = self._pm.hook.provide_preview_providers()
+            return [p for sublist in results for p in sublist]
+        except Exception:
+            _log.exception("Plugin hook provide_preview_providers raised")
+            return []

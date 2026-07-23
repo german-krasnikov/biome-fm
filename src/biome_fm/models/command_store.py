@@ -5,6 +5,9 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
+from biome_fm.models._store_base import toml_escape as _esc
+from biome_fm.utils.atomic_write import atomic_write
+
 
 @dataclass
 class UserCommand:
@@ -40,16 +43,17 @@ class CommandStore:
             pass
 
     def save(self) -> None:
+        e = _esc
         lines: list[str] = []
         for c in self._commands:
             lines.append("[[commands]]")
-            lines.append(f'id = "{c.id}"')
-            lines.append(f'label = "{c.label}"')
-            lines.append(f'command = "{c.command}"')
+            lines.append(f'id = "{e(c.id)}"')
+            lines.append(f'label = "{e(c.label)}"')
+            lines.append(f'command = "{e(c.command)}"')
             if c.shortcut:
-                lines.append(f'shortcut = "{c.shortcut}"')
+                lines.append(f'shortcut = "{e(c.shortcut)}"')
             lines.append("")
-        self._path.write_text("\n".join(lines))
+        atomic_write(self._path, "\n".join(lines))
 
     def add(self, cmd: UserCommand) -> None:
         self._commands = [c for c in self._commands if c.id != cmd.id]

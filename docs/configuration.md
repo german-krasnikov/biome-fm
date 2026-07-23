@@ -3,6 +3,14 @@
 biome-fm stores its configuration in `~/.config/biome-fm/config.toml`.
 Open the settings dialog with `Ctrl+,` or edit the file directly.
 
+## Config Validation
+
+All config fields are validated and clamped on load via `Config.__post_init__`. Hand-editing `config.toml` with out-of-range values (e.g. `glass_opacity = 200`) is safe — the value is silently clamped to the valid range on next launch. Fields with wrong types are reset to their defaults rather than raising an error.
+
+## Debounced Save
+
+`save_config` is debounced (300 ms). Rapid calls — e.g. from a settings dialog with live preview — are coalesced into a single write, preventing thundering-herd writes on mechanical or encrypted volumes.
+
 ## Config Backup
 
 Every save creates a rolling backup: `config.toml.bak.1` through `config.toml.bak.7`.

@@ -8,6 +8,7 @@ from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QLabel, QPushButton, QToolTip, QVBoxLayout, QWidget
 
 from biome_fm.presenters.treemap_presenter import TreemapNode, TreemapPresenter, squarify
+from biome_fm.utils.format import format_size as _fmt
 
 
 class TreemapPanel(QWidget):
@@ -113,11 +114,3 @@ class TreemapPanel(QWidget):
         h = float(self.height() - canvas_y)
         self._rects = squarify(self._nodes, 0.0, float(canvas_y), w, h)
 
-
-def _fmt(n: int) -> str:
-    s = float(n)
-    for unit in ("B", "KB", "MB", "GB"):
-        if s < 1024:
-            return f"{s:.1f} {unit}"
-        s /= 1024
-    return f"{s:.1f} TB"

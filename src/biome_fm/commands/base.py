@@ -54,8 +54,9 @@ class CommandHistory:
     def undo(self) -> None:
         if not self._undo_stack:
             return
-        cmd = self._undo_stack.pop()
+        cmd = self._undo_stack[-1]   # peek — stack unchanged if undo() raises
         cmd.undo()
+        self._undo_stack.pop()
         self._redo_stack.append(cmd)
         if self.on_changed:
             self.on_changed()
@@ -63,8 +64,9 @@ class CommandHistory:
     def redo(self) -> None:
         if not self._redo_stack:
             return
-        cmd = self._redo_stack.pop()
+        cmd = self._redo_stack[-1]   # peek — stack unchanged if execute() raises
         cmd.execute()
+        self._redo_stack.pop()
         self._undo_stack.append(cmd)
         if self.on_changed:
             self.on_changed()

@@ -15,11 +15,10 @@ class MkdirCmd(Command):
         self._vfs = vfs
 
     def execute(self) -> None:
-        self._path.mkdir()
+        self._vfs.mkdir(self._path)
 
     def undo(self) -> None:
-        if self._path.is_dir():
-            self._path.rmdir()
+        self._vfs.delete(self._path)
 
     @property
     def description(self) -> str:

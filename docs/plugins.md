@@ -39,6 +39,12 @@ my_plugin = "my_plugin:Plugin"
 | `extra_columns()` | File list init | `list[ColumnDef]` |
 | `extra_archive_extensions()` | VFS init | `list[str]` |
 | `provide_vfs(path)` | Path navigation (firstresult) | VFS object or `None` |
+| `provide_preview_providers()` | Preview init | `list[PreviewProvider]` |
+| `column_value(item, column_id)` | Column render (firstresult) | `str` or `None` |
+
+## Hook isolation
+
+Each hook call in `PluginManager` is wrapped in `try/except`. A plugin that raises does not block other plugins or crash the app — the exception is logged at `ERROR` level. Check the logs if a hook seems to be silently not firing.
 
 ## API versioning
 

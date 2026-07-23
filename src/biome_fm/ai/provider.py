@@ -19,6 +19,10 @@ class AIProviderProtocol(Protocol):
     def chat(self, messages: list[dict], system: str = "") -> str: ...
     def chat_stream(self, messages: list[dict], system: str = "") -> Iterator[str]: ...
     def set_model(self, model: str) -> None: ...
+    def terminate(self) -> None: ...
+    def chat_stream_events(
+        self, messages: list[dict], system: str = ""
+    ) -> Iterator[tuple[str, str]]: ...
 
 
 class NoOpProvider:
@@ -42,6 +46,14 @@ class NoOpProvider:
 
     def set_model(self, model: str) -> None:
         pass
+
+    def terminate(self) -> None:
+        pass
+
+    def chat_stream_events(
+        self, messages: list[dict], system: str = ""
+    ) -> Iterator[tuple[str, str]]:
+        return iter([])
 
 
 def make_providers(cfg) -> dict[str, AIProviderProtocol]:

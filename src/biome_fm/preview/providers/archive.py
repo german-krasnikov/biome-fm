@@ -6,6 +6,7 @@ import zipfile
 from pathlib import Path
 
 from biome_fm.preview.provider import ContentKind, PreviewRequest, PreviewResult
+from biome_fm.utils.format import format_size as _fmt
 
 _MAX_ENTRIES = 500
 _ZIP_EXTS = frozenset({".zip", ".jar", ".whl", ".egg"})
@@ -60,10 +61,3 @@ class ArchivePreviewProvider:
             lines.append(f"\n... {total - _MAX_ENTRIES} more entries")
         return PreviewResult(kind=ContentKind.HTML, data=f"<pre>{''.join(l + chr(10) for l in lines)}</pre>")
 
-
-def _fmt(n: int) -> str:
-    for unit in ("B", "KB", "MB", "GB"):
-        if n < 1024:
-            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
-        n /= 1024  # type: ignore[assignment]
-    return f"{n:.1f} TB"
