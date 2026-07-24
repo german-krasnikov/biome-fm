@@ -1,45 +1,32 @@
 """Pure-Python git branch operations — no Qt."""
 from __future__ import annotations
 
-import subprocess
+from subprocess import CalledProcessError, TimeoutExpired
 from pathlib import Path
+
+from biome_fm.git.run import run_git
 
 _TIMEOUT = 5
 
 
 def list_branches(repo: Path) -> list[str]:
     """Return all local branches. Empty list if not a git repo."""
-    try:
-        r = subprocess.run(
-            ["git", "branch", "--list"],
-            cwd=repo, capture_output=True, text=True, timeout=_TIMEOUT,
-        )
-        return [line.lstrip("* ").strip() for line in r.stdout.splitlines() if line.strip()]
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-        return []
+    raw = run_git(["branch", "--list"], cwd=repo, timeout=_TIMEOUT, safe=True)
+    return [line[2:].strip() for line in raw.splitlines() if len(line) >= 2 and line.strip()]
 
 
 def current_branch(repo: Path) -> str:
     """Return current branch name, '(detached)' on detached HEAD, '' on error."""
-    try:
-        r = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            cwd=repo, capture_output=True, text=True, timeout=_TIMEOUT,
-        )
-        name = r.stdout.strip()
-        return "(detached)" if name == "HEAD" else name
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+    name = run_git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=repo, timeout=_TIMEOUT, safe=True).strip()
+    if not name:
         return ""
+    return "(detached)" if name == "HEAD" else name
 
 
 def switch_branch(repo: Path, branch: str) -> None:
     """Switch to branch. Raises RuntimeError on failure (dirty tree, etc.)."""
     try:
-        r = subprocess.run(
-            ["git", "switch", branch],
-            cwd=repo, capture_output=True, text=True, timeout=10,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
-        raise RuntimeError(str(exc)) from exc
-    if r.returncode != 0:
-        raise RuntimeError(r.stderr.strip() or f"git switch {branch} failed")
+        run_git(["switch", branch], cwd=repo, timeout=10)
+    except (CalledProcessError, OSError, TimeoutExpired) as exc:
+        msg = exc.stderr.strip() if isinstance(exc, CalledProcessError) else str(exc)
+        raise RuntimeError(msg or f"git switch {branch} failed") from exc

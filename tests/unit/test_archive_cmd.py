@@ -97,3 +97,39 @@ def test_extract_cmd_tar_gz(tmp_path: Path) -> None:
 
 def test_extract_cmd_not_undoable() -> None:
     assert ExtractCmd(Path("/tmp/x.zip"), Path("/tmp/out")).undoable is False
+
+
+# ── Security: Zip Slip prevention ────────────────────────────────────────────
+
+def test_extract_zip_slip_raises(tmp_path: Path) -> None:
+    bad_zip = tmp_path / "evil.zip"
+    with zipfile.ZipFile(bad_zip, "w") as zf:
+        zf.writestr("../../evil.txt", "pwned")
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    cmd = ExtractCmd(bad_zip, dest)
+    with pytest.raises((ValueError, RuntimeError)):
+        cmd.execute()
+    assert not (tmp_path / "evil.txt").exists()
+
+
+def test_extract_absolute_path_raises(tmp_path: Path) -> None:
+    bad_zip = tmp_path / "abs.zip"
+    with zipfile.ZipFile(bad_zip, "w") as zf:
+        zf.writestr("/etc/passwd", "root:x:0:0")
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    with pytest.raises((ValueError, RuntimeError)):
+        ExtractCmd(bad_zip, dest).execute()
+
+
+def test_extract_safe_zip_succeeds(tmp_path: Path) -> None:
+    good_zip = tmp_path / "good.zip"
+    with zipfile.ZipFile(good_zip, "w") as zf:
+        zf.writestr("readme.txt", "hello")
+        zf.writestr("subdir/file.txt", "world")
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    ExtractCmd(good_zip, dest).execute()
+    assert (dest / "readme.txt").read_text() == "hello"
+    assert (dest / "subdir" / "file.txt").read_text() == "world"

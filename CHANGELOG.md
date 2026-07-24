@@ -3,6 +3,97 @@
 All notable changes to Biome FM are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.32.0] — 2026-07-24
+
+### Security (Items #1–3, #20, #23–24, #30)
+
+- **Shell injection hardened** — `BatchExecCmd` shlex-quotes all template substitutions; `ScriptVFS` escapes spec path arguments; SSH proxy command builder rejects paths with shell metacharacters
+- **Zip Slip protection** — `ExtractCmd` resolves every member path relative to destination before extraction; traversal outside target dir raises `ValueError`
+- **API keys removed from plaintext** — provider configs migrated to `CredentialStore` (keyring-backed); no AI key stored in `config.toml`
+- **NL Ops prompt injection guard** — `NLOpsPresenter` strips control sequences and caps prompt length before sending to AI provider
+- **FISH VFS SSH hardened** — `FISHVfs` replaced `AutoAddPolicy` with `RejectPolicy`; unknown host keys now raise `SSHException`
+
+### Fixed (Items #4–5, #7–17, #19, #39)
+
+- **Copy undo data loss** — `CopyCmd.undo()` deletes the destination even when source no longer exists
+- **Resume mtime** — cross-VFS streaming resume preserves original `mtime` after partial-download completion
+- **VFS bypass** — `VFSRouter` enforces `ReadableVFS` / `WritableVFS` protocol before dispatch; archive write guard can no longer be bypassed
+- **Preview priority** — `PreviewRegistry` sorts providers by priority descending; first match wins (was insertion-order)
+- **Preview cache thread-safety** — `PreviewPresenter._cache` access guarded by `threading.Lock`
+- **Shortcut duplicate** — `Ctrl+Shift+T` (flat view) / `Ctrl+Alt+M` (treemap) conflict fully resolved
+- **Natural sort** — `natsort_key()` handles leading-zero numeric segments correctly (`file001` < `file010`)
+- **Branch lstrip** — `git/branch_ops.py` strips `* ` prefix from `git branch` output before returning current branch name
+- **F9 label** — action bar F9 button label corrected to "Menu"
+- **WatchService race** — `WatchRuleEngine` acquires a lock before modifying the active-rule set during scan
+- **Config serialization** — `Config.__post_init__` coerces all fields before first save; malformed TOML values do not persist
+- **TOML escape DRY** — `toml_escape()` extracted to `models/_store_base.py`; all stores use the single implementation
+- **Drain timer** — `EventBus.drain_threaded()` uses `QTimer.singleShot(0)` instead of a busy-wait loop
+- **Close error handling** — `PanePresenter.cleanup()` catches and logs signal-disconnect exceptions to prevent crash on tab close
+
+### Performance (Items #21–22, #31, #46–47, #59)
+
+- **AI calls off main thread** — all AI provider calls run in `QRunnable` workers; Qt main thread never blocked
+- **Flat view async** — flat-view recursive scan runs in a background thread; UI stays responsive during large traversals
+- **Chunked async dir loading** — `DirectoryModel` loads in configurable chunks (default 500) via `canFetchMore` / `fetchMore`; first paint appears before all entries read
+- **Bounded thread pool** — `OpQueue` caps `ThreadPoolExecutor` at `min(32, os.cpu_count() + 4)` threads
+- **Thread safety** — global hotkey listener and `FileIndexer` protect shared state under locks
+
+### Added (Items #29, #33–38, #42–45, #51–55, #58)
+
+**Sidebar & Navigation**
+- **Smart Folders** — `SmartFolderStore` (TOML-backed) + sidebar section; saved searches surfaced as virtual pane entries
+- **Frecency jump** — `JumpDialog` weights frecency by recency decay; most-recently visited dirs float to top within equal visit counts
+- **Recent projects** — sidebar section shows last 10 recently opened project roots (detected by `project_detector.py`)
+- **Workspace switcher** — `WorkspaceSwitcherDialog` lists all named workspaces with left+right path preview; double-click to activate
+
+**Tab Features**
+- **Tab lock** — locked tabs ignore navigate requests from sync-browsing and drag-and-drop; lock icon shown in tab bar
+- **Tab link** — linked tabs mirror each other's navigation; `TabLinkStore` stores link groups by tab id
+
+**File Operations**
+- **Verify after copy** — `ProgressCopyCmd` optionally runs SHA-256 on source and destination post-transfer; mismatch raises `VerifyError`
+- **Presigned URL UI** — `PresignedUrlDialog` wraps `url_signer.sign_url()`; expiration slider (1h–7d); copy-to-clipboard button
+
+**Search & Filter**
+- **Quick filter presets** — `FilterPresetStore` (TOML) saves named `FilterSpec` instances; preset picker in filter bar
+
+**Sidebar Additions**
+- **Volume/device sidebar** — `VolumePanel` replaces flat volume list with a tree showing mount point, filesystem type, and usage bar
+- **Folder size bar chart** — `FolderSizeChart` (QPainter) renders horizontal bar chart of subdirectory sizes beneath the active pane
+
+**Git**
+- **Per-file git decorations** — `GitDecorationDelegate` paints status badges (M/A/D/?) on file-list rows; reads from `GitStatusCache`
+- **Branch switcher** — `BranchSwitcherPanel` (sidebar section) lists local and remote branches; click to checkout
+- **Worktree manager** — `WorktreeManagerDialog` extends `list_worktrees()` with add/remove actions
+
+**Preview & Terminal**
+- **Smart Preview AI button** — preview panel toolbar gains "Ask AI" button; sends previewed file content as context to AI chat panel
+- **Clickable terminal errors** — `TerminalPanel` scans output for `file:line` patterns and emits `navigate_requested` on click
+
+**AI**
+- **NL File Operations structured** — `NLOpsPresenter` parses AI response as JSON (`[{"op": "move", "src": ..., "dst": ...}]`) before falling back to free-text; validates ops before execution
+
+### Changed (Items #18, #25–28, #40–41, #48–50, #56–57, #60)
+
+**Code Quality**
+- **Dead code purge** — ~2900 LOC removed across `presenters/`, `views/`, `models/`; identified by coverage + grep audit
+- **Atomic writes** — every JSON/TOML store (bookmark, config, session, macros, watch rules, shortcuts) writes via `atomic_write(path, content)`
+- **Plugin hook isolation** — plugin manager wraps every hookspec call in try/except; crashing plugin emits `plugin_error` event and is disabled for the session
+- **Session auto-save** — session saved on every tab change and pane navigate (debounced 1 s); not only on app close
+
+**Chat & AI**
+- **Chat history cap** — `AIChatPanel` caps stored messages at 200; oldest entries pruned on overflow
+- **Chat log theme** — `_chat_log.py` bubble colours use theme tokens instead of hardcoded hex values
+- **`run_git()` centralized** — all git subprocess calls route through `git/run.py:run_git()`; no direct `subprocess.run` in git callers
+
+**Accessibility & Views**
+- **Widget names** — all interactive widgets set `setObjectName` + `setAccessibleName` for screen readers and test selectors
+- **Signal disconnects tracked** — `_track(signal, slot)` coverage extended to all presenter signals; `cleanup()` is leak-free
+- **Preview dark mode tokens** — `PreviewPanel` CSS uses theme token variables; no hardcoded colours remain
+- **`create_app()` decomposition** — `app.py:create_app()` split into `_wire_vfs`, `_wire_ai`, `_wire_ui` factory functions; body under 50 lines
+
+---
+
 ## [v0.31.1] — 2026-07-23
 
 ### Changed (Architectural Audit — 34 fixes)

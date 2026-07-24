@@ -42,11 +42,18 @@ def _item(name, size=100, mtime=1_000_000.0):
     return FileItem(name=name, path=BASE / name, is_dir=False, size=size, modified=mtime)
 
 
+def _settle(p) -> None:
+    if p._nav_future is not None:
+        p._nav_future.result()
+    p.drain_nav()
+
+
 def _setup(items):
     view = _FakeView()
     vfs = _FakeVFS(items)
     p = PanePresenter(view=view, vfs=vfs, home=BASE)
     p.navigate_to(BASE)
+    _settle(p)  # populate _items for select_same_* methods
     return p, view
 
 

@@ -45,3 +45,43 @@ def test_priority_order_maintained():
     # Providers sorted by priority
     priorities = [p.priority for p in reg._providers]
     assert priorities == sorted(priorities)
+
+
+# ── Item-7 regression: git blame/log must NOT live in registry ───────────────
+
+def test_git_blame_not_in_auto_mode(tmp_path):
+    """Registry without blame returns code provider for .py in git repo."""
+    (tmp_path / ".git").mkdir()
+    f = tmp_path / "script.py"
+    f.write_text("x = 1\n")
+
+    from biome_fm.preview.providers.code import CodePreviewProvider
+    reg = PreviewRegistry()
+    reg.register(CodePreviewProvider())
+    assert isinstance(reg.find(f), CodePreviewProvider)
+
+
+def test_git_log_not_in_auto_mode(tmp_path):
+    """Registry without log returns text provider for .txt in git repo."""
+    (tmp_path / ".git").mkdir()
+    f = tmp_path / "readme.txt"
+    f.write_text("hello\n")
+
+    reg = PreviewRegistry()
+    reg.register(TextPreviewProvider())
+    assert isinstance(reg.find(f), TextPreviewProvider)
+
+
+def test_bug_reproduced_when_registered(tmp_path):
+    """Documents the bug: blame intercepts all files when registered at priority=2."""
+    (tmp_path / ".git").mkdir()
+    f = tmp_path / "script.py"
+    f.write_text("x = 1\n")
+
+    from biome_fm.preview.providers.code import CodePreviewProvider
+    from biome_fm.preview.providers.git_blame import GitBlamePreviewProvider
+    reg = PreviewRegistry()
+    reg.register(CodePreviewProvider())
+    reg.register(GitBlamePreviewProvider())  # registering = the bug
+    # blame (priority=2) beats code (priority=8) for any file in a git repo
+    assert isinstance(reg.find(f), GitBlamePreviewProvider)

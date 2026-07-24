@@ -69,7 +69,6 @@ def test_navigate_saves_state_for_previous_dir():
     p.navigate_to(PATH_A)                  # go to A
     p.navigate_to(PATH_B)                  # leave A → should save A's state
 
-    from biome_fm.models.view_state import ViewState
     saved = p._dir_view_state.get(PATH_A)
     assert saved is not None
     assert saved.sort_col == 2
@@ -83,10 +82,11 @@ def test_navigate_restores_state_on_return():
     from biome_fm.models.view_state import ViewState
     p, view, restored = _make_presenter()
     p.navigate_to(PATH_A)
-    p.navigate_to(PATH_B)   # leave A (saves A's state via get_view_state)
+    p.navigate_to(PATH_B)   # leave A (saves A's state via get_view_state in sync phase)
     # Overwrite A's saved state with known values AFTER leaving A
     p._dir_view_state[PATH_A] = ViewState(sort_col=3, sort_asc=True, filter="py")
     p.navigate_to(PATH_A)   # return to A → must restore seeded state
+    p._nav_future.result(); p.drain_nav()  # set_view_state called in drain
 
     assert len(restored["calls"]) >= 1
     call = restored["calls"][-1]

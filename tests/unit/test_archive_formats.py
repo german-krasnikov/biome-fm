@@ -5,7 +5,6 @@ import tarfile
 import zipfile
 from pathlib import Path
 
-import pytest
 
 from biome_fm.commands.archive_cmd import ArchiveCmd
 

@@ -1,7 +1,6 @@
 """Unit tests for GitBlamePreviewProvider."""
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from biome_fm.preview.provider import ContentKind, PreviewRequest
@@ -24,7 +23,7 @@ def test_render_blame(tmp_path):
     p = GitBlamePreviewProvider()
 
     fake = MagicMock(stdout=_BLAME_OUT, returncode=0)
-    with patch("biome_fm.preview.providers.git_blame.subprocess.run", return_value=fake):
+    with patch("biome_fm.git.run.subprocess.run", return_value=fake):
         result = p.render(PreviewRequest(path=f))
 
     assert result.kind == ContentKind.HTML
@@ -32,6 +31,7 @@ def test_render_blame(tmp_path):
 
 
 def test_render_blame_no_git(tmp_path):
+    """safe=True swallows FileNotFoundError → empty HTML table (no crash)."""
     (tmp_path / ".git").mkdir()
     f = tmp_path / "foo.py"
     f.write_text("x")
@@ -39,7 +39,7 @@ def test_render_blame_no_git(tmp_path):
     from biome_fm.preview.providers.git_blame import GitBlamePreviewProvider
     p = GitBlamePreviewProvider()
 
-    with patch("biome_fm.preview.providers.git_blame.subprocess.run", side_effect=FileNotFoundError):
+    with patch("biome_fm.git.run.subprocess.run", side_effect=FileNotFoundError):
         result = p.render(PreviewRequest(path=f))
 
-    assert result.kind == ContentKind.TEXT
+    assert result.kind == ContentKind.HTML

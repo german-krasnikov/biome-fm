@@ -3,15 +3,12 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass
-from pathlib import Path
 
 from biome_fm.event_bus import (
     ActivePaneChanged,
     EventBus,
-    FilesChanged,
     OperationFinished,
     OperationStarted,
-    PaneNavigated,
     SyncBrowsingToggled,
     bus,
 )
@@ -103,11 +100,6 @@ def test_concurrent_publish_thread_safe() -> None:
 
 # ── Smoke-test built-in events ────────────────────────────────────────────────
 
-def test_files_changed_event() -> None:
-    evt = FilesChanged(path=Path("/tmp"))
-    assert evt.path == Path("/tmp")
-
-
 def test_active_pane_changed_event() -> None:
     evt = ActivePaneChanged(pane_id="left")
     assert evt.pane_id == "left"
@@ -126,17 +118,6 @@ def test_operation_finished_event() -> None:
 
 def test_module_singleton_exists() -> None:
     assert isinstance(bus, EventBus)
-
-
-def test_pane_navigated_event() -> None:
-    eb = EventBus()
-    received: list[PaneNavigated] = []
-    eb.subscribe(PaneNavigated, received.append)
-    evt = PaneNavigated(pane_id="left", path=Path("/home"))
-    eb.publish(evt)
-    assert len(received) == 1
-    assert received[0].pane_id == "left"
-    assert received[0].path == Path("/home")
 
 
 def test_sync_browsing_toggled_event() -> None:

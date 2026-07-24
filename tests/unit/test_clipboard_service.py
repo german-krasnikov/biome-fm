@@ -1,7 +1,6 @@
 """Unit tests for ClipboardService — Qt-free clipboard."""
 from pathlib import Path
 
-import pytest
 
 from biome_fm.models.clipboard_service import ClipboardService
 

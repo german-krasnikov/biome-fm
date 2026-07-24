@@ -78,6 +78,7 @@ def test_filter_restored_on_navigate(tmp_path: Path) -> None:
     view = FakeView()
     p = PanePresenter(view=view, vfs=FakeVFS(), store=store)
     p.navigate_to(HOME)
+    p._nav_future.result(); p.drain_nav()  # set_view_state called in drain
 
     assert view.filter_visible is True
     assert view.filter_text == "*.py"

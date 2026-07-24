@@ -3,11 +3,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QBrush
 
-from biome_fm.models.directory_model import DirectoryModel
+from biome_fm.models.directory_model import DirectoryModel, GIT_STATUS_ROLE
 from biome_fm.models.file_item import FileItem
 
 
@@ -70,6 +69,30 @@ def test_set_git_status_clean_file_no_git_color(qtbot):
     m.set_git_status({}, frozenset())
     result = _fg(m)
     assert result is None
+
+
+def test_git_status_role_modified(qtbot):
+    p = Path("/repo/foo.py")
+    m = DirectoryModel()
+    m.set_items([_file(p)])
+    m.set_git_status({p: " M"}, frozenset())
+    assert m.data(m.index(0, 0), GIT_STATUS_ROLE) == " M"
+
+
+def test_git_status_role_dirty_dir(qtbot):
+    p = Path("/repo/src")
+    m = DirectoryModel()
+    m.set_items([_dir(p)])
+    m.set_git_status({}, frozenset([p]))
+    assert m.data(m.index(0, 0), GIT_STATUS_ROLE) == "dirty"
+
+
+def test_git_status_role_clean_returns_none(qtbot):
+    p = Path("/repo/clean.xyz")
+    m = DirectoryModel()
+    m.set_items([_file(p)])
+    m.set_git_status({}, frozenset())
+    assert m.data(m.index(0, 0), GIT_STATUS_ROLE) is None
 
 
 def test_set_git_status_emits_data_changed(qtbot):

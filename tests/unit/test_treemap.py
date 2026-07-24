@@ -5,7 +5,6 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import pytest
 
 from biome_fm.presenters.treemap_presenter import TreemapNode, TreemapPresenter, squarify
 

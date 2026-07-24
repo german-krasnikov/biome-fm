@@ -1,9 +1,7 @@
 """Integration tests: F2 inline rename in PaneView."""
 from pathlib import Path
 
-import pytest
 from PySide6.QtCore import Qt
-from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QAbstractItemView, QApplication, QLineEdit
 
 from biome_fm.models.file_item import FileItem

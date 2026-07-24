@@ -104,3 +104,66 @@ def test_config_round_trip_ai_fields(tmp_path: Path) -> None:
     assert loaded.ai_claude_key == "sk-test"
     assert loaded.ai_openai_key == "sk-oai"
     assert loaded.ai_ollama_model == "mistral"
+
+
+def test_highlight_rules_types_roundtrip(tmp_path: Path) -> None:
+    rule = {"enabled": True, "priority": 2, "color": "#ff0000", "pattern": "*.py"}
+    cfg = Config(highlight_rules=[rule])
+    p = tmp_path / "cfg.toml"
+    save_config(cfg, p)
+    loaded = load_config(p)
+    r = loaded.highlight_rules[0]
+    assert r["enabled"] is True
+    assert r["priority"] == 2
+    assert r["color"] == "#ff0000"
+
+
+def test_layout_profiles_roundtrip(tmp_path: Path) -> None:
+    profiles = {
+        "my profile": {"left": "/home", "right": "/tmp", "split": 400},
+        "work": {"left": "/work", "right": "/work/out", "split": 600},
+    }
+    cfg = Config(layout_profiles=profiles)
+    p = tmp_path / "cfg.toml"
+    save_config(cfg, p)
+    loaded = load_config(p)
+    assert loaded.layout_profiles == profiles
+
+
+def test_highlight_rules_multiple_dicts(tmp_path: Path) -> None:
+    rules = [
+        {"enabled": True, "priority": 1, "color": "#f00"},
+        {"enabled": False, "priority": 5, "color": "#0f0"},
+    ]
+    cfg = Config(highlight_rules=rules)
+    p = tmp_path / "cfg.toml"
+    save_config(cfg, p)
+    assert load_config(p).highlight_rules == rules
+
+
+def test_save_config_no_tmp_file_left(tmp_path: Path) -> None:
+    p = tmp_path / "cfg.toml"
+    save_config(Config(), p)
+    assert not p.with_suffix(".toml.tmp").exists()
+
+
+def test_save_config_overwrites_stale_tmp(tmp_path: Path) -> None:
+    p = tmp_path / "cfg.toml"
+    p.with_suffix(".toml.tmp").write_text("stale", encoding="utf-8")
+    save_config(Config(), p)
+    assert load_config(p) == Config()
+
+
+def test_save_config_target_untouched_on_failure(tmp_path: Path, monkeypatch) -> None:
+    import pytest
+    p = tmp_path / "cfg.toml"
+    save_config(Config(theme="light"), p)
+
+    def boom(path, content, encoding="utf-8"):
+        raise OSError("simulated crash")
+
+    monkeypatch.setattr("biome_fm.config.atomic_write", boom)
+    with pytest.raises(OSError):
+        save_config(Config(theme="dark"), p)
+
+    assert load_config(p).theme == "light"

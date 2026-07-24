@@ -4,7 +4,6 @@ from __future__ import annotations
 from pathlib import Path, PurePosixPath
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from biome_fm.models.sftp_vfs import SFTPSession, SFTPVfs
 from biome_fm.models.fsspec_vfs import FsspecVFS

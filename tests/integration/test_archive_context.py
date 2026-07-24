@@ -2,10 +2,8 @@
 from __future__ import annotations
 
 import os
-import zipfile
 from pathlib import Path
 
-import pytest
 from pytestqt.qtbot import QtBot
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")

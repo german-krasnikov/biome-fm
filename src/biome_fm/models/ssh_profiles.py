@@ -1,9 +1,15 @@
 """SSH connection profile store — no passwords ever stored."""
 from __future__ import annotations
 
+import re
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
+
+from biome_fm.models._store_base import toml_escape as _esc
+from biome_fm.utils.atomic_write import atomic_write
+
+_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
 @dataclass
@@ -41,16 +47,20 @@ class SSHProfileStore:
         lines: list[str] = []
         for p in self._profiles.values():
             lines.append(f"[profiles.{p.name}]")
-            lines.append(f'host = "{p.host}"')
+            lines.append(f'host = "{_esc(p.host)}"')
             lines.append(f"port = {p.port}")
-            lines.append(f'user = "{p.user}"')
-            lines.append(f'key_path = "{p.key_path}"')
-            lines.append(f'jump_host = "{p.jump_host}"')
-            lines.append(f'jump_user = "{p.jump_user}"')
+            lines.append(f'user = "{_esc(p.user)}"')
+            lines.append(f'key_path = "{_esc(p.key_path)}"')
+            lines.append(f'jump_host = "{_esc(p.jump_host)}"')
+            lines.append(f'jump_user = "{_esc(p.jump_user)}"')
             lines.append("")
-        self._path.write_text("\n".join(lines))
+        atomic_write(self._path, "\n".join(lines))
 
     def add(self, profile: SSHProfile) -> None:
+        if not _NAME_RE.match(profile.name):
+            raise ValueError(
+                f"Profile name must match [a-zA-Z0-9_-]+, got: {profile.name!r}"
+            )
         self._profiles[profile.name] = profile
 
     def get(self, name: str) -> SSHProfile:
@@ -72,7 +82,7 @@ class SSHProfileStore:
         current_host: str | None = None
 
         def _flush() -> None:
-            if current_host and "*" not in current_host:
+            if current_host and "*" not in current_host and _NAME_RE.match(current_host):
                 self._profiles[current_host] = SSHProfile(
                     name=current_host,
                     host=current.get("hostname", current_host),

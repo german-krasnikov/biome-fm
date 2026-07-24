@@ -1,10 +1,8 @@
 """Integration tests for DuplicateFinderDialog."""
 from __future__ import annotations
 
-import time
 from pathlib import Path
 
-import pytest
 from pytestqt.qtbot import QtBot
 
 from biome_fm.views.duplicate_panel import DuplicateFinderDialog

@@ -3,6 +3,12 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 
+def _settle(p) -> None:
+    if p._nav_future is not None:
+        p._nav_future.result()
+    p.drain_nav()
+
+
 def test_refresh_preserves_marks():
     """Marks must survive refresh() — _marks set is not cleared when path == cwd."""
     from biome_fm.models.file_item import FileItem
@@ -19,6 +25,7 @@ def test_refresh_preserves_marks():
 
     p = PanePresenter(view=view, vfs=vfs, opener=lambda _: None)
     p.navigate_to(Path("/tmp"))
+    _settle(p)  # deliver initial items
 
     # Mark item_b
     p._marks = {str(item_b.path)}
@@ -28,6 +35,7 @@ def test_refresh_preserves_marks():
     # Refresh — reset mtime so skip-optimization doesn't suppress the call
     p._cwd_mtime = 0.0
     p.refresh()
+    _settle(p)  # deliver refreshed items (same_dir=True → marks preserved)
 
     # Marks must be preserved in presenter state
     assert item_b.path in p.marks
@@ -63,9 +71,11 @@ def test_refresh_preserves_cursor(tmp_path):
 
     p = PanePresenter(FakeView(), LocalVFS())
     p.navigate_to(tmp_path)
+    _settle(p)
     selected.clear()
     p._cwd_mtime = 0.0  # reset so refresh doesn't skip
     p.refresh()
+    _settle(p)
     assert selected[-1] == "b.txt"
 
 
@@ -108,8 +118,10 @@ def test_preserve_scroll_false_on_navigate(tmp_path):
     view = _make_tracking_view(tmp_path)
     p = PanePresenter(view, LocalVFS())
     p.navigate_to(tmp_path)
+    _settle(p)
     view.set_items_calls.clear()
     p.navigate_to(sub)
+    _settle(p)
     _, kwargs = view.set_items_calls[-1]
     assert kwargs.get("preserve_scroll") is False
 
@@ -122,8 +134,10 @@ def test_preserve_scroll_true_on_refresh(tmp_path):
     view = _make_tracking_view(tmp_path)
     p = PanePresenter(view, LocalVFS())
     p.navigate_to(tmp_path)
+    _settle(p)
     view.set_items_calls.clear()
     p._cwd_mtime = 0.0  # reset so refresh doesn't skip
     p.refresh()
+    _settle(p)
     _, kwargs = view.set_items_calls[-1]
     assert kwargs.get("preserve_scroll") is True

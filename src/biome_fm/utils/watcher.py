@@ -71,41 +71,43 @@ class WatchService:
         with self._lock:
             if self._thread and self._thread.is_alive():
                 return
-            self._stop.clear()
+            stop = threading.Event()  # fresh per thread — fixes the race (Item #12)
+            self._stop = stop
             self._thread = threading.Thread(
-                target=self._run, args=(path, watch_fn), daemon=True
+                target=self._run, args=(path, watch_fn, stop), daemon=True
             )
             self._thread.start()
 
     def stop(self) -> None:
-        self._stop.set()
         with self._lock:
+            stop = self._stop
             t = self._thread
+        stop.set()
         if t and t.is_alive():
             t.join(timeout=2.0)
 
     def set_path(self, path: Path) -> None:
-        self._stop.set()  # signal old thread to exit (non-blocking)
         with self._lock:
-            old = self._thread
+            old_stop = self._stop
+            old_thread = self._thread
             self._thread = None
-        if old and old.is_alive():
-            threading.Thread(target=old.join, args=(2.0,), daemon=True).start()
-        self._stop.clear()
+        old_stop.set()  # only old thread's event — new start() gets a fresh one
+        if old_thread and old_thread.is_alive():
+            threading.Thread(target=old_thread.join, args=(2.0,), daemon=True).start()
         self.start(path)
 
-    def _run(self, path: Path, watch_fn) -> None:
+    def _run(self, path: Path, watch_fn, stop: threading.Event) -> None:
         if not path.exists():
             return
         debouncer = _Debouncer(lambda: self._callback(path), self._debounce_s)
         try:
-            for _changes in watch_fn(path, stop_event=self._stop, recursive=False):
-                if self._stop.is_set():
+            for _changes in watch_fn(path, stop_event=stop, recursive=False):
+                if stop.is_set():
                     break
                 debouncer.trigger()
         except Exception:
             _log.debug("WatchService error on %s", path, exc_info=True)
         finally:
-            if self._stop.is_set():
+            if stop.is_set():
                 debouncer.cancel()  # cancelled — discard pending event
             # else: loop ended naturally — let pending timer fire

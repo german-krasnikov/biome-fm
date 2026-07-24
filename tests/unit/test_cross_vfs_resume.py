@@ -7,7 +7,6 @@ from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from biome_fm.commands.copy_cmd import ProgressCopyCmd
 from biome_fm.models.sftp_vfs import SFTPSession, SFTPVfs

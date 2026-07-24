@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import subprocess
 import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
+
+from biome_fm.git.run import run_git
 
 
 @dataclass
@@ -67,14 +68,8 @@ class GitStatusCache:
             self._cache.pop(repo_root, None)
 
     def _fetch(self, repo_root: Path) -> RepoStatus:
-        try:
-            result = subprocess.run(
-                ["git", "status", "--porcelain=v1"],
-                cwd=repo_root, capture_output=True, text=True, timeout=5,
-            )
-            return self._parse(result.stdout, repo_root)
-        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-            return RepoStatus({}, frozenset(), time.monotonic())
+        raw = run_git(["status", "--porcelain=v1"], cwd=repo_root, timeout=5, safe=True)
+        return self._parse(raw, repo_root)
 
     @staticmethod
     def _parse(output: str, repo_root: Path) -> RepoStatus:

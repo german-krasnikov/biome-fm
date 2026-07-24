@@ -5,6 +5,9 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
+from biome_fm.models._store_base import toml_escape as _esc
+from biome_fm.utils.atomic_write import atomic_write
+
 
 @dataclass
 class SearchTemplate:
@@ -52,9 +55,9 @@ class SearchTemplateStore:
         lines: list[str] = []
         for t in self._templates:
             lines.append("[[templates]]")
-            lines.append(f'name = "{t.name}"')
-            lines.append(f'pattern = "{t.pattern}"')
-            lines.append(f'mode = "{t.mode}"')
+            lines.append(f'name = "{_esc(t.name)}"')
+            lines.append(f'pattern = "{_esc(t.pattern)}"')
+            lines.append(f'mode = "{_esc(t.mode)}"')
             lines.append(f"max_results = {t.max_results}")
             lines.append("")
-        self._path.write_text("\n".join(lines))
+        atomic_write(self._path, "\n".join(lines))

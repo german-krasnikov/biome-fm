@@ -5,6 +5,14 @@ import subprocess
 from pathlib import Path
 
 
+def can_sign_url(vfs: object) -> bool:
+    """True if this VFS backend can generate presigned URLs."""
+    fs = getattr(vfs, "_fs", None)
+    if fs is not None and hasattr(fs, "sign"):
+        return True
+    return type(vfs).__name__ == "RcloneVFS"
+
+
 def sign_url(path: Path, vfs: object, expiration: int = 3600) -> str | None:
     """Return presigned URL string, or None if unsupported."""
     fs = getattr(vfs, "_fs", None)

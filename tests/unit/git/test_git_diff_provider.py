@@ -4,7 +4,6 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from biome_fm.preview.provider import ContentKind, PreviewRequest
 
@@ -84,7 +83,7 @@ def test_render_returns_html_with_diff(tmp_path):
     p = GitDiffPreviewProvider(status_fn=lambda _: " M")
 
     fake_result = MagicMock(stdout=_SAMPLE_DIFF, returncode=0)
-    with patch("biome_fm.preview.providers.git_diff.subprocess.run", return_value=fake_result):
+    with patch("biome_fm.git.run.subprocess.run", return_value=fake_result):
         result = p.render(PreviewRequest(path=f))
 
     assert result.kind == ContentKind.HTML
@@ -103,7 +102,7 @@ def test_render_no_diff_output(tmp_path):
     p = GitDiffPreviewProvider(status_fn=lambda _: " M")
 
     fake_result = MagicMock(stdout="", returncode=0)
-    with patch("biome_fm.preview.providers.git_diff.subprocess.run", return_value=fake_result):
+    with patch("biome_fm.git.run.subprocess.run", return_value=fake_result):
         result = p.render(PreviewRequest(path=f))
 
     assert result.data == "(no diff)"
@@ -119,10 +118,10 @@ def test_render_git_not_found(tmp_path):
 
     p = GitDiffPreviewProvider(status_fn=lambda _: " M")
 
-    with patch("biome_fm.preview.providers.git_diff.subprocess.run", side_effect=FileNotFoundError):
+    with patch("biome_fm.git.run.subprocess.run", side_effect=FileNotFoundError):
         result = p.render(PreviewRequest(path=f))
 
-    assert result.data == "(git not available)"
+    assert result.data == "(no diff)"
 
 
 def test_priority_is_lower_than_code_provider():

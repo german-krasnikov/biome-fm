@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import html
-import subprocess
 from pathlib import Path
 
+from biome_fm.git.run import run_git
+from biome_fm.plugins.types import ThemeTokens
 from biome_fm.preview.provider import ContentKind, PreviewRequest, PreviewResult
 from biome_fm.preview.providers._git_helpers import find_repo
 
@@ -19,25 +20,24 @@ class GitBlamePreviewProvider:
         repo = find_repo(req.path)
         if repo is None:
             return PreviewResult(kind=ContentKind.TEXT, data="Not in a git repository")
-        try:
-            r = subprocess.run(
-                ["git", "blame", "--porcelain", str(req.path)],
-                cwd=repo, capture_output=True, text=True, timeout=10,
-            )
-            return PreviewResult(kind=ContentKind.HTML, data=self._parse_to_html(r.stdout))
-        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-            return PreviewResult(kind=ContentKind.TEXT, data="(git not available)")
+        raw = run_git(["blame", "--porcelain", str(req.path)], cwd=repo, timeout=10, safe=True)
+        return PreviewResult(kind=ContentKind.HTML, data=self._parse_to_html(raw, req.tokens))
 
     @staticmethod
-    def _parse_to_html(blame: str) -> str:
+    def _parse_to_html(blame: str, tokens: ThemeTokens) -> str:
         rows: list[str] = []
         commit = author = ""
         for line in blame.splitlines():
             if line.startswith("\t"):
                 code = html.escape(line[1:])
-                rows.append(f"<tr><td style='color:#888'>{html.escape(commit[:7])}</td>"
-                            f"<td style='color:#aaa;padding:0 8px'>{html.escape(author)}</td>"
-                            f"<td style='font-family:monospace'>{code}</td></tr>")
+                c_dim, c_txt = tokens["text_dim"], tokens["text"]
+                rows.append(
+                    f"<tr>"
+                    f"<td style='color:{c_dim}'>{html.escape(commit[:7])}</td>"
+                    f"<td style='color:{c_txt};padding:0 8px'>{html.escape(author)}</td>"
+                    f"<td style='font-family:monospace'>{code}</td>"
+                    f"</tr>"
+                )
             elif line.startswith("author "):
                 author = line[7:]
             elif len(line) >= 40 and all(c in "0123456789abcdef" for c in line[:40]):

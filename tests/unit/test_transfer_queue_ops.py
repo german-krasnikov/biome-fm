@@ -5,7 +5,6 @@ import threading
 import time
 from pathlib import Path
 
-import pytest
 
 from biome_fm.commands.base import Command
 from biome_fm.commands.copy_cmd import ProgressCopyCmd

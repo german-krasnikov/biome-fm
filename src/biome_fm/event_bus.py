@@ -3,11 +3,9 @@ from __future__ import annotations
 
 import contextlib
 import logging
-import queue as _queue
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 _log = logging.getLogger(__name__)
@@ -19,7 +17,6 @@ class EventBus:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._handlers: dict[type, list[Callable[..., None]]] = {}
-        self._thread_queue: _queue.SimpleQueue = _queue.SimpleQueue()
 
     def subscribe(self, event_type: type, handler: Callable[..., None]) -> None:
         with self._lock:
@@ -40,31 +37,12 @@ class EventBus:
             except Exception:
                 _log.exception("EventBus handler %r raised for %r", h, event)
 
-    def publish_from_thread(self, event: Any) -> None:
-        """Queue an event from a background thread; drain via drain_threaded()."""
-        self._thread_queue.put(event)
-
-    def drain_threaded(self) -> None:
-        """Drain thread-queued events. Call from main thread (e.g. QTimer slot)."""
-        while True:
-            try:
-                event = self._thread_queue.get_nowait()
-                self.publish(event)
-            except _queue.Empty:
-                break
-
 
 # Module-level singleton
 bus = EventBus()
 
 
 # ── Events ────────────────────────────────────────────────────────────────────
-
-@dataclass(frozen=True)
-class FilesChanged:
-    """A directory's contents changed — panes watching this path should refresh."""
-    path: Path
-
 
 @dataclass(frozen=True)
 class ActivePaneChanged:
@@ -84,13 +62,6 @@ class OperationFinished:
     description: str
     success: bool
     error: str = ""
-
-
-@dataclass(frozen=True)
-class PaneNavigated:
-    """Active pane navigated to a new path."""
-    pane_id: str
-    path: Path
 
 
 @dataclass(frozen=True)
@@ -147,8 +118,3 @@ class RemoteSyncing:
     host: str
     active: bool
 
-
-@dataclass(frozen=True)
-class IPCCommandReceived:
-    """An IPC command arrived from an external process."""
-    payload: dict

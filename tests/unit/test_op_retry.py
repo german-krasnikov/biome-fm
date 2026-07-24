@@ -1,11 +1,9 @@
 """F286 — Operation Retry with exponential backoff tests."""
 from __future__ import annotations
 
-import threading
 import time
 from unittest.mock import patch
 
-import pytest
 
 from biome_fm.operations.task import OpDone, OpError
 

@@ -3,9 +3,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 
-from biome_fm.presenters.duplicate_presenter import DupGroup, _partial_hash, find_duplicates
+from biome_fm.presenters.duplicate_presenter import _partial_hash, find_duplicates
 
 
 def _write(p: Path, content: bytes) -> Path:

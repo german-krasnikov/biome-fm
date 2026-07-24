@@ -1,11 +1,7 @@
 """Integration tests for Tab Duplicate shortcut (F215)."""
 from __future__ import annotations
 
-from pathlib import Path
 
-import pytest
-from PySide6.QtCore import QEvent, Qt
-from PySide6.QtGui import QKeyEvent
 
 from biome_fm.commands.registry import CommandEntry, CommandRegistry
 

@@ -2,12 +2,11 @@
 from __future__ import annotations
 
 from pathlib import Path, PurePosixPath
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from biome_fm.commands.chmod_cmd import ChmodCmd
-from biome_fm.models.file_item import FileItem
 
 
 class FakeVFS:

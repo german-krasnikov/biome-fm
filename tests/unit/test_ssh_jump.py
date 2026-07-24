@@ -2,7 +2,6 @@
 import tempfile
 from pathlib import Path
 
-import pytest
 
 from biome_fm.models.sftp_vfs import SFTPSession, make_jump_proxy_command
 from biome_fm.models.ssh_profiles import SSHProfile, SSHProfileStore

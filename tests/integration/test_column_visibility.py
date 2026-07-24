@@ -1,5 +1,4 @@
 """Integration tests for PaneView column visibility."""
-import pytest
 
 
 def test_set_hidden_columns(qtbot):

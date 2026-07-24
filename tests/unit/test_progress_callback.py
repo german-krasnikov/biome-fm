@@ -2,7 +2,6 @@
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from biome_fm.event_bus import AsyncOpSubmitted, EventBus
 from biome_fm.models.file_item import FileItem
 from biome_fm.operations.task import OpProgress
 from biome_fm.presenters.manager_presenter import ManagerPresenter

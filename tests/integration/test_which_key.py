@@ -1,5 +1,4 @@
 """Integration test for which-key popup (F290)."""
-import pytest
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QWidget

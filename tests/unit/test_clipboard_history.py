@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from biome_fm.models.clipboard_service import ClipboardEntry, ClipboardService
+from biome_fm.models.clipboard_service import ClipboardService
 
 
 @pytest.fixture

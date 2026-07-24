@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 
 from biome_fm.models.file_item import FileItem
 from biome_fm.presenters.compare_presenter import CompareEntry, CompareStatus

@@ -1,9 +1,7 @@
 """Unit tests for OSC 7 parsing in terminal panel."""
 from __future__ import annotations
 
-import re
 
-import pytest
 
 
 def test_osc7_parsed():

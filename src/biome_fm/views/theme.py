@@ -91,8 +91,8 @@ def load_theme(
 ) -> ThemeTokens:
     """Load theme by name. Plugin themes take priority over TOML → _DARK_FALLBACK."""
     # Plugin hook takes priority (if available)
-    if plugin_manager is not None:
-        plugin_tokens = plugin_manager.hook.provide_theme(name=name)  # type: ignore[union-attr]
+    if plugin_manager is not None and hasattr(plugin_manager, "provide_theme"):
+        plugin_tokens = plugin_manager.provide_theme(name=name)  # type: ignore[union-attr]
         if plugin_tokens:
             tokens: dict[str, str] = dict(_DARK_FALLBACK)
             tokens.update(plugin_tokens)

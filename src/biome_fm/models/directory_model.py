@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import datetime
-import re
 from enum import Enum
 from pathlib import Path
 from typing import Any
 
 from biome_fm.models.file_item import FileItem
-from biome_fm.utils.encoding import normalize_filename
+from biome_fm.utils.nat_sort import nat_key as _nat_key
 from biome_fm.models.highlight_rules import HighlightRule, match_highlight
 from biome_fm.qt import (
     QAbstractTableModel,
@@ -27,6 +26,10 @@ HEADERS = ("Name", "Size", "Modified", "Ext", "Accessed", "Owner")
 
 # F278 — File Grouping
 GROUP_ROLE = Qt.ItemDataRole.UserRole + 2
+# Item #45 — Folder Size Bar: float 0.0–1.0, or -1.0 if unknown
+SIZE_BAR_ROLE = Qt.ItemDataRole.UserRole + 3
+# Item #51 — Git per-file decoration role: returns XY string | "dirty" | None
+GIT_STATUS_ROLE = Qt.ItemDataRole.UserRole + 4
 
 
 class GroupByMode(Enum):
@@ -131,14 +134,15 @@ class DirectoryModel(QAbstractTableModel):
         self._highlight_rules: list[HighlightRule] = []
         self._tag_store: object | None = None  # TagStore, duck-typed
         self._dir_sizes: dict[Path, int] = {}
+        self._max_dir_size: int = 0
         self._compare_result: dict[str, str] = {}  # filename → "left_only"|"right_only"|"differs"|"same"
         self._plugin_columns: list = []
         self._plugin_manager: object | None = None
 
     def set_plugin_manager(self, pm: object) -> None:
         self._plugin_manager = pm
-        if hasattr(pm, "hook") and hasattr(pm.hook, "extra_columns"):
-            results = pm.hook.extra_columns()
+        if hasattr(pm, "extra_columns"):
+            results = pm.extra_columns()
             self._plugin_columns = [col for sub in results for col in sub] if results else []
 
     def set_tag_store(self, store: object | None) -> None:
@@ -158,6 +162,10 @@ class DirectoryModel(QAbstractTableModel):
         self._all_items = list(items)
         self._items = self._all_items[: self._BATCH]
         self._fetch_offset = len(self._items)
+        self._max_dir_size = max(
+            (self._dir_sizes.get(i.path, 0) for i in items if i.is_dir),
+            default=0,
+        )
         self.endResetModel()
 
     def canFetchMore(self, parent: _Idx = QModelIndex()) -> bool:  # noqa: B008
@@ -173,6 +181,8 @@ class DirectoryModel(QAbstractTableModel):
 
     def set_dir_size(self, path: Path, size: int) -> None:
         self._dir_sizes[path] = size
+        if size > self._max_dir_size:
+            self._max_dir_size = size
         for row, item in enumerate(self._items):
             if item.path == path:
                 idx = self.index(row, COL_SIZE)
@@ -315,6 +325,18 @@ class DirectoryModel(QAbstractTableModel):
             if not item.is_dir:
                 parts.append(f"Size: {item.size_str}")
             return "\n".join(parts)
+        if role == SIZE_BAR_ROLE:
+            if item.is_dir and self._max_dir_size > 0:
+                size = self._dir_sizes.get(item.path)
+                return -1.0 if size is None else size / self._max_dir_size
+            return -1.0
+        if role == GIT_STATUS_ROLE:
+            xy = self._git_statuses.get(item.path)
+            if xy:
+                return xy
+            if item.is_dir and item.path in self._git_dirty_dirs:
+                return "dirty"
+            return None
         if role != Qt.ItemDataRole.DisplayRole:
             return None
         col = index.column()
@@ -341,7 +363,7 @@ class DirectoryModel(QAbstractTableModel):
         plugin_idx = col - len(HEADERS)
         if 0 <= plugin_idx < len(self._plugin_columns) and self._plugin_manager:
             col_def = self._plugin_columns[plugin_idx]
-            return self._plugin_manager.hook.column_value(item=item, column_id=col_def.id)
+            return self._plugin_manager.column_value(item=item, column_id=col_def.id)
         return None
 
 
@@ -350,12 +372,6 @@ def _fuzzy_match(pattern: str, text: str) -> bool:
     """True if every char in pattern appears in text in order (subsequence)."""
     it = iter(text.lower())
     return all(c in it for c in pattern.lower())
-
-
-def _nat_key(name: str) -> list:
-    """Natural sort key: splits on digit runs so IMG_2 < IMG_10."""
-    parts = re.split(r"(\d+)", normalize_filename(name).lower())
-    return [int(p) if p.isdigit() else p for p in parts]
 
 
 class DirSortFilterProxy(QSortFilterProxyModel):

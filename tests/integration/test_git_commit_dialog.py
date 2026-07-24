@@ -1,7 +1,5 @@
 """Integration tests for GitCommitDialog."""
 import pytest
-from pathlib import Path
-from pytestqt.qtbot import QtBot
 
 import biome_fm.views.git_commit_dialog as dialog_mod
 from biome_fm.views.git_commit_dialog import GitCommitDialog

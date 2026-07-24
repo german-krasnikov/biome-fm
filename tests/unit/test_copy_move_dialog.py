@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 
 os_environ_patch = None  # QApplication provided by conftest / pytest-qt
 
@@ -57,3 +56,22 @@ def test_dialog_file_list_preview(qtbot, tmp_path: Path) -> None:
     labels = dlg.findChildren(QLabel)
     texts = " ".join(lbl.text() for lbl in labels)
     assert "2" in texts
+
+
+def test_verify_checkbox_default_false(qtbot, tmp_path: Path) -> None:
+    from biome_fm.views.copy_move_dialog import CopyMoveDialog
+
+    dlg = CopyMoveDialog("copy", [tmp_path / "a.txt"], tmp_path, [])
+    qtbot.addWidget(dlg)
+    assert dlg.verify_enabled is False
+
+
+def test_verify_checkbox_not_shown_for_move(qtbot, tmp_path: Path) -> None:
+    from PySide6.QtWidgets import QCheckBox
+
+    from biome_fm.views.copy_move_dialog import CopyMoveDialog
+
+    dlg = CopyMoveDialog("move", [tmp_path / "a.txt"], tmp_path, [])
+    qtbot.addWidget(dlg)
+    boxes = dlg.findChildren(QCheckBox)
+    assert not any("Verify" in b.text() for b in boxes)

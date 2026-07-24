@@ -1,8 +1,6 @@
 """Tests for declarative opener rules (F098)."""
-import tomllib
 from pathlib import Path
 
-import pytest
 
 from biome_fm.models.opener_rules import OpenerRule, find_opener, load_rules
 

@@ -2,7 +2,16 @@
 
 from __future__ import annotations
 
-from biome_fm.qt import QHBoxLayout, QLabel, QLineEdit, QPushButton, Qt, QTimer, QWidget, Signal
+from biome_fm.qt import QComboBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, Qt, QTimer, QWidget, Signal
+
+FILTER_PRESETS: list[tuple[str, str]] = [
+    ("Images Only", "ext:png"),
+    ("Large Files", "size:>10m"),
+    ("Recent Files", "mod:today"),
+    ("Python Files", "ext:py"),
+    ("Markdown Files", "ext:md"),
+    ("Documents", "ext:pdf"),
+]
 
 
 class _FilterEdit(QLineEdit):
@@ -26,6 +35,14 @@ class FilterBar(QWidget):
         layout.setContentsMargins(2, 0, 2, 0)
         layout.setSpacing(4)
         layout.addWidget(QLabel("Filter:"))
+        self._preset_combo = QComboBox()
+        self._preset_combo.addItem("Presets…")
+        for name, _ in FILTER_PRESETS:
+            self._preset_combo.addItem(name)
+        self._preset_combo.setFixedWidth(110)
+        self._preset_combo.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._preset_combo.currentIndexChanged.connect(self._on_preset_selected)
+        layout.addWidget(self._preset_combo)
         self._edit = _FilterEdit()
         self._edit.setPlaceholderText("type to filter...")
         self._debounce = QTimer(self)
@@ -41,9 +58,21 @@ class FilterBar(QWidget):
         self._invert_btn.setFixedWidth(28)
         self._invert_btn.toggled.connect(self.invert_toggled)
         layout.addWidget(self._invert_btn)
+        self._edit.setAccessibleName("Filter text")
+        self._preset_combo.setAccessibleName("Filter presets")
+        self._invert_btn.setAccessibleName("Invert filter")
         self.hide()
 
+    def _on_preset_selected(self, index: int) -> None:
+        if index > 0:
+            _, text = FILTER_PRESETS[index - 1]
+            self._edit.setText(text)
+            self._edit.setFocus()
+
     def _on_text_changed(self, text: str) -> None:
+        self._preset_combo.blockSignals(True)
+        self._preset_combo.setCurrentIndex(0)
+        self._preset_combo.blockSignals(False)
         if not text:
             self._debounce.stop()
             self.filter_changed.emit("")
@@ -68,6 +97,7 @@ class FilterBar(QWidget):
 
     def deactivate(self) -> None:
         self._edit.clear()
+        self._preset_combo.setCurrentIndex(0)
         self._invert_btn.setChecked(False)
         self.hide()
         self.closed.emit()

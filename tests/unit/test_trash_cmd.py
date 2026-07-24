@@ -1,8 +1,7 @@
 """Unit tests for TrashCmd."""
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import pytest
 
 from biome_fm.commands.trash_cmd import TrashCmd
 

@@ -5,6 +5,8 @@ import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from biome_fm.models._store_base import atomic_write_json
+
 
 @dataclass
 class UserAction:
@@ -35,10 +37,7 @@ class UserActionsStore:
         return [a for a in self._actions if not a.extensions or suffix in a.extensions]
 
     def save(self) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._path.write_text(
-            json.dumps([asdict(a) for a in self._actions], indent=2), encoding="utf-8"
-        )
+        atomic_write_json(self._path, [asdict(a) for a in self._actions])
 
     def load(self) -> None:
         if not self._path.exists():

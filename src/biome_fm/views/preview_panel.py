@@ -41,6 +41,7 @@ class PreviewPanel(QWidget):
         self._text_view.setReadOnly(True)
         self._text_view.setOpenExternalLinks(True)
         self._text_view.setLineWrapMode(QTextBrowser.LineWrapMode.NoWrap)
+        self._text_view.setAccessibleName("Preview content")
         self._dark = True
         self._code_alpha = 140
 
@@ -58,6 +59,7 @@ class PreviewPanel(QWidget):
         _ai_btn = QPushButton("AI ✨")
         _ai_btn.setFixedHeight(20)
         _ai_btn.setToolTip("Summarize file with AI")
+        _ai_btn.setAccessibleName("Summarize with AI")
         _ai_btn.clicked.connect(lambda: self.summarize_requested.emit())
         header.addWidget(_ai_btn)
         header.addStretch()
@@ -101,6 +103,7 @@ class PreviewPanel(QWidget):
         find_row.setSpacing(4)
         find_row.addWidget(QLabel("Find:"))
         self._find_edit = QLineEdit()
+        self._find_edit.setAccessibleName("Find in preview")
         self._find_edit.installEventFilter(self)
         self._find_edit.textChanged.connect(self._find_current)
         self._find_edit.returnPressed.connect(self._find_next)

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 from PySide6.QtCore import Qt
 
 from biome_fm.models.directory_model import DirectoryModel

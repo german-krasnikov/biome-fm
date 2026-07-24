@@ -396,6 +396,17 @@ def test_noop_fallback_when_unknown_provider():
     assert any("not configured" in m[1].lower() for m in view.messages)
 
 
+def test_history_capped_at_history_cap():
+    from biome_fm.presenters.ai_presenter import HISTORY_CAP
+    presenter, _, provider = _make(tokens=("reply",))
+    # pre-fill history with 100 entries
+    for i in range(100):
+        presenter._history.append({"role": "user" if i % 2 == 0 else "assistant", "content": str(i)})
+    presenter.send("final")
+    _drain_after(presenter)
+    assert len(presenter._history) <= HISTORY_CAP + 1  # +1 for assistant reply
+
+
 def test_remove_attachment_by_index(tmp_path):
     """remove_attachment(index) removes the correct attachment from pending."""
     presenter, view, _ = _make()

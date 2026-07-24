@@ -73,3 +73,30 @@ def test_copy_path_command_registered():
     results = registry.search("Copy Path")
     assert len(results) == 1
     assert results[0].shortcut == "Ctrl+Shift+C"
+
+
+def test_integration_overwrite_undo_end_to_end(tmp_path):
+    """Full round-trip: copy with overwrite, verify new content, undo, verify original."""
+    import threading
+
+    from biome_fm.commands.copy_cmd import ProgressCopyCmd
+    from biome_fm.models.conflict_resolver import ConflictAction
+
+    src_dir = tmp_path / "src"
+    dst_dir = tmp_path / "dst"
+    src_dir.mkdir()
+    dst_dir.mkdir()
+    (src_dir / "data.csv").write_text("id,val\n1,new\n")
+    (dst_dir / "data.csv").write_text("id,val\n1,original\n")
+
+    cancel = threading.Event()
+    cmd = ProgressCopyCmd(
+        [src_dir / "data.csv"], dst_dir, None, cancel, lambda *_: None,
+        strategy=ConflictAction.OVERWRITE,
+    )
+    cmd.execute()
+    assert (dst_dir / "data.csv").read_text() == "id,val\n1,new\n"
+
+    cmd.undo()
+    assert (dst_dir / "data.csv").read_text() == "id,val\n1,original\n"
+    assert list(dst_dir.glob(".biome_bak_*")) == []

@@ -5,17 +5,22 @@ import json
 from html import escape
 from pathlib import Path
 
+from biome_fm.plugins.types import ThemeTokens
 from biome_fm.preview.provider import ContentKind, PreviewRequest, PreviewResult
 
 _MAX_BYTES = 4 * 1024 * 1024  # 4 MB — notebooks are JSON, 4 MB is already huge
 
-_CSS = """
-body{font-family:monospace;font-size:13px;padding:8px;margin:0}
-.code{background:#1e1e2e;color:#cdd6f4;padding:8px;border-radius:4px;margin:4px 0;white-space:pre-wrap;overflow-x:auto}
-.markdown{padding:4px 8px;margin:4px 0;border-left:3px solid #89b4fa}
-.output{background:#181825;color:#a6e3a1;padding:6px 8px;margin:2px 0 8px 0;white-space:pre-wrap;font-size:12px}
-.raw{color:#9399b2;padding:4px 8px;margin:4px 0;white-space:pre-wrap}
-"""
+
+def _build_css(tokens: ThemeTokens) -> str:
+    return (
+        f"body{{font-family:monospace;font-size:13px;padding:8px;margin:0}}"
+        f".code{{background:{tokens['surface']};color:{tokens['text']};"
+        f"padding:8px;border-radius:4px;margin:4px 0;white-space:pre-wrap;overflow-x:auto}}"
+        f".markdown{{padding:4px 8px;margin:4px 0;border-left:3px solid {tokens['accent']}}}"
+        f".output{{background:{tokens['base']};color:{tokens['green']};"
+        f"padding:6px 8px;margin:2px 0 8px 0;white-space:pre-wrap;font-size:12px}}"
+        f".raw{{color:{tokens['text_dim']};padding:4px 8px;margin:4px 0;white-space:pre-wrap}}"
+    )
 
 
 class NotebookProvider:
@@ -54,5 +59,5 @@ class NotebookProvider:
             else:
                 parts.append(f'<pre class="raw">{escape(src)}</pre>')
 
-        html = f"<style>{_CSS}</style>" + "\n".join(parts)
+        html = f"<style>{_build_css(req.tokens)}</style>" + "\n".join(parts)
         return PreviewResult(kind=ContentKind.HTML, data=html, title=req.path.name)

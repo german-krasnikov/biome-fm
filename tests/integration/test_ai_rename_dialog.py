@@ -1,5 +1,4 @@
 """Integration tests for AIRenameDialog."""
-import pytest
 from pytestqt.qtbot import QtBot
 
 from biome_fm.views.ai_rename_dialog import AIRenameDialog

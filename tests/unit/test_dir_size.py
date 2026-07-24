@@ -1,7 +1,6 @@
 """Tests for dir_size utility — TDD red phase."""
 from __future__ import annotations
 import time
-import threading
 from pathlib import Path
 
 import pytest

@@ -4,7 +4,6 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import pytest
 
 from biome_fm.models.file_item import FileItem
 from biome_fm.presenters.search_presenter import SearchMode, SearchPresenter

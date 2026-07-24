@@ -212,3 +212,104 @@ def test_view_at_returns_correct_view(root: Path, vfs: LocalVFS) -> None:
     tp.new_tab(root / "dir2")
     assert tp.view_at(0) is captured[0]
     assert tp.view_at(1) is captured[1]
+
+
+# ── lock tests ────────────────────────────────────────────────────────────────
+
+def _dir_item(path: Path) -> FileItem:
+    return FileItem(name=path.name, path=path, is_dir=True, size=0, modified=0.0)
+
+
+def test_lock_navigate_opens_new_tab(root: Path, vfs: LocalVFS) -> None:
+    tp, _ = make_presenter(vfs)
+    tp.new_tab(root / "dir1")
+    tp.lock_tab(0)
+    tp.navigate_to(root / "dir2")
+    assert tp.tab_count == 2
+    assert tp.current_path == root / "dir2"
+
+
+def test_lock_on_item_activated_opens_new_tab(root: Path, vfs: LocalVFS) -> None:
+    tp, _ = make_presenter(vfs)
+    tp.new_tab(root / "dir1")
+    tp.lock_tab(0)
+    tp.on_item_activated(_dir_item(root / "dir2"))
+    assert tp.tab_count == 2
+
+
+# ── link tests ────────────────────────────────────────────────────────────────
+
+def test_link_navigate_propagates(root: Path, vfs: LocalVFS) -> None:
+    a, _ = make_presenter(vfs)
+    b, _ = make_presenter(vfs)
+    a.new_tab(root / "dir1")
+    b.new_tab(root / "dir1")
+    a.link_tab(0, b, 0)
+    a.navigate_to(root / "dir2")
+    assert b._tabs[0].current_path == root / "dir2"
+
+
+def test_link_no_recursion(root: Path, vfs: LocalVFS) -> None:
+    a, _ = make_presenter(vfs)
+    b, _ = make_presenter(vfs)
+    a.new_tab(root / "dir1")
+    b.new_tab(root / "dir1")
+    a.link_tab(0, b, 0)
+    a.navigate_to(root / "dir2")
+    assert a.tab_count == 1
+    assert b.tab_count == 1
+
+
+def test_unlink_stops_propagation(root: Path, vfs: LocalVFS) -> None:
+    a, _ = make_presenter(vfs)
+    b, _ = make_presenter(vfs)
+    a.new_tab(root / "dir1")
+    b.new_tab(root / "dir1")
+    a.link_tab(0, b, 0)
+    a.unlink_tab(0)
+    a.navigate_to(root / "dir2")
+    assert b._tabs[0].current_path == root / "dir1"
+
+
+def test_close_tab_shifts_links(root: Path, vfs: LocalVFS) -> None:
+    a, _ = make_presenter(vfs)
+    b, _ = make_presenter(vfs)
+    a.new_tab(root / "dir1")
+    a.new_tab(root / "dir2")
+    b.new_tab(root / "dir1")
+    a.link_tab(1, b, 0)
+    a.close_tab(0)
+    assert a._links == {0: (b, 0)}
+    # Partner back-reference must also be updated — stale index caused IndexError
+    assert b._links == {0: (a, 0)}
+
+
+def test_close_tab_partner_navigate_no_error(root: Path, vfs: LocalVFS) -> None:
+    """Regression: b.navigate_to() must not raise IndexError after a.close_tab()."""
+    a, _ = make_presenter(vfs)
+    b, _ = make_presenter(vfs)
+    a.new_tab(root / "dir1")
+    a.new_tab(root / "dir2")
+    b.new_tab(root / "dir1")
+    a.link_tab(1, b, 0)
+    a.close_tab(0)
+    b.navigate_to(root / "dir2")  # must not raise
+    assert a._tabs[0].current_path == root / "dir2"
+
+
+def test_shutdown_cancels_background_work() -> None:
+    """shutdown() calls cleanup() on all active tab presenters."""
+    class _MockPresenter:
+        cleaned = False
+        def cleanup(self) -> None:
+            self.cleaned = True
+
+    tv = _FakeTabsView()
+    tp = TabsPresenter(vfs=LocalVFS(), tabs_view=tv, view_factory=_FakePaneView)
+    m1, m2 = _MockPresenter(), _MockPresenter()
+    tp._tabs = [m1, m2]  # type: ignore[list-item]
+
+    tp.shutdown()
+
+    assert m1.cleaned
+    assert m2.cleaned

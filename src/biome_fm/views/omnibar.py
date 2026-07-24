@@ -25,10 +25,12 @@ class OmniBar(QFrame):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
 
-        self._input = QLineEdit(placeholderText="Type to search, / for path, > for commands")
+        self._input = QLineEdit(placeholderText="/ path  > commands  : recent  @ projects")
         layout.addWidget(self._input)
 
         self._list = QListWidget()
+        self._input.setAccessibleName("Omnibar input")
+        self._list.setAccessibleName("Omnibar results")
         layout.addWidget(self._list)
 
         self._debounce = QTimer(singleShot=True, interval=150)
@@ -36,11 +38,14 @@ class OmniBar(QFrame):
         self._input.textChanged.connect(self._debounce.start)
         self._list.itemActivated.connect(self._on_item_activated)
 
-    def activate(self, root: Path) -> None:
+    def activate(self, root: Path, prefix: str = "") -> None:
         self._presenter.set_root(root)
         self._input.clear()
         self._list.clear()
         self._items = []
+        if prefix:
+            self._input.setText(prefix)
+            self._input.setCursorPosition(len(prefix))
         self.show()
         self._input.setFocus()
 
@@ -59,7 +64,7 @@ class OmniBar(QFrame):
             return
         item = self._items[row]
         mode = self._presenter.mode_for(self._input.text())
-        if mode == OmniMode.NAVIGATE:
+        if mode in (OmniMode.NAVIGATE, OmniMode.FRECENCY, OmniMode.PROJECT):
             self.navigated.emit(item.data)
         elif mode == OmniMode.COMMAND:
             self.command_chosen.emit(item.data)

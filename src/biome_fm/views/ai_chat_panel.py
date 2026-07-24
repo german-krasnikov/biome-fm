@@ -108,6 +108,12 @@ class AIChatPanel(QWidget):
         input_row.addWidget(self._send_btn)
         input_row.addWidget(self._cancel_btn)
         layout.addLayout(input_row)
+        self.setAccessibleName("AI chat panel")
+        self._provider_combo.setAccessibleName("AI provider")
+        self._model_combo.setAccessibleName("AI model")
+        self._input.setAccessibleName("Message input")
+        self._cancel_btn.setAccessibleName("Cancel")
+        self._log.setAccessibleName("Chat history")
 
     def _on_send(self) -> None:
         text = self._input.toPlainText().strip()

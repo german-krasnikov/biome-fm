@@ -2,7 +2,12 @@
 from __future__ import annotations
 
 import os
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
+# ponytail: 4 workers covers I/O-bound dir walking; raise to 8 if slow on NVMe RAID
+# per-future timeout is future work if network mounts cause stalls
+_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="dir-size")
 
 
 def calc_tree_size(paths: list[Path], cancel: list[bool]) -> int:

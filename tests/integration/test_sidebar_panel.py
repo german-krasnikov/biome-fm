@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 
 import pytest
@@ -21,11 +20,11 @@ def panel(qtbot):
     return w
 
 
-def test_three_sections(panel):
+def test_sections(panel):
     tree = panel._tree
-    assert tree.topLevelItemCount() == 3
-    labels = [tree.topLevelItem(i).text(0) for i in range(3)]
-    assert labels == ["Volumes", "Bookmarks", "Recent"]
+    assert tree.topLevelItemCount() == 5
+    labels = [tree.topLevelItem(i).text(0) for i in range(5)]
+    assert labels == ["Volumes", "Bookmarks", "Recent", "Tags", "Smart Folders"]
 
 
 def test_set_volumes(panel):

@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from biome_fm.models._store_base import toml_escape as _toml_esc
+
 from .clients import SERVER_NAME, ClientInfo
 
 
@@ -80,9 +82,9 @@ def _atomic_write(path: Path, text: str) -> None:
 
 def _toml_value(v: object) -> str:
     if isinstance(v, str):
-        return '"' + v.replace("\\", "\\\\").replace('"', '\\"') + '"'
+        return '"' + _toml_esc(v) + '"'
     if isinstance(v, list):
-        items = '"' + '", "'.join(str(x).replace("\\", "\\\\").replace('"', '\\"') for x in v) + '"'
+        items = '"' + '", "'.join(_toml_esc(str(x)) for x in v) + '"'
         return f"[{items}]" if v else "[]"
     return str(v).lower() if isinstance(v, bool) else str(v)
 

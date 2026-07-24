@@ -5,7 +5,6 @@ import threading
 import time
 from pathlib import Path
 
-import pytest
 
 from biome_fm.models.file_item import FileItem
 

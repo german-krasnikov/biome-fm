@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import pytest
-from pytestqt.qtbot import QtBot
 
 from biome_fm.models.workspace_store import WorkspaceStore
 from biome_fm.views.workspace_dialog import WorkspaceDialog

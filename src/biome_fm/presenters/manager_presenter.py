@@ -234,7 +234,7 @@ class ManagerPresenter:
         spec = self._pending_specs.pop(task_id, None)
         if spec and self._plugins:
             for src in spec.sources if spec.sources else [spec.src]:
-                self._plugins.hook.on_file_operation(op=spec.op, src=src, dst=spec.dst)
+                self._plugins.on_file_operation(op=spec.op, src=src, dst=spec.dst)
 
     def undo(self) -> None:
         self._history.undo()
@@ -250,7 +250,7 @@ class ManagerPresenter:
             return
         if self._plugins:
             for src in sources:
-                if self._plugins.hook.before_file_operation(op=op, src=src, dst=dst) is False:
+                if self._plugins.before_file_operation(op=op, src=src, dst=dst) is False:
                     return  # vetoed
         desc = "Move" if move else "Copy"
         if self._op_queue is None:
@@ -381,7 +381,7 @@ class ManagerPresenter:
 
     def _run(self, cmd: Command, desc: str, spec: _OpSpec | None = None) -> None:
         if self._plugins and spec and spec.src:
-            if self._plugins.hook.before_file_operation(op=spec.op, src=spec.src, dst=spec.dst) is False:
+            if self._plugins.before_file_operation(op=spec.op, src=spec.src, dst=spec.dst) is False:
                 return  # vetoed
         self._publish(OperationStarted(desc))
         try:
@@ -390,7 +390,7 @@ class ManagerPresenter:
             self._publish(OperationFinished(desc, True))
             if self._plugins and spec:
                 for src in spec.sources if spec.sources else [spec.src]:
-                    self._plugins.hook.on_file_operation(op=spec.op, src=src, dst=spec.dst)
+                    self._plugins.on_file_operation(op=spec.op, src=src, dst=spec.dst)
         except OSError as e:
             self._publish(OperationFinished(desc, False, str(e)))
             raise

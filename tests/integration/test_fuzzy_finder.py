@@ -1,13 +1,10 @@
 """Integration tests for FuzzyFinder widget."""
 from __future__ import annotations
 
-import time
-from pathlib import Path
 
 import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
 
 from biome_fm.views.fuzzy_finder import FuzzyFinder
 
@@ -40,7 +37,6 @@ def test_escape_hides(finder, qtbot, root_with_files):
 
 
 def test_enter_emits_file_chosen(finder, qtbot, root_with_files):
-    from biome_fm.presenters.fuzzy_presenter import FuzzyMatch
 
     finder.open(root_with_files)
     # Wait for scan to complete (drain timer fires every 100ms)

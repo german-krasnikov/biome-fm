@@ -7,7 +7,6 @@ import datetime
 import fnmatch
 import queue
 import shutil
-import threading
 from collections import OrderedDict
 from collections.abc import Callable
 from pathlib import Path
@@ -16,8 +15,9 @@ from typing import Protocol
 from biome_fm.models.dir_state_store import DirStateStore
 from biome_fm.models.file_item import FileItem
 from biome_fm.models.frecency_store import FrecencyStore
-from biome_fm.models.vfs import ReadableVFS, VFSProtocol  # VFSProtocol kept for compat
+from biome_fm.models.vfs import LocalVFS, ReadableVFS, VFSProtocol  # VFSProtocol kept for compat
 from biome_fm.utils.format import format_size as _format_size
+from biome_fm.utils.nat_sort import nat_key as _nat_key
 
 _ARCHIVE_SUFFIXES = {".zip", ".tar"}
 _ARCHIVE_DOUBLE = {(".tar", ".gz"), (".tar", ".bz2"), (".tar", ".xz")}
@@ -57,10 +57,9 @@ class RichPaneViewProtocol(PaneViewProtocol, Protocol):
 
 
 def _sort(items: list[FileItem]) -> list[FileItem]:
-    # ponytail: sort here for unit testability; DirSortFilterProxy also sorts for
-    # column-click UX -- unify if they drift
-    dirs = sorted((i for i in items if i.is_dir), key=lambda i: i.name.lower())
-    files = sorted((i for i in items if not i.is_dir), key=lambda i: i.name.lower())
+    # ponytail: sort here for unit testability; DirSortFilterProxy also sorts for column-click UX
+    dirs = sorted((i for i in items if i.is_dir), key=lambda i: _nat_key(i.name))
+    files = sorted((i for i in items if not i.is_dir), key=lambda i: _nat_key(i.name))
     return dirs + files
 
 
@@ -89,6 +88,9 @@ class PanePresenter:
         self._nav_history: list[Path] = []
         self._virtual_activate: Callable[[FileItem], None] | None = None
         self._size_cancel: list[bool] = [False]
+        self._flat_cancel: list[bool] = [False]
+        self._flat_queue: queue.SimpleQueue[list[FileItem] | None] = queue.SimpleQueue()
+        self._flat_root: Path | None = None
         self._dir_size_result: int | None = None
         self._dir_view_state: dict[Path, object] = {}
         self._store = store
@@ -99,6 +101,13 @@ class PanePresenter:
         self._sort_preset: int = 0
         self._sticky_marks_enabled: bool = False
         self._connections: list[tuple[object, object]] = []
+        self._nav_cancel: list[bool] = [False]
+        self._nav_queue: queue.SimpleQueue[
+            tuple[Path, list[FileItem] | OSError, str | None, bool]
+        ] = queue.SimpleQueue()
+        self._nav_pending: Path | None = None
+        self._nav_future: object = None  # Future from last submit (for testing)
+        self._prev_cwd: Path | None = None  # for rollback on OSError in drain_nav
 
     def _track(self, signal: object, slot: object) -> object:
         """Connect signal→slot and track for cleanup."""
@@ -109,6 +118,8 @@ class PanePresenter:
     def cleanup(self) -> None:
         """Disconnect tracked signals and cancel background threads."""
         self._size_cancel[0] = True
+        self._flat_cancel[0] = True
+        self._nav_cancel[0] = True
         for signal, slot in self._connections:
             with contextlib.suppress(RuntimeError):
                 signal.disconnect(slot)  # type: ignore[attr-defined]
@@ -172,10 +183,10 @@ class PanePresenter:
     def current_item(self) -> FileItem | None:
         return self._view.current_cursor_item()
 
-    def navigate_to(self, path: Path) -> None:
+    def navigate_to(self, path: Path, *, initial_cursor: str | None = None) -> None:
         old = self._cwd
         self._cwd_mtime = 0.0  # force reload on explicit navigation
-        if self._navigate_no_history(path):
+        if self._navigate_no_history(path, initial_cursor=initial_cursor):
             if old is not None:
                 self._back.append(old)
             self._forward.clear()
@@ -202,9 +213,7 @@ class PanePresenter:
         parent = self._cwd.parent
         if parent != self._cwd:
             prev_name = self._cwd.name
-            self.navigate_to(parent)
-            if prev_name:
-                self._view.select_item(prev_name)
+            self.navigate_to(parent, initial_cursor=prev_name or None)
 
     def go_home(self) -> None:
         self.navigate_to(self._home)
@@ -358,8 +367,9 @@ class PanePresenter:
             if size >= 0 and not cancel[0]:
                 self._size_queue.put((item.path, size))
 
+        from biome_fm.utils.dir_size import _POOL
         for d in dirs:
-            threading.Thread(target=_run_one, args=(d,), daemon=True).start()
+            _POOL.submit(_run_one, d)
 
     def drain_sizes(self) -> None:
         """Drain queued dir-size results — call from main thread via QTimer."""
@@ -397,7 +407,8 @@ class PanePresenter:
             if not cancel[0] and result >= 0:
                 self._dir_size_result = result
 
-        threading.Thread(target=_run, daemon=True).start()
+        from biome_fm.utils.dir_size import _POOL
+        _POOL.submit(_run)
 
     def toggle_sticky_marks(self) -> None:
         """Toggle show-only-marked filter (F284). View opts in via set_show_only_marked."""
@@ -431,38 +442,74 @@ class PanePresenter:
         self._view.set_status(" | ".join(parts))
 
     def toggle_flat_view(self) -> None:
-        """Show all files under cwd recursively, or go back if already virtual."""
+        """Submit os.walk to background thread; drain_flat() delivers results."""
         if self._is_virtual():
             self.go_back()
             return
         if self._cwd is None:
             return
-        import os
+        self._flat_cancel[0] = True          # cancel any in-progress walk
+        cancel: list[bool] = [False]
+        self._flat_cancel = cancel
         root = self._cwd
-        items: list[FileItem] = []
-        for dirpath, dirs, files in os.walk(root):
-            dirs[:] = [d for d in sorted(dirs) if not d.startswith(".")]
-            dp = Path(dirpath)
-            for f in sorted(files):
-                if f.startswith("."):
-                    continue
-                p = dp / f
-                try:
-                    st = p.stat()
-                    rel = str(p.relative_to(root))
-                    items.append(FileItem(name=rel, path=p, is_dir=False,
-                                         size=st.st_size, modified=st.st_mtime))
-                except OSError:
-                    pass
-        self.navigate_virtual(items, label=f"Flat: {root.name}")
+        self._flat_root = root
+        self._view.set_status("Scanning...")
+
+        def _walk() -> None:
+            import os
+            items: list[FileItem] = []
+            for dirpath, dirs, files in os.walk(root):
+                if cancel[0]:
+                    self._flat_queue.put(None)
+                    return
+                dirs[:] = [d for d in sorted(dirs) if not d.startswith(".")]
+                dp = Path(dirpath)
+                for f in sorted(files):
+                    if f.startswith("."):
+                        continue
+                    if cancel[0]:
+                        break  # skip remaining files; outer loop re-checks cancel
+                    p = dp / f
+                    try:
+                        st = p.stat()
+                        rel = str(p.relative_to(root))
+                        items.append(FileItem(name=rel, path=p, is_dir=False,
+                                             size=st.st_size, modified=st.st_mtime))
+                    except OSError:
+                        pass
+            self._flat_queue.put(None if cancel[0] else items)
+
+        from biome_fm.utils.dir_size import _POOL  # noqa: PLC0415
+        _POOL.submit(_walk)
+
+    def drain_flat(self) -> None:
+        """Drain flat-walk results — called from main thread via QTimer."""
+        result: list[FileItem] | None = None
+        while True:
+            try:
+                item = self._flat_queue.get_nowait()
+            except queue.Empty:
+                break
+            if item is not None:
+                result = item
+        if result is not None and self._cwd == self._flat_root:
+            assert self._flat_root is not None
+            self.navigate_virtual(result, label=f"Flat: {self._flat_root.name}")
 
     def _navigate_no_history(self, path: Path, *, initial_cursor: str | None = None) -> bool:
-        try:
-            raw = self._vfs.listdir(path)
-        except OSError as e:
-            self._view.show_error(str(e))
-            return False
-        if path != self._cwd:
+        same_dir = (path == self._cwd)
+
+        # SYNC: save view state before leaving current dir
+        if not same_dir and self._cwd is not None:
+            get_state = getattr(self._view, "get_view_state", None)
+            if get_state:
+                state = get_state()
+                self._dir_view_state[self._cwd] = state
+                if self._store is not None:
+                    self._store.save(self._cwd, state)
+
+        # SYNC: save/clear/restore marks
+        if not same_dir:
             if self._cwd is not None and self._marks:
                 self._persistent_marks[self._cwd] = set(self._marks)
                 self._persistent_marks.move_to_end(self._cwd)
@@ -473,36 +520,78 @@ class PanePresenter:
                 self._marks = set(self._persistent_marks[path])
                 self._persistent_marks.move_to_end(path)
             self._dir_size_result = None
+
+        # SYNC: immediate UI feedback + optimistic _cwd (browser-style)
+        self._view.set_path(path)
+        self._view.set_status("Loading...")
+        self._push_history(path)
+        self._prev_cwd = self._cwd  # stash for rollback on OSError in drain
+        self._cwd = path
+
+        # ASYNC: cancel previous in-flight nav, submit new one
+        self._nav_cancel[0] = True
+        cancel: list[bool] = [False]
+        self._nav_cancel = cancel
+        self._nav_pending = path
+
+        def _load() -> None:
+            try:
+                items = self._vfs.listdir(path)
+                if not cancel[0]:
+                    self._nav_queue.put((path, items, initial_cursor, same_dir))
+            except OSError as exc:
+                if not cancel[0]:
+                    self._nav_queue.put((path, exc, initial_cursor, same_dir))
+
+        from biome_fm.utils.dir_size import _POOL  # noqa: PLC0415
+        self._nav_future = _POOL.submit(_load)
+        return True
+
+    def drain_nav(self) -> None:
+        """Drain async listdir results — called from main thread via QTimer."""
+        try:
+            path, result, cursor, same_dir = self._nav_queue.get_nowait()
+        except queue.Empty:
+            return
+
+        if path != self._nav_pending:
+            return  # stale result; user already navigated elsewhere
+
+        if isinstance(result, OSError):
+            self._cwd = self._prev_cwd  # rollback optimistic _cwd
+            self._view.show_error(str(result))
+            return
+
+        raw: list[FileItem] = result
         self._items = _sort(raw)
         items = list(self._items)
         if path.parent != path:
             dotdot = FileItem(name="..", path=path.parent, is_dir=True, size=0, modified=0.0)
             items = [dotdot, *items]
-        same_dir = (path == self._cwd)
-        if not same_dir and self._cwd is not None:
-            get_state = getattr(self._view, "get_view_state", None)
-            if get_state:
-                state = get_state()
-                self._dir_view_state[self._cwd] = state
-                if self._store is not None:
-                    self._store.save(self._cwd, state)
-        self._cwd = path
-        self._push_history(path)
-        self._view.set_path(path)
+
+        # _cwd already set optimistically in sync phase; confirm here
         self._view.set_items(items, preserve_scroll=same_dir)
+
         saved = self._dir_view_state.get(path)
         if saved is None and self._store is not None:
             saved = self._store.load(path)
         set_state = getattr(self._view, "set_view_state", None)
         if saved is not None and set_state:
             set_state(saved)
+
         self._view.set_marked({Path(s) for s in self._marks})
-        target = initial_cursor if initial_cursor and any(i.name == initial_cursor for i in items) else (items[0].name if items else "..")
+        target = (
+            cursor if cursor and any(i.name == cursor for i in items)
+            else (items[0].name if items else "..")
+        )
         self._view.select_item(target)
         self._update_free_space()
         self._update_status()
+
         try:
             self._cwd_mtime = path.stat().st_mtime
         except OSError:
             self._cwd_mtime = 0.0
-        return True
+
+        if isinstance(self._vfs, LocalVFS):
+            self.calculate_all_dir_sizes()

@@ -23,10 +23,13 @@ class _PathTabBar(QTabBar):
 
     lock_tab_requested = Signal(int)
     unlock_tab_requested = Signal(int)
+    link_tab_requested = Signal(int)
+    unlink_tab_requested = Signal(int)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._locked: set[int] = set()
+        self._linked: set[int] = set()
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_context_menu)
 
@@ -41,6 +44,12 @@ class _PathTabBar(QTabBar):
         else:
             act = menu.addAction("Lock Tab")
             act.triggered.connect(lambda: self.lock_tab_requested.emit(idx))
+        if idx in self._linked:
+            act2 = menu.addAction("Unlink Tab")
+            act2.triggered.connect(lambda: self.unlink_tab_requested.emit(idx))
+        else:
+            act2 = menu.addAction("Link with opposite tab")
+            act2.triggered.connect(lambda: self.link_tab_requested.emit(idx))
         menu.exec(self.mapToGlobal(pos))  # type: ignore[arg-type]
 
     def set_locked(self, idx: int, locked: bool) -> None:
@@ -50,6 +59,14 @@ class _PathTabBar(QTabBar):
         else:
             self._locked.discard(idx)
             self.setTabText(idx, self.tabText(idx).removeprefix("🔒 "))
+
+    def set_linked(self, idx: int, linked: bool) -> None:
+        if linked:
+            self._linked.add(idx)
+            self.setTabText(idx, "🔗 " + self.tabText(idx).removeprefix("🔗 "))
+        else:
+            self._linked.discard(idx)
+            self.setTabText(idx, self.tabText(idx).removeprefix("🔗 "))
 
     def mousePressEvent(self, event: object) -> None:
         btn = event.button()  # type: ignore[attr-defined]
@@ -72,6 +89,8 @@ class PaneSideView(QWidget):
     tab_changed = Signal(int)
     lock_tab_requested = Signal(int)
     unlock_tab_requested = Signal(int)
+    link_tab_requested = Signal(int)
+    unlink_tab_requested = Signal(int)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -98,6 +117,8 @@ class PaneSideView(QWidget):
         self._tab_bar.currentChanged.connect(self._on_tab_changed)
         self._tab_bar.lock_tab_requested.connect(self.lock_tab_requested)
         self._tab_bar.unlock_tab_requested.connect(self.unlock_tab_requested)
+        self._tab_bar.link_tab_requested.connect(self.link_tab_requested)
+        self._tab_bar.unlink_tab_requested.connect(self.unlink_tab_requested)
 
     def _on_tab_changed(self, idx: int) -> None:
         self._stack.setCurrentIndex(idx)
@@ -138,6 +159,11 @@ class PaneSideView(QWidget):
             display = p.name or title
         if len(display) > 30:
             display = "…/" + p.name
+        # Preserve state prefixes that live alongside the path text
+        if idx in self._tab_bar._locked:
+            display = "🔒 " + display
+        if idx in self._tab_bar._linked:
+            display = "🔗 " + display
         self._tab_bar.setTabText(idx, display)
 
     def set_tab_tooltip(self, idx: int, tooltip: str) -> None:
@@ -153,6 +179,9 @@ class PaneSideView(QWidget):
 
     def set_tab_locked(self, idx: int, locked: bool) -> None:
         self._tab_bar.set_locked(idx, locked)
+
+    def set_tab_linked(self, idx: int, linked: bool) -> None:
+        self._tab_bar.set_linked(idx, linked)
 
     def set_active(self, active: bool) -> None:
         self.setProperty("active", active)

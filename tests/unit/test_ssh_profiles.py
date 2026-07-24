@@ -106,3 +106,37 @@ def test_ssh_config_import(tmp_path):
     bas = store.get("bastion")
     assert bas.host == "bastion.corp"
     assert bas.port == 22  # default
+
+
+# ---------------------------------------------------------------------------
+# TOML injection hardening (Item #6)
+# ---------------------------------------------------------------------------
+
+_INJECTION = 'evil"host"\nport = 99\n[profiles.injected'
+
+
+def test_save_load_roundtrip_with_injection(tmp_path: Path) -> None:
+    store = SSHProfileStore(tmp_path / "p.toml")
+    store.load()
+    store.add(SSHProfile(name="x", host=_INJECTION, port=22, user='user"x', key_path=""))
+    store.save()
+    store2 = SSHProfileStore(tmp_path / "p.toml")
+    store2.load()
+    p = store2.get("x")
+    assert p.host == _INJECTION
+    assert p.user == 'user"x'
+
+
+def test_invalid_name_rejected() -> None:
+    store = SSHProfileStore(Path("/dev/null"))
+    with pytest.raises(ValueError):
+        store.add(SSHProfile(name="bad.name", host="h"))
+
+
+def test_import_ssh_config_skips_dotted_names(tmp_path: Path) -> None:
+    cfg = tmp_path / "ssh_config"
+    cfg.write_text("Host my.dotted.host\n    HostName prod.example.com\n")
+    store = _store(tmp_path)
+    store.import_ssh_config(cfg)
+    # dotted name would corrupt TOML section header — must be silently skipped
+    assert store.list_all() == []

@@ -1,15 +1,11 @@
 """#71 — Spring-Loaded Folders During Drag: timer navigates into hovered dir."""
 import os
 from pathlib import Path
-from unittest.mock import MagicMock
 
-import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from biome_fm.models.file_item import FileItem
-from biome_fm.qt import QMimeData, QModelIndex, Qt, QTimer
-from biome_fm.views.dnd_utils import _MIME
 from biome_fm.views.pane_view import PaneView, _PaneTableView
 
 

@@ -2,11 +2,9 @@
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import pytest
 
 
 def _make_presenter(cwd: Path | None = None):
-    from biome_fm.models.file_item import FileItem
     from biome_fm.presenters.pane_presenter import PanePresenter
 
     view = MagicMock()

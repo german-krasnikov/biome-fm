@@ -5,6 +5,9 @@ import tomllib
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 
+from biome_fm.models._store_base import toml_escape as _toml_esc
+from biome_fm.utils.atomic_write import atomic_write
+
 
 @dataclass
 class Config:
@@ -85,6 +88,25 @@ class Config:
         return self.layout_profiles.get(name)
 
 
+_AI_KEY_ACCOUNTS = {"ai_claude_key": "claude", "ai_openai_key": "openai"}
+
+
+def migrate_keys_to_keyring(cfg: "Config", path: Path) -> "Config":
+    """One-time migration: move plaintext keys from config into keyring, then clear."""
+    from biome_fm.models.credential_store import CRED_SERVICE, get_credential, set_credential
+    changed = False
+    for field_name, account in _AI_KEY_ACCOUNTS.items():
+        plaintext = getattr(cfg, field_name)
+        if plaintext:
+            if not get_credential(CRED_SERVICE, account):
+                set_credential(CRED_SERVICE, account, plaintext)
+            setattr(cfg, field_name, "")
+            changed = True
+    if changed:
+        save_config(cfg, path)
+    return cfg
+
+
 def load_config(path: Path) -> Config:
     """Load config from TOML file. Missing file → defaults."""
     try:
@@ -105,9 +127,9 @@ def _toml_val(v: object) -> str:
     if isinstance(v, int):
         return str(v)
     if isinstance(v, str):
-        return '"' + v.replace("\\", "\\\\").replace('"', '\\"') + '"'
+        return '"' + _toml_esc(v) + '"'
     if isinstance(v, dict):
-        inner = ", ".join(f"{k} = {_toml_val(val)}" for k, val in v.items())
+        inner = ", ".join(f'"{k}" = {_toml_val(val)}' for k, val in v.items())
         return "{" + inner + "}"
     if isinstance(v, list):
         return "[" + ", ".join(_toml_val(i) for i in v) + "]"
@@ -116,29 +138,5 @@ def _toml_val(v: object) -> str:
 
 def save_config(cfg: Config, path: Path) -> None:
     """Save config as TOML. Creates parent dirs if needed."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    lines = []
-    for f in fields(Config):
-        val = getattr(cfg, f.name)
-        if isinstance(val, bool):
-            lines.append(f"{f.name} = {'true' if val else 'false'}")
-        elif isinstance(val, str):
-            escaped = val.replace("\\", "\\\\").replace('"', '\\"')
-            lines.append(f'{f.name} = "{escaped}"')
-        elif isinstance(val, list):
-            if val and isinstance(val[0], int):
-                lines.append(f"{f.name} = [{', '.join(str(v) for v in val)}]")
-            elif val and isinstance(val[0], dict):
-                items = ", ".join(
-                    "{" + ", ".join(f'{k} = "{v}"' for k, v in d.items()) + "}"
-                    for d in val
-                )
-                lines.append(f"{f.name} = [{items}]")
-            else:
-                items = ", ".join(f'"{v}"' for v in val)
-                lines.append(f"{f.name} = [{items}]")
-        elif isinstance(val, dict):
-            lines.append(f"{f.name} = {_toml_val(val)}")
-        else:
-            lines.append(f"{f.name} = {val}")
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    lines = [f"{f.name} = {_toml_val(getattr(cfg, f.name))}" for f in fields(Config)]
+    atomic_write(path, "\n".join(lines) + "\n")

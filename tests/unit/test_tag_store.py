@@ -1,5 +1,4 @@
 """Unit tests for TagStore."""
-import tomllib
 from pathlib import Path
 
 import pytest

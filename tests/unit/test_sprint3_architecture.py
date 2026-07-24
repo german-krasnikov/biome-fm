@@ -1,7 +1,6 @@
 """Sprint 3 architecture improvement tests."""
 from __future__ import annotations
 
-import zipfile
 from pathlib import Path
 
 import pytest
@@ -233,15 +232,6 @@ def test_shortcut_store_corrupt_json(tmp_path):
     store = ShortcutStore(p)
     store.load()
     assert store.all() == {}
-
-
-def test_cloud_connection_store_corrupt_json(tmp_path):
-    from biome_fm.models.cloud_connection_store import CloudConnectionStore
-    p = tmp_path / "cloud.json"
-    p.write_text("{bad")
-    store = CloudConnectionStore(p)
-    store.load()
-    assert store.list() == []
 
 
 def test_cleanup_cancels_background_thread():

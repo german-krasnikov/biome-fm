@@ -1,7 +1,6 @@
 """Unit tests for F278 — File Grouping (_group_key logic, no Qt)."""
 from pathlib import Path
 
-import pytest
 
 from biome_fm.models.file_item import FileItem
 

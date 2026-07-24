@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import AsyncMock
-from biome_fm.presenters.ai_diff_summary import summarize_diff, diff_summary_prompt
+from biome_fm.presenters.ai_diff_summary import summarize_diff
 
 
 @pytest.mark.asyncio

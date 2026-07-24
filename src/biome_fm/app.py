@@ -1,6 +1,7 @@
 """Application bootstrap and DI wiring."""
 from __future__ import annotations
 
+import logging
 import os
 import shlex
 import subprocess
@@ -15,7 +16,7 @@ from biome_fm.commands.git_stage import GitStageCmd, GitUnstageCmd
 from biome_fm.commands.new_file_cmd import NewFileCmd
 from biome_fm.commands.registry import CommandEntry, CommandRegistry
 from biome_fm.commands.trash_cmd import TrashCmd
-from biome_fm.config import load_config, save_config
+from biome_fm.config import load_config, migrate_keys_to_keyring, save_config
 from biome_fm.event_bus import (
     ActivePaneChanged,
     AsyncOpSubmitted,
@@ -27,9 +28,14 @@ from biome_fm.event_bus import (
     ThemeChanged,
     bus,
 )
-from biome_fm.git.branch_ops import current_branch as _git_current_branch
+from biome_fm.git.branch_ops import (
+    current_branch as _git_current_branch,
+    list_branches as _git_list_branches,
+    switch_branch as _git_switch_branch,
+)
 from biome_fm.git.status_cache import GitStatusCache, RepoStatus
 from biome_fm.git.worker import GitStatusWorker
+from biome_fm.git.worktree_ops import list_worktrees as _git_list_worktrees
 from biome_fm.models.bookmark_store import BookmarkStore
 from biome_fm.models.clipboard_service import ClipboardService
 from biome_fm.models.command_store import CommandStore
@@ -40,6 +46,7 @@ from biome_fm.models.project_detector import detect_project
 from biome_fm.models.search_template_store import SearchTemplateStore
 from biome_fm.models.session_store import SessionStore
 from biome_fm.models.tag_store import TagStore
+from biome_fm.models.url_signer import can_sign_url, sign_url
 from biome_fm.models.user_actions import UserActionsStore
 from biome_fm.models.vfs_router import VFSRouter
 from biome_fm.models.workspace_store import WorkspaceStore
@@ -59,9 +66,7 @@ from biome_fm.preview.presenter import PreviewPresenter
 from biome_fm.preview.providers.archive import ArchivePreviewProvider
 from biome_fm.preview.providers.code import CodePreviewProvider
 from biome_fm.preview.providers.fallback import FallbackProvider
-from biome_fm.preview.providers.git_blame import GitBlamePreviewProvider
 from biome_fm.preview.providers.git_diff import GitDiffPreviewProvider
-from biome_fm.preview.providers.git_log import GitLogPreviewProvider
 from biome_fm.preview.providers.hex import HexPreviewProvider
 from biome_fm.preview.providers.image import ImagePreviewProvider
 from biome_fm.preview.providers.json_tree import JsonTreeProvider
@@ -167,6 +172,8 @@ class _AppContext:
     timers: list = field(default_factory=list)
     tray: object = None  # F320 — keep QSystemTrayIcon alive
     hotkey_listener: object = None  # F321 — keep pynput listener alive
+    session_timer: object = None  # Item #28 — auto-save every 60 s
+    volume_watcher: object = None  # Item #44 — keep VolumeWatcher alive
 
 
 def _build_tray(window: object) -> object:
@@ -203,19 +210,6 @@ def _apply_zoom(app: object, cfg: object, cfg_path: "Path", system_pt: int, delt
     cfg.ui_font_size = 0 if pt == system_pt else pt  # type: ignore[union-attr]
     save_config(cfg, cfg_path)  # type: ignore[arg-type]
 
-
-def _write_last_dir(path: Path | None) -> None:
-    """Write *path* to the file named by BIOME_LAST_DIR_FILE (shell cd-on-exit helper)."""
-    dest = os.environ.get("BIOME_LAST_DIR_FILE")
-    if not dest or not path:
-        return
-    s = str(path)
-    if ":/" in s:  # VFS / non-local path (Path normalises sftp:// → sftp:/)
-        return
-    try:
-        Path(dest).write_text(s)
-    except OSError:
-        pass
 
 
 def _config_dir() -> Path:
@@ -270,6 +264,8 @@ def _build_preview(cfg):
     preview_panel = PreviewPanel()
     preview_presenter = PreviewPresenter(view=preview_panel, registry=preview_registry)
     preview_presenter.set_dark("dark" in cfg.theme.lower())
+    from biome_fm.views.theme import load_theme as _load_theme
+    preview_presenter.set_tokens(_load_theme(cfg.theme))
     if cfg.glass:
         from biome_fm.views.theme import _glass_alphas
         _, _sel = _glass_alphas(cfg.glass_opacity)
@@ -304,9 +300,9 @@ def _pad_sizes(sizes: list[int], count: int) -> list[int]:
 
 def _wire_pane(view: PaneViewProtocol, presenter: PanePresenter) -> None:
     """Connect PaneView signals to PanePresenter slots (non-preview only)."""
-    view.item_activated.connect(presenter.on_item_activated)  # type: ignore[attr-defined]
-    view.path_change_requested.connect(presenter.navigate_to)  # type: ignore[attr-defined]
-    view.mark_toggle_requested.connect(presenter.toggle_mark)  # type: ignore[attr-defined]
+    presenter._track(view.item_activated, presenter.on_item_activated)  # type: ignore[attr-defined]
+    presenter._track(view.path_change_requested, presenter.navigate_to)  # type: ignore[attr-defined]
+    presenter._track(view.mark_toggle_requested, presenter.toggle_mark)  # type: ignore[attr-defined]
     for attr, slot in [
         ("back_requested", presenter.go_back),
         ("forward_requested", presenter.go_forward),
@@ -318,13 +314,14 @@ def _wire_pane(view: PaneViewProtocol, presenter: PanePresenter) -> None:
     ]:
         sig = getattr(view, attr, None)
         if sig is not None:
-            sig.connect(slot)
+            presenter._track(sig, slot)
     sig = getattr(view, "mark_range_requested", None)
     if sig is not None:
-        sig.connect(lambda a, t, p=presenter: p.mark_range(a.path, t.path))
+        _slot = lambda a, t, p=presenter: p.mark_range(a.path, t.path)
+        presenter._track(sig, _slot)
     sig = getattr(view, "history_jump_requested", None)
     if sig is not None:
-        sig.connect(presenter.navigate_to)
+        presenter._track(sig, presenter.navigate_to)
 
 
 def _wire_ai_cursor(view: object, tabs: object, ai_presenter: object) -> None:
@@ -380,14 +377,17 @@ def _handle_app_state_change(state: object, watch_timer: object, refresh_timer: 
         refresh_timer.stop()  # type: ignore[union-attr]
 
 
-def create_app() -> MainWindow:
-    # ── Config & Session ──────────────────────────────────────────
+def _workspace_name_at(store, n: int) -> str | None:
+    names = store.list_names()
+    return names[n] if n < len(names) else None
+
+
+def _load_config_session():
+    """Load config + session; apply initial font size. Returns (cfg_dir, cfg, session, system_pt)."""
     cfg_dir = _config_dir()
     cfg = load_config(cfg_dir / "config.toml")
+    migrate_keys_to_keyring(cfg, cfg_dir / "config.toml")
     session = load_session(cfg_dir / "session.json")
-
-    # F308 — apply configurable font size before any widgets are created
-    # F408 — capture system default before any override
     _app = QApplication.instance()
     _system_pt = (_app.font().pointSize() if _app is not None and _app.font().pointSize() > 0 else 11)
     if cfg.ui_font_size > 0:
@@ -395,17 +395,17 @@ def create_app() -> MainWindow:
             _f = _app.font()
             _f.setPointSize(cfg.ui_font_size)
             _app.setFont(_f)
+    return cfg_dir, cfg, session, _system_pt
 
-    # ── Construction phase ────────────────────────────────────────
-    plugins = _build_plugins(cfg)
-    vfs = VFSRouter(plugin_manager=plugins)
+
+def _build_stores(cfg, cfg_dir: Path):
+    """Construct all persistent stores and the op queue."""
     history = CommandHistory()
     clipboard = ClipboardService()
     store = BookmarkStore(cfg_dir / "bookmarks.toml")
     tag_store = TagStore.load(cfg_dir / "tags.toml")
     user_actions_store = UserActionsStore(cfg_dir / "actions.json")
     user_actions_store.load()
-    _project_actions: list = []  # updated on navigate; shared by closure
     ws_store = WorkspaceStore(cfg_dir / "workspaces.json")
     named_session_store = SessionStore(cfg_dir / "sessions.json")
     op_queue = make_serial_queue() if cfg.serial_ops else OpQueue(max_workers=2)
@@ -413,20 +413,24 @@ def create_app() -> MainWindow:
     frecency_store = FrecencyStore(cfg_dir / "frecency.json")
     from biome_fm.presenters.file_collector import FileCollector
     file_collector = FileCollector()
-    left_side, right_side, left_tabs, right_tabs = _build_panes(vfs, dir_state_store, frecency_store)
-    import queue as _queue_mod
-    _watch_queue: _queue_mod.SimpleQueue = _queue_mod.SimpleQueue()
-    left_watcher = WatchService(callback=_watch_queue.put)
-    right_watcher = WatchService(callback=_watch_queue.put)
-    preview_registry, preview_panel, preview_presenter = _build_preview(cfg)
+    return (history, clipboard, store, tag_store, user_actions_store,
+            ws_store, named_session_store, op_queue, dir_state_store,
+            frecency_store, file_collector)
+
+
+def _build_git_workers(preview_registry: PreviewRegistry, cfg_dir: Path, plugins: PluginManager):
+    """Construct GitStatusCache + GitStatusWorker; register git-adjacent preview providers."""
     git_cache = GitStatusCache()
     git_worker = GitStatusWorker(git_cache)
     from biome_fm.preview.providers.sqlite_preview import SqlitePreviewProvider
-    for _p4 in [GitDiffPreviewProvider(status_fn=git_cache.file_status),
-                GitLogPreviewProvider(), GitBlamePreviewProvider(),
-                ArchivePreviewProvider(), PDFPreviewProvider(),
-                MetadataPreviewProvider(), HexPreviewProvider(), SqlitePreviewProvider()]:
-        preview_registry.register(_p4)
+    # DO NOT register GitBlamePreviewProvider / GitLogPreviewProvider here.
+    # They are instantiated on-demand by PreviewPresenter._get_provider() for
+    # explicit GIT_BLAME / GIT_LOG modes. Their can_handle() returns True for
+    # ANY file in a git repo, which would intercept all content-specific providers.
+    for _p in [GitDiffPreviewProvider(status_fn=git_cache.file_status),
+               ArchivePreviewProvider(), PDFPreviewProvider(),
+               MetadataPreviewProvider(), HexPreviewProvider(), SqlitePreviewProvider()]:
+        preview_registry.register(_p)
     try:
         from biome_fm.preview.providers.quicklook import QuickLookProvider
         preview_registry.register(QuickLookProvider())
@@ -437,6 +441,44 @@ def create_app() -> MainWindow:
         preview_registry.register(_sp)
     for _pp in plugins.get_preview_providers():
         preview_registry.register(_pp)
+    return git_cache, git_worker
+
+
+def _snapshot_session(coord, left_tabs, right_tabs) -> SessionState:
+    """Pure snapshot of current session state — no Qt side-effects."""
+    panel_states = coord.save_state()
+    return SessionState(
+        left=PaneSideState(
+            tabs=[TabState(str(p)) for p in left_tabs.paths()],
+            active_idx=left_tabs.active_idx,
+        ),
+        right=PaneSideState(
+            tabs=[TabState(str(p)) for p in right_tabs.paths()],
+            active_idx=right_tabs.active_idx,
+        ),
+        preview=PanelSession(**panel_states.get("preview", {})),
+        ai=PanelSession(**panel_states.get("ai", {})),
+    )
+
+
+def create_app() -> MainWindow:
+    # ── Config & Session ──────────────────────────────────────────
+    cfg_dir, cfg, session, _system_pt = _load_config_session()
+
+    # ── Construction phase ────────────────────────────────────────
+    plugins = _build_plugins(cfg)
+    vfs = VFSRouter(plugin_manager=plugins)
+    (history, clipboard, store, tag_store, user_actions_store,
+     ws_store, named_session_store, op_queue, dir_state_store,
+     frecency_store, file_collector) = _build_stores(cfg, cfg_dir)
+    _project_actions: list = []  # updated on navigate; shared by closure
+    left_side, right_side, left_tabs, right_tabs = _build_panes(vfs, dir_state_store, frecency_store)
+    import queue as _queue_mod
+    _watch_queue: _queue_mod.SimpleQueue = _queue_mod.SimpleQueue()
+    left_watcher = WatchService(callback=_watch_queue.put)
+    right_watcher = WatchService(callback=_watch_queue.put)
+    preview_registry, preview_panel, preview_presenter = _build_preview(cfg)
+    git_cache, git_worker = _build_git_workers(preview_registry, cfg_dir, plugins)
 
     coord: PanelCoordinator | None = None  # late-bound; set after window creation
 
@@ -563,7 +605,7 @@ def create_app() -> MainWindow:
     providers, ai_panel, ai_presenter = _build_ai(cfg, cfg_dir)
 
     # ── AI signal wiring ──────────────────────────────────────────
-    ai_panel.message_submitted.connect(ai_presenter.send)
+    ai_panel.message_submitted.connect(lambda text: (drain_timer.start(), ai_presenter.send(text)))
     ai_panel.provider_changed.connect(ai_presenter.switch_provider)
 
     def _on_provider_changed(name: str) -> None:
@@ -573,7 +615,7 @@ def create_app() -> MainWindow:
     ai_panel.provider_changed.connect(_on_provider_changed)
     ai_panel.model_changed.connect(ai_presenter.switch_model)
     ai_panel.cancel_requested.connect(ai_presenter.cancel)
-    ai_panel.attachment_dropped.connect(ai_presenter.add_attachment)
+    ai_panel.attachment_dropped.connect(lambda path: (drain_timer.start(), ai_presenter.add_attachment(path)))
     ai_panel._context_bar.chip_removed.connect(ai_presenter.remove_attachment)
 
     def _on_ai_model_changed(model: str) -> None:
@@ -649,8 +691,33 @@ def create_app() -> MainWindow:
         if v.isValid() and v.isReady()
     ]
     _sidebar.set_volumes(_volumes)
+
+    # Item #44 — VolumeWatcher hot-plug wiring
+    from biome_fm.models.volume_watcher import VolumeWatcher
+    _vol_set: set[Path] = set(_volumes)
+
+    def _refresh_volumes() -> None:
+        _sidebar.set_volumes(sorted(_vol_set))
+
+    _vol_watcher = VolumeWatcher()
+    _vol_watcher.volume_added.connect(lambda p: (_vol_set.add(p), _refresh_volumes()))
+    _vol_watcher.volume_removed.connect(lambda p: (_vol_set.discard(p), _refresh_volumes()))
+    _vol_watcher.start()
+
+    def _eject_volume(path: Path) -> None:
+        import subprocess
+        import sys
+        if sys.platform == "darwin":
+            subprocess.Popen(["diskutil", "eject", str(path)])
+        elif sys.platform == "linux":
+            subprocess.Popen(["umount", str(path)])
+
+    _sidebar.volume_eject_requested.connect(_eject_volume)
+
     _sidebar.set_bookmarks(store.tree())
-    bus.subscribe(BookmarkChanged, lambda _: _sidebar.set_bookmarks(store.tree()))
+    def _on_bookmark_changed(_: object) -> None:
+        _sidebar.set_bookmarks(store.tree())
+    bus.subscribe(BookmarkChanged, _on_bookmark_changed)
 
     def _on_project_navigate(path: Path) -> None:
         """F334/F337: detect project root, merge project bookmarks + actions."""
@@ -704,14 +771,43 @@ def create_app() -> MainWindow:
     preview_panel.close_requested.connect(lambda: coord.toggle("preview"))
     preview_panel.mode_changed.connect(preview_presenter.set_mode)
     preview_panel.tail_toggled.connect(preview_presenter.set_tail_mode)
-    preview_panel.summarize_requested.connect(
-        lambda: ai_presenter.summarize_file(_active().current_item()) if _active().current_item() is not None else None  # noqa: E501
-    )
+    def _on_summarize_preview() -> None:
+        path = preview_presenter._current
+        if path is None:
+            return
+        item = _active().current_item()
+        if item is None or item.path != path:
+            try:
+                stat = path.stat()
+            except OSError:
+                return
+            from biome_fm.models.file_item import FileItem as _FI
+            item = _FI(name=path.name, path=path, is_dir=path.is_dir(),
+                       size=stat.st_size, modified=stat.st_mtime)
+        if not ai_panel.isVisible():
+            coord.toggle("ai", manager.active_pane_id)
+        drain_timer.start()
+        ai_presenter.summarize_file(item)
+
+    preview_panel.summarize_requested.connect(_on_summarize_preview)
     ai_panel.detach_requested.connect(lambda: coord.detach("ai"))
     ai_panel.close_requested.connect(lambda: coord.toggle("ai"))
     terminal_panel.detach_requested.connect(lambda: coord.detach("terminal"))
     terminal_panel.close_requested.connect(lambda: coord.toggle("terminal"))
     terminal_panel.cwd_changed.connect(lambda p: manager.navigate_active(p) if p.is_dir() else None)
+
+    def _on_terminal_navigate(path: Path, line: int) -> None:
+        if not path.exists():
+            return
+        target = path if path.is_dir() else path.parent
+        _active().navigate_to(target)
+        if path.is_file():
+            v = _active().view_at(_active().active_idx)
+            if hasattr(v, "select_item"):
+                v.select_item(path.name)
+
+    terminal_panel.file_navigated.connect(_on_terminal_navigate)
+
     # Sync terminal cwd + project context when any pane navigates
     for _side_tabs in [left_tabs, right_tabs]:
         for _i in range(_side_tabs.tab_count):
@@ -741,17 +837,29 @@ def create_app() -> MainWindow:
     drain_timer = QTimer(window)
     drain_timer.setInterval(50)
     drain_timer.timeout.connect(ai_presenter.drain)
-    drain_timer.start()
+    ai_presenter._on_idle = drain_timer.stop
 
     preview_timer = QTimer(window)
     preview_timer.setInterval(100)
     preview_timer.timeout.connect(preview_presenter.drain)
-    preview_timer.start()
+    preview_presenter._on_idle = preview_timer.stop
+    preview_presenter._on_work = preview_timer.start
+
+    def _drain_navs() -> None:
+        for _tabs in (left_tabs, right_tabs):
+            for _i in range(_tabs.tab_count):
+                _tabs.presenter_at(_i).drain_nav()
+
+    nav_timer = QTimer(window)
+    nav_timer.setInterval(50)
+    nav_timer.timeout.connect(_drain_navs)
+    nav_timer.start()  # always-on: new tabs have no hook, start/stop not safe
 
     def _drain_dir_sizes() -> None:
         for _tabs in (left_tabs, right_tabs):
             for _i in range(_tabs.tab_count):
                 _tabs.presenter_at(_i).drain_sizes()
+                _tabs.presenter_at(_i).drain_flat()
 
     size_drain_timer = QTimer(window)
     size_drain_timer.setInterval(200)
@@ -760,7 +868,10 @@ def create_app() -> MainWindow:
 
     # ── Op queue drain ────────────────────────────────────────────
     def _drain_op_events() -> None:
-        for event in op_queue.drain():
+        events = op_queue.drain()
+        if not events and op_queue.active_count() == 0:
+            op_timer.stop()
+        for event in events:
             dlg = _progress_dialogs.get(event.task_id)  # type: ignore[attr-defined]
             if isinstance(event, OpProgress):
                 if dlg:
@@ -796,6 +907,7 @@ def create_app() -> MainWindow:
                 event.resolver.reply(action)
 
     def _on_async_op(ev: AsyncOpSubmitted) -> None:
+        op_timer.start()
         dlg = ProgressDialog(ev.task_id, ev.description, window)
         dlg.set_cancel_callback(lambda: op_queue.cancel(ev.task_id))
         _progress_dialogs[ev.task_id] = dlg
@@ -814,8 +926,7 @@ def create_app() -> MainWindow:
     if cfg.global_hotkey:
         from biome_fm.utils.global_hotkey import register_global_hotkey
         def _summon() -> None:
-            window.show()
-            window.raise_()
+            QTimer.singleShot(0, lambda: (window.show(), window.raise_()))
         _hotkey_listener = register_global_hotkey(cfg.global_hotkey, _summon)
 
     def _on_op_finished(ev: OperationFinished) -> None:
@@ -827,20 +938,66 @@ def create_app() -> MainWindow:
 
     # ── Status bar: ops counter + git branch ─────────────────────
     _ops_ctr = _OpsCounter(window.update_ops_count)
-    bus.subscribe(OperationStarted, lambda _ev: _ops_ctr.inc())
+    def _on_op_started(_ev: object) -> None:
+        _ops_ctr.inc()
+    bus.subscribe(OperationStarted, _on_op_started)
 
     def _on_op_finished_sb(ev: OperationFinished) -> None:
         _ops_ctr.dec()
 
     bus.subscribe(OperationFinished, _on_op_finished_sb)
 
+    _last_git_path: list[Path] = [Path.home()]
+
     def _update_git_branch(path: Path) -> None:
+        _last_git_path[0] = path
         window.update_git_branch(_git_current_branch(path))
+
+    def _on_branch_click() -> None:
+        path = _last_git_path[0]
+        branches = _git_list_branches(path)
+        if not branches:
+            return
+        cur = _git_current_branch(path)
+        from biome_fm.qt import QMenu
+        menu = QMenu(window)
+        for b in branches:
+            act = menu.addAction(b)
+            if b == cur:
+                act.setCheckable(True)
+                act.setChecked(True)
+        worktrees = _git_list_worktrees(path)
+        if worktrees:
+            menu.addSeparator()
+            hdr = menu.addAction("[Worktrees]")
+            hdr.setEnabled(False)
+            menu.addSeparator()
+            for wt in worktrees:
+                label = f"{wt['path']}  ({wt['branch'] or wt['head'][:7]})"
+                act = menu.addAction(label)
+                act.setData(wt["path"])
+
+        chosen = menu.exec(window._git_btn.mapToGlobal(window._git_btn.rect().bottomLeft()))
+
+        if chosen is not None and chosen.data() is not None:
+            manager.navigate_active(Path(chosen.data()))
+            return
+
+        if chosen is None or chosen.text() == cur:
+            return
+        try:
+            _git_switch_branch(path, chosen.text())
+        except RuntimeError as exc:
+            QMessageBox.critical(window, "Branch Switch Failed", str(exc))
+            return
+        manager._refresh_both()
+        _update_git_branch(path)
+
+    window.branch_clicked.connect(_on_branch_click)
 
     op_timer = QTimer(window)
     op_timer.setInterval(50)
     op_timer.timeout.connect(_drain_op_events)
-    op_timer.start()
 
     refresh_timer = QTimer(window)
     refresh_timer.setInterval(5000)
@@ -865,6 +1022,13 @@ def create_app() -> MainWindow:
     watch_timer.setInterval(200)
     watch_timer.timeout.connect(_drain_watch_events)
     watch_timer.start()
+
+    session_timer = QTimer(window)
+    session_timer.setInterval(60_000)  # Item #28: auto-save every 60 s; worst-case loss = 60 s
+    session_timer.timeout.connect(
+        lambda: save_session(_snapshot_session(coord, left_tabs, right_tabs), cfg_dir / "session.json")
+    )
+    session_timer.start()
 
     QApplication.instance().applicationStateChanged.connect(  # type: ignore[union-attr]
         lambda state: _handle_app_state_change(state, watch_timer, refresh_timer, _drain_watch_events)
@@ -909,8 +1073,14 @@ def create_app() -> MainWindow:
         on_history_update=_on_search_history_update,
     )
     search_panel.set_history(list(cfg.search_history))
-    search_panel.rerun_requested.connect(sc.request_search_with_query)
-    window.search_requested.connect(sc.request_search)
+    search_panel.rerun_requested.connect(lambda q: (search_timer.start(), sc.request_search_with_query(q)))
+    window.search_requested.connect(lambda: (search_timer.start(), sc.request_search()))
+    # Smart Folders: wire sidebar saved searches → SearchCoordinator
+    # ponytail: sidebar not refreshed after save/delete, wire SearchDialog.accepted if stale-after-edit is reported
+    _sidebar.set_smart_folders(_tmpl_store.templates)
+    _sidebar.smart_folder_activated.connect(
+        lambda t: (search_timer.start(), sc.request_search_from_template(t))
+    )
 
     def _nl_dispatch(op) -> None:
         if op.op in ("copy", "move") and op.sources:
@@ -952,7 +1122,7 @@ def create_app() -> MainWindow:
     search_timer = QTimer(window)
     search_timer.setInterval(50)
     search_timer.timeout.connect(sc.drain)
-    search_timer.start()
+    sc._on_idle = search_timer.stop
 
     # ── New tab ───────────────────────────────────────────────────
     def _new_tab(tabs=None) -> None:
@@ -1086,7 +1256,7 @@ def create_app() -> MainWindow:
             _pid = pane_id
             def _extras(_pid=_pid):
                 plugin_actions = [
-                    a for lst in plugins.hook.context_menu_actions(items=_op_items(), pane_id=_pid)
+                    a for lst in plugins.context_menu_actions(items=_op_items(), pane_id=_pid)
                     for a in lst
                 ]
                 proj = [
@@ -1109,6 +1279,15 @@ def create_app() -> MainWindow:
                 _ask_rename()
             elif action == "copy_path":
                 _copy_path()
+            elif action == "presigned_url":
+                item = _active().current_item()
+                if item is None:
+                    return
+                url = sign_url(item.path, _active().active.vfs)
+                if url:
+                    QApplication.clipboard().setText(url)
+                else:
+                    QMessageBox.warning(window, "Presigned URL", "This backend does not support presigned URLs.")
             elif action == "quick_look":
                 preview_presenter.render_item(_active().current_item())
                 coord.toggle("preview", manager.active_pane_id)
@@ -1163,6 +1342,21 @@ def create_app() -> MainWindow:
                 cmd = RemoveQuarantineCmd([i.path for i in _op_items()])
                 history.execute(cmd)
                 _active().refresh()
+            elif action == "preview":
+                preview_presenter.render_item(_active().current_item())
+                coord.toggle("preview", manager.active_pane_id)
+            elif action == "run":
+                open_terminal(_active().current_path)
+            elif action == "edit":
+                item = _active().current_item()
+                if item:
+                    open_in_editor(item.path, cfg.editor_cmd)
+            elif action in ("lint", "compile", "convert", "export", "format", "validate"):
+                item = _active().current_item()
+                if item:
+                    open_file(item.path)
+        if hasattr(view, "_can_presign"):
+            view._can_presign = lambda: can_sign_url(_active().active.vfs)  # type: ignore[attr-defined]
         sig = getattr(view, "context_action_requested", None)
         if sig is not None:
             sig.connect(_dispatch)
@@ -1241,6 +1435,7 @@ def create_app() -> MainWindow:
             return
 
         def _on_ai_rename_requested() -> None:
+            import queue as _q
             from biome_fm.presenters.ai_rename_presenter import suggest_renames
             from biome_fm.views.ai_rename_dialog import AIRenameDialog
 
@@ -1249,18 +1444,35 @@ def create_app() -> MainWindow:
                 return
             provider = ai_presenter._provider
             names = [i.name for i in items]
-            suggestions = suggest_renames(names, provider)
-            dlg = AIRenameDialog(names, suggestions, parent=window)
+            result_q: _q.SimpleQueue[list] = _q.SimpleQueue()
 
-            def _apply(pairs: list) -> None:
-                item_by_name = {i.name: i for i in items}
-                for original, new_name in pairs:
-                    item = item_by_name.get(original)
-                    if item:
-                        manager.rename(item, new_name)
+            def _bg() -> None:
+                try:
+                    result_q.put(suggest_renames(names, provider))
+                except Exception:
+                    result_q.put([None] * len(names))  # sentinel — stops drain chain
 
-            dlg.rename_requested.connect(_apply)
-            dlg.exec()
+            ai_presenter._pool.submit(_bg)
+
+            def _drain() -> None:
+                try:
+                    suggestions = result_q.get_nowait()
+                except _q.Empty:
+                    QTimer.singleShot(50, _drain)
+                    return
+                dlg = AIRenameDialog(names, suggestions, parent=window)
+
+                def _apply(pairs: list) -> None:
+                    item_by_name = {i.name: i for i in items}
+                    for original, new_name in pairs:
+                        item = item_by_name.get(original)
+                        if item:
+                            manager.rename(item, new_name)
+
+                dlg.rename_requested.connect(_apply)
+                dlg.exec()
+
+            QTimer.singleShot(50, _drain)
 
         sig.connect(_on_ai_rename_requested)
 
@@ -1312,6 +1524,16 @@ def create_app() -> MainWindow:
         dlg.load_requested.connect(_load_workspace)
         dlg.exec()
 
+    def _load_workspace_n(n: int) -> None:
+        name = _workspace_name_at(ws_store, n)
+        if name:
+            _load_workspace(name)
+
+    for _i in range(5):
+        QShortcut(QKeySequence(f"Ctrl+Alt+{_i + 1}"), window).activated.connect(
+            lambda i=_i: _load_workspace_n(i)
+        )
+
     # ── Single post-restore wire loop (DnD + new-tab + ctx + bm + git) ───────
     for _pid_w, _tabs_w, _watcher_w in [
         ("left", left_tabs, left_watcher),
@@ -1353,31 +1575,16 @@ def create_app() -> MainWindow:
     QShortcut(QKeySequence("Ctrl+I"), window).activated.connect(
         lambda: coord.toggle("ai", manager.active_pane_id)
     )
-    QShortcut(QKeySequence("Ctrl+Shift+F"), window).activated.connect(sc.request_search)
+    QShortcut(QKeySequence("Ctrl+Shift+F"), window).activated.connect(lambda: (search_timer.start(), sc.request_search()))
     QShortcut(QKeySequence("Ctrl+Shift+N"), window).activated.connect(_on_nl_op_requested)
     QShortcut(QKeySequence("Ctrl+Shift+T"), window).activated.connect(lambda: _active().toggle_flat_view())
     QShortcut(QKeySequence("Ctrl+."), window).activated.connect(lambda: manager.repeat_last(_op_items()))
-
-    def _snapshot_session() -> SessionState:
-        panel_states = coord.save_state()
-        return SessionState(
-            left=PaneSideState(
-                tabs=[TabState(str(p)) for p in left_tabs.paths()],
-                active_idx=left_tabs.active_idx,
-            ),
-            right=PaneSideState(
-                tabs=[TabState(str(p)) for p in right_tabs.paths()],
-                active_idx=right_tabs.active_idx,
-            ),
-            preview=PanelSession(**panel_states.get("preview", {})),
-            ai=PanelSession(**panel_states.get("ai", {})),
-        )
 
     def _save_named_session() -> None:
         from PySide6.QtWidgets import QInputDialog
         name, ok = QInputDialog.getText(window, "Save Session", "Session name:")
         if ok and name.strip():
-            named_session_store.save_named_session(name.strip(), _snapshot_session())
+            named_session_store.save_named_session(name.strip(), _snapshot_session(coord, left_tabs, right_tabs))
 
     def _open_session_picker() -> None:
         dlg = SessionPickerDialog(named_session_store, parent=window)
@@ -1486,6 +1693,33 @@ def create_app() -> MainWindow:
     right_side.tab_close_requested.connect(right_tabs.close_tab)
     right_side.tab_changed.connect(right_tabs.switch_tab)
 
+    # ── Tab lock wiring ───────────────────────────────────────────
+    left_side.lock_tab_requested.connect(lambda idx: (left_tabs.lock_tab(idx), left_side.set_tab_locked(idx, True)))
+    left_side.unlock_tab_requested.connect(lambda idx: (left_tabs.unlock_tab(idx), left_side.set_tab_locked(idx, False)))
+    right_side.lock_tab_requested.connect(lambda idx: (right_tabs.lock_tab(idx), right_side.set_tab_locked(idx, True)))
+    right_side.unlock_tab_requested.connect(lambda idx: (right_tabs.unlock_tab(idx), right_side.set_tab_locked(idx, False)))
+
+    # ── Tab link wiring ───────────────────────────────────────────
+    def _link(src_tabs, src_side, dst_tabs, dst_side) -> None:
+        li, ri = src_tabs.active_idx, dst_tabs.active_idx
+        src_tabs.link_tab(li, dst_tabs, ri)
+        src_side.set_tab_linked(li, True)
+        dst_side.set_tab_linked(ri, True)
+
+    def _unlink(src_tabs, src_side, idx: int) -> None:
+        if not src_tabs.is_linked(idx):
+            return
+        other_tabs, other_idx = src_tabs._links[idx]
+        other_side = left_side if other_tabs is left_tabs else right_side
+        other_side.set_tab_linked(other_idx, False)
+        src_side.set_tab_linked(idx, False)
+        src_tabs.unlink_tab(idx)
+
+    left_side.link_tab_requested.connect(lambda _: _link(left_tabs, left_side, right_tabs, right_side))
+    left_side.unlink_tab_requested.connect(lambda idx: _unlink(left_tabs, left_side, idx))
+    right_side.link_tab_requested.connect(lambda _: _link(right_tabs, right_side, left_tabs, left_side))
+    right_side.unlink_tab_requested.connect(lambda idx: _unlink(right_tabs, right_side, idx))
+
     # ── Action bar ────────────────────────────────────────────────
     bar = window.action_bar
     _copy_history: list[str] = []
@@ -1576,7 +1810,7 @@ def create_app() -> MainWindow:
         mode, recursive = result
         manager.chmod_selected(items, mode, recursive)
 
-    QShortcut(QKeySequence("Ctrl+Shift+P"), window).activated.connect(_set_permissions)
+    QShortcut(QKeySequence("Ctrl+Alt+P"), window).activated.connect(_set_permissions)
 
     # F408 — live zoom shortcuts
     def _zoom(delta: int) -> None:
@@ -1595,9 +1829,6 @@ def create_app() -> MainWindow:
             open_in_editor(item.path, cfg.editor_cmd)
 
     QShortcut(QKeySequence("F4"),           window).activated.connect(_open_in_editor_f4)
-    QShortcut(QKeySequence("F9"),           window).activated.connect(
-        lambda: open_terminal(_active().current_path)
-    )
 
     def _open_task_runner() -> None:
         from biome_fm.views.task_runner_dialog import TaskRunnerDialog
@@ -1677,8 +1908,10 @@ def create_app() -> MainWindow:
 
     bus.subscribe(ShowHiddenToggled, _on_show_hidden)
 
-    bus.subscribe(SyncBrowsingToggled,
-                  lambda ev: [s.set_sync_indicator(ev.enabled) for s in (left_side, right_side)])
+    def _on_sync_browsing(ev: SyncBrowsingToggled) -> None:
+        for s in (left_side, right_side):
+            s.set_sync_indicator(ev.enabled)
+    bus.subscribe(SyncBrowsingToggled, _on_sync_browsing)
 
     if cfg.show_hidden:
         for proxy in _all_proxies():
@@ -1694,7 +1927,8 @@ def create_app() -> MainWindow:
         dark = "dark" in ev.name.lower()
         # Update preview dark flag based on theme name
         preview_presenter.set_dark(dark)
-        ai_panel._log.set_dark(dark)
+        preview_presenter.set_tokens(ev.tokens)
+        ai_panel._log.set_tokens(ev.tokens)
 
     bus.subscribe(ThemeChanged, _on_theme_changed)
 
@@ -1800,7 +2034,7 @@ def create_app() -> MainWindow:
         CommandEntry("Up",             "Alt+Up",       lambda: _active().go_up()),
         CommandEntry("Home",           "Alt+Home",     lambda: _active().go_home()),
         CommandEntry("Settings",         "Ctrl+,",       _open_settings),
-        CommandEntry("Find Files",       "Ctrl+Shift+F", sc.request_search),
+        CommandEntry("Find Files",       "Ctrl+Shift+F", lambda: (search_timer.start(), sc.request_search())),
         CommandEntry("Properties",       "Alt+Return",   lambda: coord.toggle("info", manager.active_pane_id)),
         CommandEntry("Bookmarks",        "Alt+B",        _open_bm_dialog),
     ]:
@@ -1813,6 +2047,19 @@ def create_app() -> MainWindow:
 
     palette = CommandPalette(registry, parent=window)
     QShortcut(QKeySequence("Ctrl+P"), window).activated.connect(palette.open)
+
+    # ── OmniBar (Ctrl+Space) ──────────────────────────────────────
+    from biome_fm.presenters.omnibar_presenter import OmnibarPresenter
+    from biome_fm.views.omnibar import OmniBar
+    omni_presenter = OmnibarPresenter(registry, frecency=frecency_store)
+    omni_bar = OmniBar(omni_presenter, parent=window)
+    omni_bar.navigated.connect(lambda p: _active().navigate_to(p))
+    QShortcut(QKeySequence("Ctrl+Space"), window).activated.connect(
+        lambda: omni_bar.activate(_active().current_path)
+    )
+    QShortcut(QKeySequence("Ctrl+Shift+E"), window).activated.connect(
+        lambda: omni_bar.activate(_active().current_path, prefix="@")
+    )
 
     # ── Fuzzy file finder ─────────────────────────────────────────
     fuzzy = FuzzyFinder(parent=window)
@@ -1848,6 +2095,20 @@ def create_app() -> MainWindow:
     QShortcut(QKeySequence("Ctrl+,"), window).activated.connect(_open_settings)
     window.settings_requested.connect(_open_settings)
     window.workspaces_requested.connect(_open_workspace_dialog)
+
+    def _refresh_workspace_menu() -> None:
+        m = window.workspace_menu
+        m.clear()
+        names = ws_store.list_names()
+        for i, name in enumerate(names[:5]):
+            act = m.addAction(f"{name}  Ctrl+Alt+{i + 1}")
+            act.triggered.connect(lambda checked=False, n=name: _load_workspace(n))
+        if not names:
+            m.addAction("No saved workspaces").setEnabled(False)
+        m.addSeparator()
+        m.addAction("Manage Workspaces…").triggered.connect(_open_workspace_dialog)
+
+    window.workspace_menu.aboutToShow.connect(_refresh_workspace_menu)
 
     def _open_dup_finder() -> None:
         from biome_fm.views.duplicate_panel import DuplicateFinderDialog
@@ -1976,26 +2237,49 @@ def create_app() -> MainWindow:
 
     # ── Save on close ─────────────────────────────────────────────
     def _on_close() -> None:
-        save_session(_snapshot_session(), cfg_dir / "session.json")
-        cfg.splitter_sizes = coord.pane_sizes()
-        _close_field = _AI_MODEL_FIELDS.get(ai_presenter._active_key)
-        if _close_field:
-            setattr(cfg, _close_field, ai_presenter._provider.active_model)
-        save_config(cfg, cfg_dir / "config.toml")
-        ai_presenter.shutdown()
-        _save_timer.stop()
-        drain_timer.stop()
-        preview_presenter.shutdown()
-        preview_timer.stop()
-        size_drain_timer.stop()
-        search_timer.stop()
-        op_timer.stop()
-        refresh_timer.stop()
-        watch_timer.stop()
-        left_watcher.stop()
-        right_watcher.stop()
-        op_queue.shutdown(wait=False)
-        git_worker.stop()
+        log = logging.getLogger(__name__)
+
+        def _step(label: str, fn: Callable[[], object]) -> None:
+            try:
+                fn()
+            except Exception:
+                log.exception("shutdown step failed: %s", label)
+
+        _step("save_session",        lambda: save_session(_snapshot_session(coord, left_tabs, right_tabs), cfg_dir / "session.json"))
+        _step("update_cfg_splitter", lambda: setattr(cfg, "splitter_sizes", coord.pane_sizes()))
+        _step("update_cfg_ai_model", lambda: (
+            setattr(cfg, _f, ai_presenter._provider.active_model)
+            if (_f := _AI_MODEL_FIELDS.get(ai_presenter._active_key)) else None
+        ))
+        _step("save_config",               lambda: save_config(cfg, cfg_dir / "config.toml"))
+        _step("left_tabs.shutdown",        left_tabs.shutdown)
+        _step("right_tabs.shutdown",       right_tabs.shutdown)
+        _step("bus.unsubscribe",           lambda: (
+            bus.unsubscribe(BookmarkChanged,   _on_bookmark_changed),
+            bus.unsubscribe(AsyncOpSubmitted,  _on_async_op),
+            bus.unsubscribe(OperationFinished, _on_op_finished),
+            bus.unsubscribe(OperationStarted,  _on_op_started),
+            bus.unsubscribe(OperationFinished, _on_op_finished_sb),
+            bus.unsubscribe(ActivePaneChanged,  _on_active_changed),
+            bus.unsubscribe(ShowHiddenToggled,  _on_show_hidden),
+            bus.unsubscribe(SyncBrowsingToggled, _on_sync_browsing),
+            bus.unsubscribe(ThemeChanged,       _on_theme_changed),
+        ))
+        _step("ai_presenter.shutdown",     ai_presenter.shutdown)
+        _step("_save_timer.stop",          _save_timer.stop)
+        _step("drain_timer.stop",          drain_timer.stop)
+        _step("preview_presenter.shutdown", preview_presenter.shutdown)
+        _step("preview_timer.stop",        preview_timer.stop)
+        _step("size_drain_timer.stop",     size_drain_timer.stop)
+        _step("search_timer.stop",         search_timer.stop)
+        _step("op_timer.stop",             op_timer.stop)
+        _step("refresh_timer.stop",        refresh_timer.stop)
+        _step("watch_timer.stop",          watch_timer.stop)
+        _step("session_timer.stop",        lambda: session_timer.stop())
+        _step("left_watcher.stop",         left_watcher.stop)
+        _step("right_watcher.stop",        right_watcher.stop)
+        _step("op_queue.shutdown",         lambda: op_queue.shutdown(wait=False))
+        _step("git_worker.stop",           git_worker.stop)
 
     # ── Leader key (which-key popup, F290) ───────────────────────
     from biome_fm.presenters.leader_handler import LeaderHandler
@@ -2007,7 +2291,7 @@ def create_app() -> MainWindow:
     _leader.register("\\h", manager.toggle_hidden)
     _leader.register("\\t", _dup_tab)
     _leader.register("\\p", palette.open)
-    _leader.register("\\s", sc.request_search)
+    _leader.register("\\s", lambda: (search_timer.start(), sc.request_search()))
     _wk_popup = WhichKeyPopup(window)
     _wk_filter = LeaderFilter(_leader, _wk_popup)
     QApplication.instance().installEventFilter(_wk_filter)  # type: ignore[union-attr]
@@ -2041,7 +2325,9 @@ def create_app() -> MainWindow:
         git_worker=git_worker,
         timers=[drain_timer, preview_timer, size_drain_timer, op_timer, search_timer, refresh_timer, watch_timer],
         tray=_tray,
+        session_timer=session_timer,
         hotkey_listener=_hotkey_listener,
+        volume_watcher=_vol_watcher,
     )
 
     return window

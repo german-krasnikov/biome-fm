@@ -56,7 +56,6 @@ src/biome_fm/
 │                       #   RemoteConnected(scheme, host) — remote VFS connected;
 │                       #   RemoteDisconnected(scheme, host) — remote VFS closed;
 │                       #   RemoteSyncing(scheme, host, active) — remote I/O in progress;
-│                       #   IPCCommandReceived(payload: dict) — external IPC command (F409);
 │                       #   publish_from_thread(event): thread-safe publish via QMetaObject.invokeMethod;
 │                       #   drain_threaded(): drains cross-thread SimpleQueue on the main thread
 │
@@ -130,13 +129,9 @@ src/biome_fm/
 │   ├── dir_state_store.py  # DirStateStore — JSON-backed per-dir ViewState with LRU eviction (max 500);
 │   │                        #   save(dir_path, state) / load(dir_path) → ViewState | None;
 │   │                        #   atexit flush via _store_base.atomic_write_json
-│   ├── file_indexer.py     # FileIndexer (QObject) — SQLite FTS5 background indexer;
-│   │                        #   index_dir(path) spawns daemon thread; indexing_done Signal;
-│   │                        #   search(query) → list[Path] via FTS5 MATCH
 │   ├── frecency_store.py   # FrecencyStore — JSON-backed frecency tracker for dirs (max 200);
 │   │                        #   record(path), score(entry) = visits/(age_secs+3600);
 │   │                        #   top(n) → list[FrecencyEntry] sorted by score; atexit flush
-│   ├── gitignore_filter.py # GitignoreFilter(repo_root) — is_ignored(path) via `git check-ignore -q`
 │   ├── project_detector.py # detect_project(path) → ProjectInfo | None;
 │   │                        #   walks up looking for pyproject.toml/package.json/Cargo.toml/etc;
 │   │                        #   ProjectInfo(type, root, name); MARKERS dict covers 7 ecosystems
@@ -195,6 +190,12 @@ src/biome_fm/
 │   │                           #   CloudProfileStore: TOML-backed CRUD;
 │   │                           #   schemes: s3/sftp/ssh/ftp/ftps/webdav/rclone;
 │   │                           #   path: ~/.config/biome-fm/cloud_profiles.toml
+│   ├── command_store.py    # UserCommand(id, label, command, shortcut) dataclass;
+│   │                        #   CommandStore: TOML-backed user-defined shell commands;
+│   │                        #   add/update/remove/all/find_by_shortcut/save/load
+│   ├── highlight_rules.py  # HighlightRule(pattern, color) frozen dataclass — glob + hex color;
+│   │                        #   match_highlight(name, rules) → color | None; pure Python, no Qt dep;
+│   │                        #   case-insensitive fnmatch; used by DirectoryModel for custom file colors
 │   ├── remote_cache.py     # RemoteListCache — thread-safe (RLock) TTL=30s cache for remote
 │   │                        #   directory listings; get/set/invalidate; key = str(path)
 │   ├── rclone_vfs.py       # RcloneVFS — VFS backed by `rclone lsjson` subprocess;
@@ -204,8 +205,6 @@ src/biome_fm/
 │   ├── preview_file_cache.py # PreviewFileCache — SHA1-keyed local temp files for remote preview;
 │   │                          #   50 MB max (configurable); LRU eviction; thread-safe (Lock);
 │   │                          #   get(path, mtime) → local Path | None; set/evict
-│   ├── cloud_connection_store.py # CloudConnectionStore — JSON-backed list of cloud URLs
-│   │                              #   (s3://, ftp://, etc.); add/remove/list/load/save
 │   ├── deps_scanner.py     # scan_cleanup_dirs(root, cancel, max_depth=6, patterns=None) → list[Path];
 │   │                        #   walks root collecting dirs matching _DEFAULT_PATTERNS frozenset
 │   │                        #   (node_modules, __pycache__, .venv, venv, target, dist, build, etc.);
@@ -238,27 +237,22 @@ src/biome_fm/
 │   │                        #   listdir() via `docker exec ls -la`; read_bytes() via `docker cp` + tarfile;
 │   │                        #   delegates ls parsing to ls_parser.parse_ls_line() (shared with FISHVfs);
 │   │                        #   docker_available() guard (shutil.which); list_containers() helper
-│   ├── filter_predicate.py  # FilterSpec dataclass (name, ext, size_op, size_bytes, mod_period);
-│   │                        #   parse_filter(text) → FilterSpec: tokenises "size:>10m mod:today ext:py foo";
-│   │                        #   filter_accepts(spec, name, size, modified, is_dir) → bool;
-│   │                        #   pure Python — no Qt, no FileItem dep; used by advanced filter bar (F415)
-│   ├── metadata_reader.py   # read_metadata(path) → dict[str, str]: EXIF (piexif, optional) for
-│   │                        #   .jpg/.tiff; audio tags (mutagen, optional) for .mp3/.flac/.ogg/.m4a;
-│   │                        #   empty dict on missing deps or read errors; used by [META:key] token (F428)
-│   ├── watch_rules.py       # WatchRule(watch_dir, pattern, command) dataclass;
-│   │                        #   WatchRuleStore: TOML-backed add/remove/all/load/save;
-│   │                        #   path: ~/.config/biome-fm/watch_rules.toml;
-│   │                        #   WatchRuleEngine: snapshot-diff engine — check_dir(watch_dir) detects
-│   │                        #   new files, matches fnmatch pattern, runs shell command with shlex.quote({file});
-│   │                        #   shell injection fix: {file} placeholder is now shlex-quoted before subprocess;
-│   │                        #   on_fired callback for UI notification; F422
+│   ├── search_template_store.py # SearchTemplate(name, pattern, mode, max_results) dataclass;
+│   │                            #   SearchTemplateStore: TOML-backed saved search templates;
+│   │                            #   modes: "wildcard" | "regex" | "content"; add/remove/list/save/load
 │   ├── session_store.py    # SessionStore — JSON-backed named sessions;
 │   │                        #   save(name, state) / load(name) → SessionState | None;
 │   │                        #   list() / delete(name); wraps session.py SessionState dataclasses;
 │   │                        #   persists PaneSideState.view_mode field (F456)
-│   └── macro_store.py      # MacroStore — JSON-backed keyboard macro storage;
-│                            #   save(name, keystrokes) / load(name) → list[str] | None;
-│                            #   list() / delete(name); path: ~/.config/biome-fm/macros.json (F457)
+│   ├── macro_store.py      # MacroStore — JSON-backed keyboard macro storage;
+│   │                        #   save(name, keystrokes) / load(name) → list[str] | None;
+│   │                        #   list() / delete(name); path: ~/.config/biome-fm/macros.json (F457)
+│   ├── tag_store.py        # TagStore — TOML-backed file→tags mapping with per-tag colors;
+│   │                        #   tags(path)/add_tag(path,tag)/remove_tag(path,tag)/save;
+│   │                        #   colors dict[tag→"#hex"]; path: ~/.config/biome-fm/tags.toml
+│   └── workspace_store.py  # WorkspaceStore — JSON-backed named workspace presets;
+│                            #   save(name, left_paths, right_paths)/load(name) → dict | None;
+│                            #   list_names()/delete(name); path: ~/.config/biome-fm/workspaces.json
 │
 ├── presenters/
 │   ├── pane_presenter.py     # Drives one pane (cd, select, sort, current_item);
@@ -330,46 +324,21 @@ src/biome_fm/
 │   │                         #   filter(query, paths) → top 100 by difflib.SequenceMatcher score
 │   ├── ai_diff_summary.py    # diff_summary_prompt(diff) → str; async summarize_diff(diff, ai_call)
 │   │                         #   → summary string; truncates diff at 4000 chars before sending
-│   ├── ai_group_rename.py    # async group_rename(names, ai_call) → list[str]; builds prompt asking
-│   │                         #   AI to rename list coherently; parse_group_response validates count
-│   ├── column_state.py       # ColumnState — tracks hidden columns (Name always visible);
-│   │                         #   is_visible/set_visible/toggle/visible_columns; 4 columns: Name/Size/Modified/Kind
-│   ├── copy_filter.py        # filter_by_mask(paths, mask) → list[Path];
-│   │                         #   comma-separated glob patterns (e.g. "*.py,*.js"); case-insensitive fnmatch
-│   ├── cross_marks.py        # CrossDirMarks — aggregated marks across multiple directories (no Qt);
-│   │                         #   add/remove per directory; all_paths() flattens; count(); clear()
-│   ├── drive_list.py         # VolumeInfo(root, name, free_bytes, total_bytes) dataclass;
-│   │                         #   list_volumes() → list[VolumeInfo] via QStorageInfo.mountedVolumes()
-│   ├── hotlist.py            # Hotlist(store) — thin wrapper over FrecencyStore.top();
-│   │                         #   items(limit=10) → deduplicated list[Path] ordered by frecency score
+│   ├── ai_rename_presenter.py # suggest_renames(names, provider) → list[str | None] — AI batch rename;
+│   │                           #   builds structured prompt, parses JSON array response;
+│   │                           #   returns None to keep original; provider.available guard
 │   ├── leader_handler.py     # LeaderHandler — vim-style leader key sequence dispatcher (no Qt);
 │   │                         #   register(sequence, action); feed(key) → 'pending'|'triggered'|'reset';
 │   │                         #   available() → [(remaining_keys, sequence)] for current prefix
-│   ├── miller_state.py       # MillerState — columns navigation state (max MAX_COLUMNS=4);
-│   │                         #   select_dir(path) appends column, evicts oldest when full;
-│   │                         #   go_back() → bool; active_column property; columns property
-│   ├── path_yank.py          # yank_component(path, key) → str | None;
-│   │                         #   keys: n=name, p=full path, d=parent dir, e=extension
-│   ├── predictive_dest.py    # suggest_destination(file_path, frecency, current_dir) → Path | None;
-│   │                         #   finds frecency-ranked dir containing files with same extension
-│   ├── project_actions.py    # ProjectAction(label, command) dataclass;
-│   │                         #   detect_actions(directory) → list[ProjectAction]; checks for .git,
-│   │                         #   pyproject.toml, package.json, go.mod; returns relevant commands
-│   ├── quick_view_state.py   # QuickViewState — saves/restores splitter sizes for quick-view mode;
-│   │                         #   toggle(current_sizes) → new_sizes; active property;
-│   │                         #   expand: sets right pane to 0; restore: returns saved sizes
+│   ├── nl_ops_presenter.py   # NLOperation(description, op, sources, destination) dataclass;
+│   │                         #   parse_nl_operation(text, ai_provider, cwd) → NLOperation;
+│   │                         #   validates op in {"copy","move","delete","mkdir"}; strips JSON fences;
+│   │                         #   structured prompt injection prevention (op whitelist); Qt-free
 │   ├── rename_template.py    # TC-style multi-rename token expander;
 │   │                         #   expand_template(template, path, index, counter_start, metadata=None) → str;
 │   │                         #   tokens: [N]=stem, [E]=ext, [C]/[C:n]=counter (zero-padded 3), [YMD]=mtime;
 │   │                         #   [META:key] substitutes EXIF/audio metadata from metadata dict (F428);
 │   │                         #   [TOKEN:upper/lower/title] case modifiers supported
-│   ├── semantic_search.py    # Keyword-based semantic search (no Qt, no ML);
-│   │                         #   extract_keywords(query) strips stopwords; score_path(path, kws);
-│   │                         #   search_by_keywords(paths, query) → list[(path, score)] sorted desc
-│   ├── sync_conflict.py      # SyncConflict(path, left_mtime, right_mtime) dataclass;
-│   │                         #   SyncSnapshot: JSON-backed per-pair {filename: {left_mtime, right_mtime}};
-│   │                         #   find_conflicts(entries, snapshot) → entries where both sides changed;
-│   │                         #   update_snapshot(entries, snapshot) records current mtimes
 │   ├── sync_executor.py      # SyncExecutor — VFS-agnostic sync op runner;
 │   │                         #   execute(ops) → int (done count); cancel threading.Event checked per op;
 │   │                         #   progress(done, total, name) callback;
@@ -398,12 +367,10 @@ src/biome_fm/
 │   │                         #   start() spawns daemon thread calling scan_cleanup_dirs(root, patterns);
 │   │                         #   computes size via rglob per dir; calls on_results(list[ReclaimEntry]);
 │   │                         #   cancel() sets threading.Event; ReclaimEntry(path, size); F431
-│   ├── uri_parser.py         # Backward-compat re-export shim → utils/uri_parser.py;
-│   │                          #   real implementation moved to utils/ (layer violation fix)
-│   └── macro_recorder.py     # MacroRecorder — records command-id sequences;
-│                              #   start() / record(command_id) / stop() → list[str];
-│                              #   MacroPlayer(registry).play(command_ids) runs callbacks;
-│                              #   Qt-free; wired in app.py with MacroStore for persistence (F457)
+│   └── temp_presenter.py     # TempEntry(path, size, age_days) dataclass;
+│                              #   list_temp_entries(max_entries=200) → list[TempEntry]: scans platform tmpdir;
+│                              #   delete_entries(entries) → int: removes temp files/dirs;
+│                              #   Qt-free
 │
 ├── views/
 │   ├── main_window.py    # QMainWindow: splitter, closeEvent, splitter_sizes persistence,
@@ -461,6 +428,18 @@ src/biome_fm/
 │   │                     #   biome-fm-paths + uri-list + text/plain; urls=False omits uri-list
 │   │                     #   (Alt-drag text-only); _MIME constant owned here; used by
 │   │                     #   _PaneTableView.mimeData() and _SegmentButton drag
+│   ├── _chat_log.py      # ChatLog (QTextBrowser) — bubble-style streaming AI chat;
+│   │                     #   _make_styles(tokens) builds per-role CSS (user/assistant/error);
+│   │                     #   append_message(role, text)/start_stream()/append_token(text)/finish_stream();
+│   │                     #   _linkify_html() wraps paths in biome: links; theme-aware token colors
+│   ├── _context_bar.py   # ContextBar (QScrollArea) — DnD attachment chip row;
+│   │                     #   add_chip(label)/clear(); chip_removed Signal(index); hidden when empty;
+│   │                     #   fixed height 36px; chips are QPushButton with ✕ suffix
+│   ├── _error_linkifier.py # linkify(text, cwd) → HTML — terminal error lines → clickable file links;
+│   │                        #   matches Python tracebacks, absolute paths, relative paths;
+│   │                        #   href scheme: "biome-file:///path?line=N"; pure Python, no Qt
+│   ├── _linkify.py       # _linkify_html(fragment) → str — wrap filesystem paths in biome: links;
+│   │                     #   skips paths inside code/pre/a tags; path regex covers /abs, ~/home, x/y/z forms
 │   ├── _panel_buttons.py # add_panel_buttons(header_layout, detach, close): shared ⬒/✕
 │   │                     #   chrome for overlay panels (24×24 buttons with tooltips)
 │   ├── filter_bar.py     # FilterBar: QLineEdit-based quick filter; hidden by default;
@@ -469,7 +448,13 @@ src/biome_fm/
 │   ├── jump_bar.py       # JumpBar: type-to-navigate overlay label; append_char() accumulates
 │   │                     #   keystrokes, emits jump_text_changed(str); auto-clears after 600ms;
 │   │                     #   PaneView._on_jump() scans proxy rows for prefix match
-│   ├── ai_chat_panel.py  # Passive AI chat (message_submitted Signal)
+│   ├── ai_chat_panel.py  # Passive AI chat (message_submitted Signal);
+│   │                     #   composed of ChatLog (_chat_log.py) + ContextBar (_context_bar.py)
+│   │                     #   + model selector QComboBox; bubble-style streaming with theme tokens
+│   ├── ai_context_dialog.py # AI Context Actions dialog — shows AI-suggested actions for files;
+│   │                          #   fetches suggestions async (ThreadPoolExecutor); action_chosen Signal(str)
+│   ├── ai_rename_dialog.py  # AI Rename Suggestions dialog — QTableWidget (original→suggested);
+│   │                          #   save_requested Signal(list[(old,new)]); rows editable before accept
 │   ├── action_bar.py     # F1-F10 function key bar (tooltips on all buttons)
 │   ├── command_palette.py # Fuzzy-search command launcher (Ctrl+P);
 │   │                     #   results sorted by hit count from CommandRegistry.search()
@@ -516,19 +501,32 @@ src/biome_fm/
 │   │                       #   fit-to-window mode (F key or button): scales pixmap to viewport;
 │   │                       #   1:1 mode: resets to original pixel size
 │   ├── archive_format_dialog.py # ArchiveFormatDialog — select archive name + format (zip/tar.gz/tar.bz2)
+│   ├── batch_rename_dialog.py # BatchRenameDialog — live preview table for multi-rename;
+│   │                           #   QTableWidget (original→new); updates on template change via RenamePresenter
+│   ├── bookmark_dialog.py  # BookmarkDialog — QTreeWidget with recursive node DnD reorder;
+│   │                        #   add/remove/rename nodes; save_requested Signal(list[BookmarkNode])
+│   ├── bookmark_menu.py    # bookmark_menu_widget(nodes, signal) → QWidget — recursive bookmark menu;
+│   │                        #   _build_menu() renders BookmarkNode tree into QMenu; separators + submenus
 │   ├── diff_view_dialog.py # DiffViewDialog(diff, title) — unified diff with Pygments syntax highlight;
 │   │                        #   falls back to <pre> if Pygments absent
+│   ├── checksum_dialog.py  # ChecksumDialog(paths) — QComboBox algorithm selector + results table;
+│   │                        #   Copy to Clipboard button; drives ChecksumCmd in background thread
+│   ├── confirm_dialog.py   # ConfirmDialog(op, sources, dest) — operation preview before execute;
+│   │                        #   shows file count/size summary; Ok/Cancel; used for bulk ops
+│   ├── conflict_dialog.py  # ConflictDialog(src, dst) — file conflict resolution UI;
+│   │                        #   buttons map to ConflictAction enum (Overwrite/Skip/Rename/Cancel/All variants);
+│   │                        #   shows src vs dst name, size, mtime comparison
 │   ├── dir_tree_panel.py   # DirTreePanel (QWidget) — QFileSystemModel tree (dirs only);
 │   │                        #   path_selected Signal(Path) on activation; set_root(path) scrolls to dir
 │   ├── disk_usage_widget.py # DiskUsageWidget (QProgressBar) — compact 120px bar;
 │   │                         #   update_path(path) calls shutil.disk_usage; tooltip shows free GB
+│   ├── duplicate_panel.py  # DuplicateDialog — QTreeWidget with dup groups (hash/size/paths);
+│   │                        #   drives find_duplicates() via background thread + queue drain;
+│   │                        #   QProgressBar while scanning; delete_selected button
 │   ├── editor_dialog.py    # EditorDialog — built-in QPlainTextEdit editor (QDialog);
 │   │                        #   Ctrl+S saves via EditorPresenter; saved Signal(Path); unsaved-changes guard;
 │   │                        #   find/replace toolbar: Ctrl+F → show; QTextDocument.find() for next/prev;
 │   │                        #   replace/replace-all via setPlainText; go-to-line: Ctrl+G → line number input
-│   ├── fayt_bar.py         # FAYTBar (Find-As-You-Type) — QLineEdit with mode prefix dispatch;
-│   │                        #   / → navigate_requested, : → command_requested, ? → search_requested,
-│   │                        #   no prefix → filter_changed; replaces FilterBar + JumpBar combo
 │   ├── git_commit_dialog.py # GitCommitDialog(repo, ai_call) — staged file list + message QPlainTextEdit;
 │   │                         #   "Suggest" button → _AISuggestWorker (QRunnable in QThreadPool):
 │   │                         #   calls staged_diff(repo) → diff_summary_prompt(diff) → ai_call → fills message;
@@ -542,6 +540,9 @@ src/biome_fm/
 │   │                        #   live filter QLineEdit; path_selected Signal(Path); Esc/Return shortcuts
 │   ├── menu_builder_dialog.py # MenuBuilderDialog — list/add/edit/remove UserActions via UserActionsStore;
 │   │                           #   Tool window; form: label, command, extensions; Save on accept
+│   ├── nl_ops_dialog.py    # NLOpsDialog — natural language file op input dialog;
+│   │                        #   QLineEdit + async parse via NLOpsPresenter; shows parsed op summary;
+│   │                        #   execute_requested Signal(NLOperation)
 │   ├── op_log_panel.py     # OpLogPanel + OpLogModel (QAbstractTableModel) — live operation log;
 │   │                        #   columns: Time/Operation/Status/Details; deque(max=500); add_entry(op,status,details)
 │   ├── open_with_dialog.py # OpenWithDialog — discover_apps() list + custom command QLineEdit;
@@ -552,8 +553,16 @@ src/biome_fm/
 │   │                         #   Permissions: 9 QCheckBox bits (rwxrwxrwx), read-only on non-POSIX;
 │   │                         #   Extended Attrs: QTableWidget (Key/Value), Add/Remove buttons,
 │   │                         #   inline edit via os.setxattr; uses os.listxattr/getxattr (macOS/Linux)
+│   ├── search_dialog.py    # SearchDialog — search parameters form (name glob, content, date range);
+│   │                        #   scope QComboBox; search_requested Signal(SearchRequest)
+│   ├── search_panel.py     # SearchResultsModel (QAbstractTableModel) + SearchResultsPanel;
+│   │                        #   columns: Name/Path/Modified/Size; item_activated Signal(Path)
 │   ├── sftp_connect_dialog.py # SFTPConnectDialog — host/port/user/password form;
 │   │                           #   connect_requested Signal(host, port, user, password)
+│   ├── sidebar_panel.py    # SidebarPanel (QWidget) — unified sidebar: Volumes/Bookmarks/Recent/Tags/Smart Folders;
+│   │                        #   QTreeWidget with 5 top-level sections; QStorageInfo for volumes;
+│   │                        #   path_activated/tag_activated/smart_folder_activated/volume_eject_requested Signals;
+│   │                        #   RMB context menu: Open/Copy Path/Eject per section
 │   ├── shortcut_help_dialog.py # ShortcutHelpDialog — static cheatsheet QTextBrowser (? or F1);
 │   │                            #   SHORTCUTS dict: 28 bindings rendered as HTML table
 │   ├── copy_move_dialog.py # CopyMoveDialog(op, sources, default_dest, history) — TC-style
@@ -562,6 +571,8 @@ src/biome_fm/
 │   │                               #   fields: name glob, extensions, min/max size, age days
 │   ├── quick_cd_dialog.py  # QuickCDDialog — frecency + live path-completion quick-CD (Alt+C);
 │   │                        #   path_selected Signal(Path)
+│   ├── pattern_dialog.py   # PatternDialog — select/deselect files by glob pattern;
+│   │                        #   QComboBox with history; mode=select|deselect; returns pattern string
 │   ├── permissions_editor_dialog.py # Bulk chmod dialog — 9 QCheckBox bits (rwxrwxrwx);
 │   │                                 #   common mode for mixed selections; POSIX-only
 │   ├── which_key_popup.py  # WhichKeyPopup — floating monospace hint overlay (ToolTip window);
@@ -572,21 +583,42 @@ src/biome_fm/
 │   │                            #   list pane (left) + edit form (right); scheme QComboBox
 │   ├── quick_connect_bar.py # QuickConnectBar — QComboBox + Connect button;
 │   │                         #   connect_requested Signal(uri: str)
-│   ├── upload_queue_panel.py # UploadQueuePanel — passive view for upload queue;
-│   │                          #   add_upload/on_progress/on_complete/on_error per task_id
+│   ├── transfer_queue_panel.py # TransferQueuePanel — live transfer rows with progress bar + cancel;
+│   │                           #   _TransferRow per task_id (description, QProgressBar, Cancel button);
+│   │                           #   on_progress(task_id, done, total)/on_complete(task_id)/on_error(task_id)
 │   ├── editor_highlighter.py # PygmentsHighlighter (QSyntaxHighlighter) — Pygments-backed
 │   │                          #   syntax highlighting for EditorDialog; theme-aware; 512 KB guard
+│   ├── fullscreen_viewer.py # FullscreenViewer (QDialog) — fullscreen preview with arrow-key nav;
+│   │                          #   loads PreviewResult from PreviewPresenter; ← → keys advance files
+│   ├── fuzzy_finder.py     # FuzzyFinder (QFrame, popup) — fuzzy file finder overlay;
+│   │                        #   QLineEdit + QListWidget; drives FuzzyPresenter in background thread;
+│   │                        #   path_selected Signal(Path)
+│   ├── glass.py            # prepare_glass(window) → bool — pyqt-liquidglass compositor blur;
+│   │                        #   returns False if pyqt_liquidglass absent (optional dep, no-op fallback)
+│   ├── glass_style.py      # GlassProxyStyle (QProxyStyle) — suppresses opaque fills for glass-tagged widgets;
+│   │                        #   skips CE_MenuBarEmptyArea/CE_ShapedFrame draw calls; _GLASS_PROP property tag
 │   ├── group_delegate.py   # GroupDelegate (QStyledItemDelegate) — accent separator + group label
 │   │                        #   above first row of each group; reads GROUP_ROLE from proxy
+│   ├── highlight_rules_dialog.py # HighlightRulesDialog — QTableWidget (pattern/color rows);
+│   │                               #   Add/Remove buttons; color cells open QColorDialog;
+│   │                               #   save_requested Signal(list[HighlightRule])
 │   ├── large_file_dialog.py # LargeFileDialog — scan_large_files() os.walk; configurable min-size;
 │   │                         #   sortable QTableView; top-100 results
 │   ├── treemap_panel.py    # TreemapPanel (QWidget) — QPainter squarify storage treemap;
 │   │                        #   hover tooltip; path_clicked Signal(Path); wired to TreemapPresenter
 │   ├── session_picker_dialog.py # SessionPickerDialog — browse, save, delete named sessions;
 │   │                             #   wraps SessionStore; selected_name attr on Load
+│   ├── sync_dialog.py      # SyncDialog — directory diff and sync UI;
+│   │                        #   QTableWidget showing CompareEntry status (left-only/right-only/newer);
+│   │                        #   drives preview_sync() then SyncExecutor; sync_requested Signal
+│   ├── tag_dialog.py       # TagDialog — chip-style tag editor; QLineEdit + QComboBox + chips;
+│   │                        #   tags_accepted Signal(list[str]); uses TagStore for color display
 │   ├── task_runner_dialog.py # TaskRunnerDialog — Makefile/Justfile target runner;
 │   │                          #   _collect_targets() finds make/just targets in directory;
 │   │                          #   QProcess output in QPlainTextEdit; split list + output view
+│   ├── temp_panel.py       # TempPanel (QDialog) — browse/clean temp files;
+│   │                        #   QTableWidget (path/size/age); drives list_temp_entries() + delete_entries();
+│   │                        #   Delete Selected button; total size label
 │   ├── terminal_panel.py   # TerminalPanel (QWidget) — embedded QProcess terminal;
 │   │                        #   start(cwd, *, selected, cursor): injects BIOME_CWD, BIOME_SELECTED
 │   │                        #   (newline-joined), BIOME_CURSOR into QProcessEnvironment before launch;
@@ -614,6 +646,9 @@ src/biome_fm/
 │   ├── toolbar_builder_dialog.py # ToolbarBuilderDialog — drag-and-drop toolbar action editor;
 │   │                              #   shows all registry commands (left list) + current toolbar (right list);
 │   │                              #   Add/Remove/Move Up/Move Down; emits accepted_actions Signal(list[str]) (F455)
+│   ├── workspace_dialog.py # WorkspaceDialog — save/load/delete named workspace presets;
+│   │                        #   save_requested/load_requested/delete_requested Signal(name);
+│   │                        #   uses WorkspaceStore; list + Save/Load/Delete buttons
 │   └── theme.py          # TOML-based theme system; load_theme(name) resolves plugin hook
 │                          #   → TOML inheritance (meta.inherits) → _DARK_FALLBACK;
 │                          #   _find_theme(): user AppConfig/biome-fm/themes/ first, then
@@ -649,8 +684,6 @@ src/biome_fm/
 │   ├── multi_rename_cmd.py # MultiRenameCmd (batch with pattern/counter)
 │   ├── editor_rename_cmd.py # EditorRenameCmd — opens $EDITOR with names in tmp file;
 │   │                        #   diffs old vs new names, applies RenameCmd per changed line; undoable
-│   ├── export_listing_cmd.py # ExportListingCmd — writes current dir listing to .txt or .csv;
-│   │                         #   fields: name, size, modified ISO timestamp; not undoable
 │   ├── new_file_cmd.py     # NewFileCmd(path, content=b"") — creates file, undo=unlink; undoable
 │   ├── symlink_cmd.py      # SymlinkCmd(target, link) — symlink_to; undo=unlink; undoable;
 │   │                        #   HardlinkCmd(target, link) — os.link; undo=unlink; undoable
@@ -659,9 +692,6 @@ src/biome_fm/
 │   ├── chmod_cmd.py        # ChmodCmd(paths, mode, recursive, vfs) — batch os.chmod with undo;
 │   │                        #   saves previous mode per path; delegates to vfs.chmod if available;
 │   │                        #   POSIX-only; undoable
-│   ├── chown_cmd.py        # ChownCmd(paths, uid, gid) — batch os.chown with undo;
-│   │                        #   saves (path, old_uid, old_gid) per file; raises NotImplementedError
-│   │                        #   on Windows; POSIX-only; undoable
 │   ├── remote_edit_cmd.py  # RemoteEditCmd(path, vfs, editor_cmd) — download→edit→re-upload;
 │   │                        #   tempfile per suffix; re-uploads only if mtime changed; not undoable
 │   ├── tag_cmd.py          # TagCmd(paths, add_tags, remove_tags, store) — batch tag assignment;
@@ -671,19 +701,12 @@ src/biome_fm/
 │   │                        #   password-protected .7z creation; requires 7-Zip binary; undoable
 │   ├── quarantine_cmd.py   # RemoveQuarantineCmd(paths) — removes com.apple.quarantine xattr;
 │   │                        #   saves old xattr value per path for undo; undoable; macOS-only
-│   ├── replace_cmd.py      # ReplaceCmd(path, query, replacement, regex=False) — in-place text replace;
-│   │                        #   atomic write: .bak backup → .tmp write → rename; undoable via .bak restore;
-│   │                        #   execute() → ReplaceResult(path, count, preview); uses _decode_content;
-│   │                        #   search_replace(paths, query, replacement, regex, dry_run) batch helper
-│   ├── rsync_cmd.py        # RsyncCmd(sources, dest_dir, cancel, report, extra_args) — Command subclass;
-│   │                        #   delta-transfer via rsync subprocess (archive mode + progress parsing);
-│   │                        #   cancel-safe: polls cancel.is_set() between sources, SIGTERM on cancel;
-│   │                        #   undo deletes created destination files; rsync_available() guard;
-│   │                        #   extra_args passthrough (e.g. --checksum, --exclude)
-│   └── batch_exec_cmd.py   # BatchExecCmd(template, paths, cancel, on_progress) — run shell template
-│                            #   on each selected file; not undoable;
-│                            #   expand_template(template, path) replaces {f}=path, {n}=stem,
-│                            #   {e}=ext, {d}=parent; cancel-safe (threading.Event); F412
+│   ├── checksum_cmd.py     # ChecksumCmd(paths, algorithm) — compute file hashes; not undoable;
+│   │                        #   algorithms: md5/sha1/sha256/sha512/xxhash(optional)/blake3(optional);
+│   │                        #   64 KB chunk read; ChecksumResult(path, algorithm, digest) dataclass
+│   └── git_stage.py        # GitStageCmd(path, repo_root) — `git add`; undoable via `git restore --staged`;
+│                            #   GitUnstageCmd(path, repo_root) — `git restore --staged`; undoable via re-add;
+│                            #   both use run_git() from git/run.py
 │
 ├── git/
 │   ├── run.py              # run_git(args, cwd, timeout=5) → stdout str — single subprocess wrapper;
@@ -706,15 +729,8 @@ src/biome_fm/
 │   │                       #   staged_diff(repo) → str — full staged diff via git diff --cached;
 │   │                       #   commit(repo, message) → short hash; raises ValueError (empty msg)
 │   │                       #   or RuntimeError on git failure
-│   ├── virtual_pane.py     # git_changed_files(repo, cache) → list[FileItem];
-│   │                        #   builds virtual pane from all dirty paths in repo via GitStatusCache
-│   ├── worktree_ops.py     # list_worktrees(repo) → list[dict{path,head,branch}];
-│   │                        #   parses `git worktree list --porcelain`; timeout-safe
-│   └── conflict_ops.py     # ConflictMarker(line, marker, label) frozen dataclass;
-│                            #   ConflictRegion(start, separator, end, ours, theirs) dataclass;
-│                            #   conflicted_files(repo) → list[str] (git diff --diff-filter=U);
-│                            #   find_conflict_markers(path) → list[ConflictMarker];
-│                            #   parse_conflict_regions(path) → list[ConflictRegion]
+│   └── worktree_ops.py     # list_worktrees(repo) → list[dict{path,head,branch}];
+│                           #   parses `git worktree list --porcelain`; timeout-safe
 │
 ├── operations/
 │   ├── queue.py          # OpQueue: asyncio + ThreadPoolExecutor;
@@ -760,6 +776,24 @@ src/biome_fm/
 │       ├── script.py     # ScriptPreviewProvider + ScriptSpec(extensions, command, priority);
 │       │                 #   load_script_providers(dir) reads *.toml to build providers;
 │       │                 #   command uses %f placeholder for file path; 5s timeout
+│       ├── archive.py        # ArchivePreviewProvider (priority=6); .zip/.jar/.whl/.tar/.tgz;
+│                           #   lists archive contents as HTML table (up to 500 entries)
+│       ├── git_diff.py       # GitDiffPreviewProvider (priority=3); any file in a git repo with unstaged changes;
+│                           #   runs `git diff` → Pygments diff syntax highlight; skips binary exts
+│       ├── hex.py            # HexPreviewProvider — hex dump for binary files; 4096 byte limit;
+│                           #   can_handle: binary ext OR any file not in text-ext whitelist;
+│                           #   returns ContentKind.TEXT with aligned address + hex + ASCII columns
+│       ├── metadata.py       # MetadataPreviewProvider (priority=7); audio files (.mp3/.flac/.ogg etc.);
+│                           #   mutagen optional dep; shows Title/Artist/Album/Duration as HTML
+│       ├── pdf.py            # PDFPreviewProvider (priority=4); .pdf;
+│                           #   tries pymupdf (fitz) first, falls back to pdftotext CLI subprocess;
+│                           #   50k char limit; returns ContentKind.TEXT
+│       ├── quicklook.py      # QuickLookProvider (priority=990); macOS-only; any file;
+│                           #   qlmanage -t -s 512 generates thumbnail PNG; returns IMAGE kind;
+│                           #   tempdir cleaned on object del; platform guard: darwin only
+│       ├── video.py          # VideoPreviewProvider (priority=7); .mp4/.mkv/.avi/.mov/.webm/.m4v;
+│                           #   ffmpeg subprocess extracts frame at 1s; returns IMAGE kind;
+│                           #   shutil.which("ffmpeg") guard
 │       ├── sqlite_preview.py # SqlitePreviewProvider (priority=5); .db/.sqlite/.sqlite3;
 │       │                     #   opens read-only (URI mode); lists up to 5 tables × 20 rows as HTML;
 │       │                     #   table names validated against sqlite_master whitelist (SQL injection fix)
@@ -820,6 +854,9 @@ src/biome_fm/
 │
 ├── ai/
 │   ├── __init__.py       # Package init
+│   ├── context_actions.py # builtin_actions(ext) → list[(label, action_id)] — static extension→action map;
+│   │                      #   covers .py/.js/.ts/.jpg/.png/.md/.json/.csv/.zip etc.;
+│   │                      #   no AI call required; used by AIContextDialog for quick suggestions
 │   ├── provider.py       # AIProviderProtocol (runtime-checkable) + NoOpProvider +
 │   │                     #   make_providers(cfg) → dict[str, AIProviderProtocol];
 │   │                     #   protocol now includes terminate() (stop in-flight request) and
@@ -854,16 +891,6 @@ src/biome_fm/
 │                          #   install_quick_action() → ~/Library/Services/Open in Biome FM.workflow;
 │                          #   no-op on non-macOS; biome-fm install-service CLI subcommand
 │
-├── ipc/                  # External IPC control interface (no SDK dep) — F409
-│   ├── server.py         # IPCServer (QObject): QLocalServer on socket name "biome-fm";
-│   │                     #   start() / stop(); _on_connection() reads JSON payload;
-│   │                     #   publishes IPCCommandReceived(payload) to EventBus
-│   ├── client.py         # send_command(payload, timeout=2.0) — stdlib AF_UNIX client;
-│   │                     #   Qt-free; not supported on Windows (raises NotImplementedError)
-│   └── rest_server.py    # RestAPIServer — stdlib HTTPServer in daemon thread; Bearer token auth;
-│                         #   POST dispatches JSON payload to EventBus as IPCCommandReceived;
-│                         #   start() → int (actual port, supports port=0 auto-assign) (F445)
-│
 └── utils/
     ├── platform.py       # IS_MAC / IS_WIN / IS_LINUX; quick_look(path), quick_look_item(item),
     │                     #   reveal_in_finder(path), get_modifier_name() — cross-platform
@@ -892,9 +919,17 @@ src/biome_fm/
     │                       #   detect_scheme(text) → scheme | None; known: sftp/ssh/s3/ftp/ftps/webdav;
     │                       #   parse_uri(text) → ParsedURI via urllib.parse.urlparse;
     │                       #   moved from presenters/ to utils/ (layer violation fix — no presenter logic)
-    └── transfer_stats.py # TransferStats — EWMA-smoothed (α=0.3) transfer speed tracker (no Qt);
-                          #   update(t, bytes_done, bytes_total); speed_bps() → float; eta_seconds();
-                          #   format_speed(bps) → "1.2 MB/s"; format_eta(secs) → "2m 30s"
+    ├── dir_size.py         # calc_tree_size(paths, cancel) → int — recursive size sum; cancel[0]=True aborts;
+    │                       #   ThreadPoolExecutor(4) pool for parallel walks; returns -1 if cancelled
+    ├── nat_sort.py         # nat_key(name) → list — natural sort key; splits on digit runs;
+    │                       #   NFC-normalised, case-insensitive; IMG_2 < IMG_10; shared by DirectoryModel
+    ├── shell_vars.py       # expand_shell_vars(cmd, *, files, cwd, other_cwd) → str;
+    │                       #   TC-style expansion: $F=all-files, $f=first, $d=cwd, $t=other-cwd, $n=stem, $e=ext;
+    │                       #   shlex.quote prevents injection; used by UserActionsStore and CommandStore
+    └── watcher.py          # WatchService — watchfiles-backed filesystem watcher with debouncer;
+                            #   _Debouncer fires callback at most once per delay after last trigger;
+                            #   WatchService.start(path, callback)/stop();
+                            #   watchfiles absent → silent no-op (optional dep)
 ```
 
 ## Patterns
@@ -1109,16 +1144,23 @@ Provider priority (ascending = higher wins; first `can_handle` match used):
 | ImagePreviewProvider | 0 | jpg/png/gif/webp/svg/bmp/tiff/ico | 50 MB |
 | GitBlamePreviewProvider | 2 | any file in git repo (mode: Blame) | — |
 | GitLogPreviewProvider | 2 | any file in git repo (mode: Log) | — |
+| GitDiffPreviewProvider | 3 | any file in git repo with unstaged changes | — |
 | OfficeProvider | 3 | .docx/.xlsx/.pptx | 2 MB |
+| PDFPreviewProvider | 4 | .pdf | 50k chars |
 | NotebookProvider | 4 | .ipynb | 4 MB |
 | JsonTreeProvider | 5 | .json/.xml/.yaml/.yml/.toml | 512 KB |
 | MarkdownPreviewProvider | 5 | .md/.markdown/.mdx/.mdown | 200 KB |
 | SqlitePreviewProvider | 5 | .db/.sqlite/.sqlite3 | — |
+| ArchivePreviewProvider | 6 | .zip/.jar/.whl/.tar/.tgz | 500 entries |
 | CsvTableProvider | 6 | .csv/.tsv | 10 MB |
+| MetadataPreviewProvider | 7 | .mp3/.flac/.ogg/.m4a/.aac etc. | — |
+| VideoPreviewProvider | 7 | .mp4/.mkv/.avi/.mov/.webm/.m4v | — |
 | EnvFileProvider | 8 | .env / .env.* | — |
 | CodePreviewProvider | 8 | Pygments-supported (not TextLexer) | 512 KB |
 | TextPreviewProvider | 10 | .py/.js/.ts/.toml/.json + 20 more | 256 KB |
+| HexPreviewProvider | — | binary extensions or non-text files | 4 KB |
 | ScriptPreviewProvider | 50 (default) | configured extensions (.toml spec) | — |
+| QuickLookProvider | 990 | any file (macOS only) | — |
 | FallbackProvider | 999 | * (always) | — |
 
 Cache: 64 entries, key `(path, mtime, dark)`. Each entry stores `(PreviewResult, timestamp)`.
@@ -1289,3 +1331,56 @@ biome-fm configure          # dispatched in __main__.py before Qt import
                        JSON clients: atomic write via tmp file + os.replace
                        TOML clients: section merge
 ```
+
+### Chunked Async Dir Loading
+
+`PanePresenter.navigate()` now loads directory entries off the main thread and drains them
+in batches via a `nav_queue` + `drain_nav` QTimer (50ms). This prevents the UI from freezing
+on large directories.
+
+```
+navigate(path)
+      │
+      ▼
+_load_dir_async(path)  [ThreadPoolExecutor]
+      │  produces chunks of FileItem
+      ▼
+nav_queue.put(chunk)
+      │
+drain_nav QTimer (50ms) — main thread
+      ▼
+DirectoryModel.append_items(chunk) → view updates incrementally
+```
+
+`canFetchMore`/`fetchMore` on `DirSortFilterProxy` handles virtual scrolling for very large
+dirs. The drain timer stops when the queue is empty to avoid unnecessary wakeups.
+
+### run_git() Centralization
+
+All git subprocess calls route through `git/run.py::run_git(args, cwd, timeout=5) → str`.
+This single function: checks return code, raises `RuntimeError` on failure, enforces timeout.
+Previously 16 call sites had ad-hoc `subprocess.run` with inconsistent error handling.
+`preview/providers/_git_helpers.py` re-exports `run_git` from `git/run.py` for providers.
+
+### Signal Tracking and Cleanup
+
+`PanePresenter._track(signal, slot)` registers every `signal.connect(slot)` call and stores
+the pair. `cleanup()` disconnects all tracked signals. This prevents stale callbacks when
+tabs are closed or panes are swapped. 183 connections tracked across the app at startup.
+`TabsPresenter` calls `presenter.cleanup()` before destroying a tab's presenter.
+
+### Theme Tokens in Preview Providers
+
+Preview providers that generate HTML pass `PreviewRequest.dark` to select appropriate
+Pygments formatters (`monokai` for dark, `friendly` for light). HTML output uses inline
+`<style>` blocks with background/foreground from the current theme tokens rather than
+hard-coded hex values. `ThemeChanged` event → `PreviewPresenter.set_dark()` triggers
+a cache invalidation so the next cursor move re-renders with the new palette.
+
+### Sidebar Panel
+
+`SidebarPanel` (views/sidebar_panel.py) is a unified left-sidebar QTreeWidget with five
+top-level sections: Volumes, Bookmarks, Recent, Tags, Smart Folders.
+`SmartFolder` entries come from `SearchTemplateStore`; activating one triggers
+`smart_folder_activated(SearchTemplate)` which the app wires to `SearchCoordinator`.
+`VolumeWatcher` updates the Volumes section on hot-plug events.

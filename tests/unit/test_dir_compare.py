@@ -6,7 +6,6 @@ import time
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-import pytest
 from pathlib import Path
 
 from biome_fm.models.file_item import FileItem

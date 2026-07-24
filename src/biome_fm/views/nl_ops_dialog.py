@@ -1,6 +1,8 @@
 """Natural language file operation dialog."""
 from __future__ import annotations
 
+import queue as _queue
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from biome_fm.presenters.nl_ops_presenter import NLOperation, parse_nl_operation
@@ -10,6 +12,7 @@ from biome_fm.qt import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QTimer,
     QVBoxLayout,
     QWidget,
     Signal,
@@ -62,21 +65,43 @@ class NLOpsDialog(QDialog):
         action_row.addWidget(cancel_btn)
         layout.addLayout(action_row)
 
+        self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="nl-ai")
+        self._result_q: _queue.SimpleQueue = _queue.SimpleQueue()
+        self._poll = QTimer(self)
+        self._poll.setInterval(50)
+        self._poll.timeout.connect(self._drain)
+
     def _on_parse(self) -> None:
         text = self._input.text().strip()
         if not text:
             return
         self._status.setText("Parsing…")
+        self._parse_btn.setEnabled(False)
         self._exec_btn.setEnabled(False)
-        self._op = parse_nl_operation(text, self._cwd, self._provider)
-        if self._op is None:
+        self._pool.submit(self._run_parse, text)
+        self._poll.start()
+
+    def _run_parse(self, text: str) -> None:
+        """Background thread — no Qt allowed."""
+        result = parse_nl_operation(text, self._cwd, self._provider)
+        self._result_q.put(result)
+
+    def _drain(self) -> None:
+        try:
+            result = self._result_q.get_nowait()
+        except _queue.Empty:
+            return
+        self._poll.stop()
+        self._parse_btn.setEnabled(True)
+        self._op = result
+        if result is None:
             self._status.setText("Could not parse — check AI provider configuration.")
         else:
-            srcs = ", ".join(str(s.name) for s in self._op.sources) or "(none)"
-            dst = str(self._op.destination) if self._op.destination else "(none)"
+            srcs = ", ".join(str(s.name) for s in result.sources) or "(none)"
+            dst = str(result.destination) if result.destination else "(none)"
             self._status.setText(
-                f"<b>{self._op.description}</b><br>"
-                f"Op: {self._op.op} | Sources: {srcs} | Destination: {dst}"
+                f"<b>{result.description}</b><br>"
+                f"Op: {result.op} | Sources: {srcs} | Destination: {dst}"
             )
             self._exec_btn.setEnabled(True)
 
@@ -84,3 +109,8 @@ class NLOpsDialog(QDialog):
         if self._op:
             self.execute_requested.emit(self._op)
             self.accept()
+
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        self._poll.stop()
+        self._pool.shutdown(wait=False, cancel_futures=True)
+        super().closeEvent(event)

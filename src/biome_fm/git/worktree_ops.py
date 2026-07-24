@@ -1,22 +1,15 @@
 """F293 — Git worktree navigator."""
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
-_TIMEOUT = 5
+from biome_fm.git.run import run_git
 
 
 def list_worktrees(repo: Path) -> list[dict]:
     """Return list of dicts with keys: path, branch, head."""
-    try:
-        r = subprocess.run(
-            ["git", "worktree", "list", "--porcelain"],
-            cwd=repo, capture_output=True, text=True, timeout=_TIMEOUT,
-        )
-        return _parse(r.stdout)
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-        return []
+    raw = run_git(["worktree", "list", "--porcelain"], cwd=repo, timeout=5, safe=True)
+    return _parse(raw) if raw else []
 
 
 def _parse(output: str) -> list[dict]:

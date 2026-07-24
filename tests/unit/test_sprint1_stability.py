@@ -1,13 +1,11 @@
 """Unit tests for Sprint 1 critical stability fixes."""
 from __future__ import annotations
 
-import queue
 import sqlite3
 import stat
 import tempfile
-import threading
 from pathlib import Path, PurePosixPath
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -269,49 +267,6 @@ def test_atomic_write_creates_parent_dir(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Fix #27 — EventBus.publish_from_thread + drain_threaded
-# ---------------------------------------------------------------------------
-
-def test_publish_from_thread_delivers_to_main():
-    from biome_fm.event_bus import EventBus
-
-    class Evt:
-        def __init__(self, val):
-            self.val = val
-
-    bus = EventBus()
-    received = []
-    bus.subscribe(Evt, received.append)
-
-    t = threading.Thread(target=lambda: bus.publish_from_thread(Evt(42)))
-    t.start()
-    t.join()
-    assert received == []  # not delivered yet — only queued
-    bus.drain_threaded()
-    assert len(received) == 1
-    assert received[0].val == 42
-
-
-def test_publish_from_thread_does_not_call_handler_immediately():
-    from biome_fm.event_bus import EventBus
-
-    Evt = type("Evt", (), {"__init__": lambda self: None})
-    bus = EventBus()
-    received = []
-    bus.subscribe(Evt, received.append)
-
-    bus.publish_from_thread(Evt())
-    assert received == []  # not called yet — drain not called
-
-
-def test_drain_threaded_empty_is_noop():
-    from biome_fm.event_bus import EventBus
-
-    bus = EventBus()
-    bus.drain_threaded()  # must not raise
-
-
-# ---------------------------------------------------------------------------
 # Fix #28 — SpaceReclaimerPresenter marshal_fn
 # ---------------------------------------------------------------------------
 
@@ -421,69 +376,7 @@ def test_git_worker_stop_called_on_close():
 
     assert hasattr(GitStatusWorker, "stop")
     app_src = (Path(__file__).resolve().parents[2] / "src/biome_fm/app.py").read_text()
-    assert "git_worker.stop()" in app_src, "_on_close must call git_worker.stop()"
-
-
-# ---------------------------------------------------------------------------
-# Fix #18 — WatchRuleEngine shlex.quote
-# ---------------------------------------------------------------------------
-
-def test_watch_rule_engine_shell_injection(tmp_path, monkeypatch):
-    from biome_fm.models.watch_rules import WatchRule, WatchRuleEngine, WatchRuleStore
-
-    store = WatchRuleStore.__new__(WatchRuleStore)
-    store._rules = [WatchRule(
-        watch_dir=str(tmp_path),
-        pattern="*.txt",
-        command="echo {file}",
-    )]
-
-    engine = WatchRuleEngine(store)
-    engine._snapshots[str(tmp_path)] = set()
-
-    evil = tmp_path / "evil; echo INJECTED.txt"
-    evil.touch()
-
-    popen_calls = []
-    monkeypatch.setattr(
-        "biome_fm.models.watch_rules.subprocess.Popen",
-        lambda cmd, **kw: popen_calls.append(cmd),
-    )
-
-    engine.check_dir(str(tmp_path))
-    assert len(popen_calls) == 1
-    assert "'" in popen_calls[0], "Malicious filename must be shell-quoted"
-    assert "; echo INJECTED" not in popen_calls[0].replace("'", "")\
-        or popen_calls[0].count("'") >= 2
-
-
-def test_watch_rule_engine_normal_path(tmp_path, monkeypatch):
-    from biome_fm.models.watch_rules import WatchRule, WatchRuleEngine, WatchRuleStore
-
-    store = WatchRuleStore.__new__(WatchRuleStore)
-    store._rules = [WatchRule(
-        watch_dir=str(tmp_path),
-        pattern="*.txt",
-        command="cat {file}",
-    )]
-
-    engine = WatchRuleEngine(store)
-    engine._snapshots[str(tmp_path)] = set()
-
-    spacy = tmp_path / "my file with spaces.txt"
-    spacy.touch()
-
-    popen_calls = []
-    monkeypatch.setattr(
-        "biome_fm.models.watch_rules.subprocess.Popen",
-        lambda cmd, **kw: popen_calls.append(cmd),
-    )
-
-    engine.check_dir(str(tmp_path))
-    assert len(popen_calls) == 1
-    assert "my file with spaces" in popen_calls[0]
-    # path must be quoted (single quotes or escaped spaces)
-    assert "'" in popen_calls[0] or "\\ " in popen_calls[0]
+    assert "git_worker.stop" in app_src, "_on_close must call git_worker.stop"
 
 
 # ---------------------------------------------------------------------------
@@ -494,7 +387,5 @@ def test_no_duplicate_shortcuts():
     import re
     app_src = (Path(__file__).resolve().parents[2] / "src/biome_fm/app.py").read_text()
     shortcuts = re.findall(r'QShortcut\s*\(\s*QKeySequence\s*\(\s*"([^"]+)"', app_src)
-    # Only assert the two shortcuts we specifically fixed in Sprint 1
-    for key in ("Ctrl+Shift+T", "Ctrl+Shift+L"):
-        count = shortcuts.count(key)
-        assert count <= 1, f"Duplicate shortcut: {key} appears {count} times"
+    dupes = [k for k in set(shortcuts) if shortcuts.count(k) > 1]
+    assert not dupes, f"Duplicate shortcuts in app.py: {dupes}"

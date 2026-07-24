@@ -1,6 +1,5 @@
 """URI parser unit tests — F040."""
-import pytest
-from biome_fm.presenters.uri_parser import ParsedURI, detect_scheme, parse_uri
+from biome_fm.utils.uri_parser import detect_scheme, parse_uri
 
 
 def test_detect_uri_scheme():

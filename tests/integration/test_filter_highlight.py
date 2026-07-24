@@ -1,4 +1,3 @@
-import pytest
 
 
 def test_delegate_has_set_filter(qtbot):

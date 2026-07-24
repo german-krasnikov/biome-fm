@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
 
 from biome_fm.models.dir_state_store import DirStateStore
 from biome_fm.models.view_state import ViewState

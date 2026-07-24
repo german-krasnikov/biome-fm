@@ -14,7 +14,7 @@ class JumpBar(QWidget):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(4, 2, 4, 2)
         self._label = QLabel()
-        self._label.setStyleSheet("background: rgba(0,0,0,0.7); color: white; padding: 2px 6px;")
+        self._label.setObjectName("jump_bar_label")
         layout.addWidget(self._label)
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)

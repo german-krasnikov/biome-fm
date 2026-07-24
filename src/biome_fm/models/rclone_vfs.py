@@ -75,7 +75,7 @@ class RcloneVFS:
         )
 
     def write_bytes(self, path: Path, data: bytes) -> None:
-        proc = subprocess.run(
+        subprocess.run(
             ["rclone", "rcat", self._rclone_path(path)],
             input=data,
             check=True,

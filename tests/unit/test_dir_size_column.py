@@ -1,12 +1,10 @@
 """Unit tests for F253 — Folder Size Column background calc."""
 from __future__ import annotations
 
-import threading
 import time
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import pytest
 
 from biome_fm.models.file_item import FileItem
 from biome_fm.presenters.pane_presenter import PanePresenter
@@ -92,6 +90,8 @@ def test_calculate_dir_sizes_calls_worker(tmp_path: Path) -> None:
     view = FakeView()
     p = PanePresenter(view, vfs)
     p.navigate_to(tmp_path)
+
+    p._nav_future.result(); p.drain_nav()  # populate _items before calc
 
     called_paths: list[Path] = []
 

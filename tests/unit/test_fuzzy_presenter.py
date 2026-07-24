@@ -2,12 +2,11 @@
 from __future__ import annotations
 
 import threading
-import time
 from pathlib import Path
 
 import pytest
 
-from biome_fm.presenters.fuzzy_presenter import FuzzyMatch, FuzzyPresenter
+from biome_fm.presenters.fuzzy_presenter import FuzzyPresenter
 
 
 @pytest.fixture

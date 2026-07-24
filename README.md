@@ -13,7 +13,7 @@
   <!-- SPEC -->
   <img src="https://img.shields.io/badge/python-3.12%2B-3776AB?logo=python&logoColor=white" alt="Python 3.12+" />
   <img src="https://img.shields.io/badge/Qt-6.7%2B-41CD52?logo=qt&logoColor=white" alt="Qt 6.7+" />
-  <img src="https://img.shields.io/badge/version-0.31.0-informational" alt="v0.31.0" />
+  <img src="https://img.shields.io/badge/version-0.32.0-informational" alt="v0.32.0" />
   <br/>
   <!-- STACK -->
   <img src="https://img.shields.io/badge/PySide6-GUI-41CD52?logo=qt&logoColor=white" alt="PySide6" />
@@ -101,6 +101,7 @@ Optional extras: `ai` (Anthropic + embeddings), `perf` (Rust bindings for speed)
 - Transfer queue panel (pause, reorder, retry)
 - Create/extract archives (zip, tar, encrypted 7z + plugin extensions)
 - Checksum dialog (MD5, SHA-256)
+- Verify after copy (SHA-256 source vs destination; raises `VerifyError` on mismatch)
 - Undo/redo — 50 levels, every mutation is a Command
 - Dry-run preview before destructive operations
 - Batch execute on selection with template substitution
@@ -109,10 +110,11 @@ Optional extras: `ai` (Anthropic + embeddings), `perf` (Rust bindings for speed)
 - `ChownCmd` with full undo support
 
 **UI & Navigation**
-- Dual-pane, multi-tab layout with named workspaces
+- Dual-pane, multi-tab layout with named workspaces; workspace switcher dialog
 - Breadcrumb bar with drag-and-drop path segments
-- Sidebar: volumes, bookmarks, recent locations
-- Embedded terminal (Ctrl+`), full-screen subshell toggle (Ctrl+O)
+- Sidebar: Smart Folders, volumes + usage bar, bookmarks, recent projects, recent locations
+- Tab lock (ignores sync-browse navigation) and tab link (mirrors navigation between tabs)
+- Embedded terminal (Ctrl+`), full-screen subshell toggle (Ctrl+O), clickable `file:line` errors
 - Inline rename (F2), batch rename with metadata fields (EXIF, MP3 tags)
 - Flat/recursive view, TC-style file marks
 - OmniBar — unified navigation, command, and search in one input
@@ -139,6 +141,7 @@ Optional extras: `ai` (Anthropic + embeddings), `perf` (Rust bindings for speed)
 - Images, video thumbnails (ffmpeg), audio metadata (mutagen)
 - Archive contents, hex dump, git diff, PDF text
 - macOS Quick Look fallback, fullscreen viewer (F11)
+- "Ask AI" button sends preview content directly to the AI chat panel
 - Preview cache with 60 s TTL
 - Finder Comments + xattr browser in PropertiesDialog
 
@@ -233,6 +236,17 @@ Full architecture: [`AI/architecture.md`](AI/architecture.md)
 ## Recent Changes
 
 <details>
+<summary><strong>v0.32.0</strong> — 2026-07-24 — 60-item architecture audit: security, performance, features</summary>
+
+- Security: shell injection hardened in `BatchExecCmd`/`ScriptVFS`/proxy; Zip Slip protection; API keys migrated to keyring; FISH VFS SSH `RejectPolicy`
+- Performance: AI calls off main thread; flat view async; chunked dir loading; bounded thread pool; global hotkey + `FileIndexer` thread safety
+- New: Smart Folders sidebar, frecency jump, recent projects, workspace switcher, tab lock + link, verify after copy, per-file git decorations, branch switcher, worktree manager
+- New: Smart Preview AI button, clickable terminal errors, presigned URL dialog, NL Ops JSON-structured output, folder size bar chart, volume/device sidebar
+- Quality: ~2900 LOC removed; atomic writes on all stores; session auto-save debounced; chat history cap; `create_app()` decomposed; preview dark mode tokens
+
+</details>
+
+<details>
 <summary><strong>v0.31.1</strong> — 2026-07-23 — Architectural audit: 34 fixes</summary>
 
 - VFS Protocol split: `ReadableVFS` + `WritableVFS`; `VFSReadOnlyError` raised by router on write to archive
@@ -240,7 +254,6 @@ Full architecture: [`AI/architecture.md`](AI/architecture.md)
 - Plugin hook isolation: `on_navigate` / `on_file_operation` wrapped in try/except; crashing plugins log and skip
 - `Config.__post_init__` validates all fields; `save_config` debounced 300 ms
 - `PanePresenter.cleanup()` disconnects tracked signals on tab close; `EventBus.publish_from_thread` + `drain_threaded`
-- Removed: `scripting/`, `touch_bar.py`, `theme_registry.py`, `markdown_renderer.py` shim; shortcuts `Ctrl+Alt+M`/`Ctrl+Alt+G` disambiguated from `Ctrl+Shift+T`
 
 </details>
 
@@ -272,17 +285,6 @@ Full architecture: [`AI/architecture.md`](AI/architecture.md)
 - FISH protocol VFS, extfs-style Script VFS (RPM/DEB/ISO), ISO 9660 + macOS DMG VFS
 - Docker container filesystem browser, rsync backend for delta-transfer
 - S3 object versioning browser, plugin-defined custom columns
-
-</details>
-
-<details>
-<summary><strong>v0.28.0</strong> — 2026-07-21 — Sprint 7: 12 features</summary>
-
-- Color-blind safe theme (Okabe-Ito palette), `ChownCmd` with undo, file selection export to clipboard
-- Preview cache 60 s TTL; Finder Comments + xattr browser in PropertiesDialog
-- AI commit message suggestion in `GitCommitDialog` via `staged_diff()` + AI provider
-- Shell env vars `BIOME_CWD`/`BIOME_SELECTED`/`BIOME_CURSOR` injected into terminal on launch
-- Spotlight/mdfind search scope, dependency cleanup scanner, presigned URL generation, macOS Share Sheet
 
 </details>
 

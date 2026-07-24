@@ -8,6 +8,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
+from collections.abc import Callable
 from typing import Literal, Protocol
 
 _SHELL_BLOCK_RE = re.compile(r"```(?:bash|sh)\n(.*?)```", re.DOTALL)
@@ -22,6 +23,7 @@ from biome_fm.models.file_item import FileItem
 
 MAX_FILE_BYTES = 100_000
 MAX_ATTACHMENTS = 10
+HISTORY_CAP = 40
 _IMAGE_EXTS = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"})
 _MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
          ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp"}
@@ -55,7 +57,7 @@ class Attachment:
 
 @dataclass
 class _AIEvent:
-    kind: Literal["token", "done", "error", "attachment_ready", "tool_call", "cancelled"]
+    kind: Literal["token", "done", "error", "attachment_ready", "tool_call", "cancelled", "summarize_ready"]
     content: str = ""
     attachment: Attachment | None = None
     epoch: int = 0
@@ -80,6 +82,8 @@ class AIPresenter:
         self._summary_cache: dict[tuple[Path, float], str] = {}
         self._pending_summary_key: tuple[Path, float] | None = None
         self._draining: bool = False  # True while events are in-flight
+        self._on_idle: Callable[[], None] | None = None
+        self._next_summary_key: tuple[Path, float] | None = None
 
     @property
     def _provider(self) -> AIProviderProtocol:
@@ -131,6 +135,7 @@ class AIPresenter:
         content_blocks = self._build_content_blocks(text, attachments)
         with self._lock:
             self._history.append({"role": "user", "content": user_display})
+            self._history = self._history[-HISTORY_CAP:]
             api_messages = [*self._history[:-1], {"role": "user", "content": content_blocks}]
 
         self._view.append_message("user", user_display)
@@ -150,22 +155,6 @@ class AIPresenter:
                 self._history.pop()
             self._view.set_busy(False)
 
-    def build_rename_regex(self, filenames: list[str], instruction: str) -> tuple[str, str]:
-        """Ask AI to generate regex pattern+replacement for bulk rename."""
-        import json
-        names = ", ".join(filenames)
-        prompt = (
-            f"Given filenames: {names}\n"
-            f"Instruction: {instruction}\n"
-            'Respond with JSON: {"pattern": "...", "replacement": "..."}'
-        )
-        response = self._provider.chat([{"role": "user", "content": prompt}])
-        try:
-            data = json.loads(response)
-            return data["pattern"], data["replacement"]
-        except (json.JSONDecodeError, KeyError) as e:
-            raise ValueError(f"Invalid AI response: {response!r}") from e
-
     def suggest_rename(self, item: FileItem) -> None:
         self.send(f"Suggest 5 concise file names for: {item.name}")
 
@@ -179,8 +168,21 @@ class AIPresenter:
         if cached is not None:
             self._view.append_message("assistant", cached)
             return
-        self.send(f"Summarize this file in 2-3 sentences. Name: {item.name}, size: {item.size} bytes")
-        self._pending_summary_key = key  # set AFTER send() increments epoch
+        self._draining = True
+        self._next_summary_key = key
+        self._pool.submit(self._build_summarize_prompt, item)
+
+    def _build_summarize_prompt(self, item: FileItem) -> None:
+        """Background thread — reads file content, enqueues summarize_ready event."""
+        try:
+            raw = item.path.read_bytes()
+            truncated = len(raw) > MAX_FILE_BYTES
+            text = raw[:MAX_FILE_BYTES].decode("utf-8", errors="replace")
+            head = f"=== {item.name} ===\n" + ("[truncated at 100 KB]\n" if truncated else "")
+            prompt = f"Summarize this file in 2-3 sentences.\n\n{head}{text}"
+        except OSError as exc:
+            prompt = f"Summarize this file in 2-3 sentences. Name: {item.name}. Error reading: {exc}"
+        self._events.put(_AIEvent("summarize_ready", content=prompt))
 
     def cancel(self) -> None:
         self._epoch += 1
@@ -190,6 +192,11 @@ class AIPresenter:
             self._provider.terminate()
         self._view.discard_stream()
         self._view.set_busy(False)
+
+    def _notify_idle(self) -> None:
+        self._draining = False
+        if self._on_idle:
+            self._on_idle()
 
     def drain(self) -> None:
         if not self._draining:
@@ -216,20 +223,25 @@ class AIPresenter:
                     if blocks and hasattr(self._view, "show_shell_ops"):
                         self._view.show_shell_ops(blocks)
                     self._view.set_busy(False)
-                    self._draining = False
+                    self._notify_idle()
                 elif ev.kind == "error":
                     self._stream_buffer.clear()
                     self._view.append_message("error", ev.content)
                     self._view.set_busy(False)
-                    self._draining = False
+                    self._notify_idle()
                 elif ev.kind == "cancelled":
-                    self._draining = False
+                    self._notify_idle()
                 elif ev.kind == "tool_call":
                     self._view.append_tool_event(ev.content)
                 elif ev.kind == "attachment_ready" and ev.attachment:
                     self._pending_attachments.append(ev.attachment)
                     self._view.add_attachment_chip(ev.attachment.display_name)
-                    self._draining = False  # attachment loaded, no more events expected
+                    self._notify_idle()  # attachment loaded, no more events expected
+                elif ev.kind == "summarize_ready":
+                    key = self._next_summary_key
+                    self._next_summary_key = None
+                    self.send(ev.content)          # send() resets _pending_summary_key to None
+                    self._pending_summary_key = key  # restore AFTER send() so 'done' caches it
         except queue.Empty:
             pass
 

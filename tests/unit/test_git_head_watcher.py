@@ -3,9 +3,8 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import pytest
 
 from biome_fm.git.status_cache import GitStatusCache
 from biome_fm.git.worker import GitStatusWorker

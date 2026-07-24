@@ -6,6 +6,9 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from biome_fm.models._store_base import toml_escape as _esc
+from biome_fm.utils.atomic_write import atomic_write
+
 _NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
@@ -47,22 +50,21 @@ class CloudProfileStore:
     # ── Write ─────────────────────────────────────────────────────────────
 
     def save(self) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
         lines: list[str] = []
         for p in self._profiles.values():
             lines.append(f"[profiles.{p.name}]")
-            lines.append(f'scheme = "{p.scheme}"')
-            lines.append(f'host = "{p.host}"')
+            lines.append(f'scheme = "{_esc(p.scheme)}"')
+            lines.append(f'host = "{_esc(p.host)}"')
             if p.port is not None:
                 lines.append(f"port = {p.port}")
-            lines.append(f'user = "{p.user}"')
-            lines.append(f'bucket = "{p.bucket}"')
+            lines.append(f'user = "{_esc(p.user)}"')
+            lines.append(f'bucket = "{_esc(p.bucket)}"')
             if p.extra:
                 lines.append("[profiles." + p.name + ".extra]")
                 for k, v in p.extra.items():
-                    lines.append(f'{k} = "{v}"')
+                    lines.append(f'"{_esc(k)}" = "{_esc(v)}"')
             lines.append("")
-        self._path.write_text("\n".join(lines))
+        atomic_write(self._path, "\n".join(lines))
 
     # ── CRUD ──────────────────────────────────────────────────────────────
 

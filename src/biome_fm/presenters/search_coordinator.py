@@ -55,6 +55,7 @@ class SearchCoordinator:
         self._queue: queue.SimpleQueue = queue.SimpleQueue()
         self._all_results: list = []
         self._cancel_flag = threading.Event()
+        self._on_idle: Callable[[], None] | None = None
 
     def request_search(self, initial_query: str | None = None) -> None:
         """Show search dialog, cancel any in-progress, start thread. Call on main thread."""
@@ -73,6 +74,8 @@ class SearchCoordinator:
             initial_query=initial_query,
         )
         if params is None:
+            if self._on_idle:
+                self._on_idle()
             return
         query, mode, max_results, scope, filt, exclude_patterns, case_sensitive, whole_word, context_lines = params
         self._history = add_to_history(self._history, query)
@@ -195,6 +198,8 @@ class SearchCoordinator:
             self._all_results.extend(batch)
             self._panel.add_results(batch)
         if done:
+            if self._on_idle:
+                self._on_idle()
             if cancelled:
                 self._panel.on_cancelled()
             else:
@@ -218,3 +223,35 @@ class SearchCoordinator:
     def request_search_with_query(self, query: str) -> None:
         """Open search dialog pre-filled with query from history."""
         self.request_search(initial_query=query)
+
+    def request_search_from_template(self, template: object) -> None:
+        """Run a saved search template directly, no dialog."""
+        from biome_fm.presenters.search_presenter import SearchPresenter, SearchScope
+
+        self._cancel_flag.clear()
+        if self._presenter is not None:
+            self._presenter.cancel()
+        self._queue = queue.SimpleQueue()
+        self._all_results = []
+
+        active = self._get_active()
+        self._panel.on_search_started(template.pattern)  # type: ignore[union-attr]
+        self._coord.toggle("search", self._manager.active_pane_id)
+
+        q = self._queue
+        self._presenter = SearchPresenter(self._vfs, active.current_path)
+
+        def _run() -> None:
+            try:
+                self._presenter.search(  # type: ignore[union-attr]
+                    template.pattern,  # type: ignore[union-attr]
+                    mode=template.mode,  # type: ignore[union-attr]
+                    max_results=template.max_results,  # type: ignore[union-attr]
+                    on_match=q.put,
+                    scope=SearchScope.SUBTREE,
+                )
+            finally:
+                sentinel = self._CANCELLED if self._presenter.is_cancelled else None  # type: ignore[union-attr]
+                q.put(sentinel)
+
+        threading.Thread(target=_run, daemon=True).start()

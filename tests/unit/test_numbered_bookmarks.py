@@ -1,5 +1,4 @@
 """Unit tests for BookmarkStore numbered slots (F049)."""
-from pathlib import Path
 import pytest
 from biome_fm.models.bookmark_store import BookmarkStore
 

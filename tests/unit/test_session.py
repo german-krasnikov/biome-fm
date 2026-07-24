@@ -116,3 +116,31 @@ def test_old_session_without_panels_loads_with_defaults(tmp_path: Path) -> None:
     assert loaded is not None
     assert loaded.preview.state == "hidden"
     assert loaded.ai.state == "hidden"
+
+
+def test_save_session_no_tmp_file_left(tmp_path: Path) -> None:
+    p = tmp_path / "session.json"
+    save_session(SessionState(), p)
+    assert not p.with_suffix(".json.tmp").exists()
+
+
+def test_save_session_overwrites_stale_tmp(tmp_path: Path) -> None:
+    p = tmp_path / "session.json"
+    p.with_suffix(".json.tmp").write_text("stale junk", encoding="utf-8")
+    save_session(SessionState(), p)
+    assert load_session(p) is not None
+
+
+def test_save_session_target_untouched_on_failure(tmp_path: Path, monkeypatch) -> None:
+    import pytest
+    p = tmp_path / "session.json"
+    save_session(SessionState(), p)
+
+    def boom(path, content, encoding="utf-8"):
+        raise OSError("simulated crash")
+
+    monkeypatch.setattr("biome_fm.session.atomic_write", boom)
+    with pytest.raises(OSError):
+        save_session(SessionState(), p)
+
+    assert load_session(p) is not None

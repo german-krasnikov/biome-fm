@@ -2,9 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock
 
-import pytest
 
 from biome_fm.models.directory_model import DirectoryModel
 from biome_fm.models.file_item import FileItem

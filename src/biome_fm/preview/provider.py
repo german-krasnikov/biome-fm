@@ -1,10 +1,12 @@
 """Preview provider protocol and data types."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum, auto
 from pathlib import Path
 from typing import Protocol
+
+from biome_fm.plugins.types import ThemeTokens, _DARK_FALLBACK
 
 
 class ContentKind(Enum):
@@ -28,6 +30,7 @@ class PreviewMode(Enum):
 class PreviewRequest:
     path: Path
     dark: bool = True
+    tokens: ThemeTokens = field(default_factory=lambda: dict(_DARK_FALLBACK))
 
 
 @dataclass(frozen=True, slots=True)

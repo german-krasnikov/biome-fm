@@ -1,8 +1,10 @@
 """Copy command — copy to dest dir (undoable via delete)."""
 from __future__ import annotations
 
+import os
 import re
 import shutil
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
@@ -13,7 +15,7 @@ from biome_fm.models.conflict_resolver import (
     PreCopyConflictResolver,
     auto_rename,
 )
-from biome_fm.models.vfs import VFSProtocol
+from biome_fm.models.vfs import VFSProtocol, WritableVFS
 from biome_fm.operations.task import Cancelled
 
 _ILLEGAL = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
@@ -91,9 +93,24 @@ class ProgressCopyCmd(Command):
         self._pause = pause
         self._src_vfs = src_vfs
         self._created: list[Path] = []
+        self._backups: dict[Path, Path] = {}  # dst -> temp backup; only for overwrites
+
+    def _save_backup(self, dst: Path) -> Path:
+        """Copy dst to a sibling temp file on the same filesystem (atomic rename on restore)."""
+        fd, tmp = tempfile.mkstemp(dir=dst.parent, prefix=".biome_bak_", suffix=".tmp")
+        os.close(fd)
+        try:
+            shutil.copy2(dst, tmp)
+        except Exception:
+            Path(tmp).unlink(missing_ok=True)
+            raise
+        return Path(tmp)
 
     def execute(self) -> None:
         self._created.clear()
+        for bak in self._backups.values():
+            bak.unlink(missing_ok=True)
+        self._backups.clear()
         total = len(self._sources)
         for i, src in enumerate(self._sources):
             if self._cancel.is_set():
@@ -117,7 +134,20 @@ class ProgressCopyCmd(Command):
                     shutil.rmtree(dst, ignore_errors=True)
                     raise
             elif src.is_file():
-                self._copy_file(src, dst, i, total, force_overwrite=force_overwrite)
+                backup = None
+                if force_overwrite and dst.exists():
+                    backup = self._save_backup(dst)
+                    self._backups[dst] = backup
+                try:
+                    self._copy_file(src, dst, i, total, force_overwrite=force_overwrite)
+                except Exception:
+                    if backup is not None:
+                        try:
+                            shutil.move(str(backup), str(dst))
+                        except Exception:
+                            pass
+                        self._backups.pop(dst, None)
+                    raise
             elif self._src_vfs is not None:
                 # Cross-VFS: read from src_vfs, write locally
                 # ponytail: loads whole file into memory; stream if >100MB needed
@@ -225,7 +255,7 @@ class ProgressCopyCmd(Command):
             not force_overwrite
             and dst.exists()
             and (dst_size := dst.stat().st_size) < size
-            and dst.stat().st_mtime > src.stat().st_mtime
+            and dst.stat().st_mtime >= src.stat().st_mtime
         ):
             offset = dst_size
             mode = "ab"
@@ -269,11 +299,26 @@ class ProgressCopyCmd(Command):
 
     def undo(self) -> None:
         for p in reversed(self._created):
-            if p.is_dir():
+            if p in self._backups:
+                backup = self._backups.pop(p)
+                try:
+                    shutil.move(str(backup), str(p))
+                except Exception:
+                    backup.unlink(missing_ok=True)
+            elif isinstance(self._vfs, WritableVFS):
+                try:
+                    self._vfs.delete(p)
+                except Exception:
+                    pass
+            elif p.is_dir():
                 shutil.rmtree(p, ignore_errors=True)
             else:
                 p.unlink(missing_ok=True)
         self._created.clear()
+        # clean up any orphaned backups (partial multi-file copy)
+        for bak in self._backups.values():
+            bak.unlink(missing_ok=True)
+        self._backups.clear()
 
     @property
     def description(self) -> str:

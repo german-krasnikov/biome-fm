@@ -4,7 +4,6 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-import pytest
 
 
 def _write(tmp_path: Path, name: str, data: bytes) -> Path:

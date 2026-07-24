@@ -20,7 +20,6 @@ def _make_sftp_vfs(max_channels: int = 4):
 
     with patch.dict(sys.modules, {"paramiko": fake_paramiko}):
         # Force reimport of sftp_vfs with our fake paramiko
-        import importlib
         import biome_fm.models.sftp_vfs as _mod
         _orig = (_mod._HAS_PARAMIKO, _mod._paramiko)
         _mod._HAS_PARAMIKO = True

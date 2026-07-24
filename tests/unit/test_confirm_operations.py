@@ -1,8 +1,7 @@
 """TDD: ManagerPresenter confirm guard — no Qt."""
 from pathlib import Path
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 
-import pytest
 
 from biome_fm.presenters.manager_presenter import ConfirmSpec, ManagerPresenter
 

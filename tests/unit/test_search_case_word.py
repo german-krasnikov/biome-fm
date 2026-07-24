@@ -1,7 +1,6 @@
 """Unit tests for case sensitivity and whole-word toggles in SearchPresenter."""
 from pathlib import Path
 
-import pytest
 
 from biome_fm.models.vfs import LocalVFS
 from biome_fm.presenters.search_presenter import SearchMode, SearchPresenter

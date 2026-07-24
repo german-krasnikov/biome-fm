@@ -1,6 +1,4 @@
 """Unit tests for WhichKeyPopup."""
-import pytest
-from PySide6.QtWidgets import QLabel
 from biome_fm.views.which_key_popup import WhichKeyPopup
 
 

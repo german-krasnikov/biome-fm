@@ -1,7 +1,6 @@
 """Unit tests for F419 — provide_preview_providers hookspec."""
 from __future__ import annotations
 
-import pluggy
 
 from biome_fm.plugins.hookspecs import BiomeFMSpec, hookimpl
 from biome_fm.plugins.manager import PluginManager

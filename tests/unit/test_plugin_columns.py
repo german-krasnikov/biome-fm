@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 
 from biome_fm.plugins.hookspecs import BiomeFMSpec
 from biome_fm.plugins.types import ColumnDef
@@ -13,16 +12,12 @@ from biome_fm.plugins.types import ColumnDef
 # Mock plugin manager
 # ---------------------------------------------------------------------------
 
-class MockHook:
+class MockPM:
     def extra_columns(self):
         return [[ColumnDef(id="test.col", title="Test")]]
 
     def column_value(self, item, column_id):
         return "value1" if column_id == "test.col" else None
-
-
-class MockPM:
-    hook = MockHook()
 
 
 # ---------------------------------------------------------------------------

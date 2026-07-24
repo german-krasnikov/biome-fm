@@ -1,8 +1,8 @@
 """TDD: SFTP VFS full implementation."""
 from __future__ import annotations
 
-from pathlib import Path, PurePosixPath
-from unittest.mock import MagicMock, patch
+from pathlib import PurePosixPath
+from unittest.mock import MagicMock
 
 
 def _make_sftp_vfs():

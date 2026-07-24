@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 
 from biome_fm.models.frecency_store import FrecencyEntry
 from biome_fm.views.quick_cd_dialog import QuickCDDialog

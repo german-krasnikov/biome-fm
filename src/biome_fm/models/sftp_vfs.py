@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import re
+import shlex
 import stat
 import threading
 import time
@@ -34,8 +35,12 @@ class SFTPSession:
 def make_jump_proxy_command(
     jump_host: str, jump_port: int, jump_user: str, target_host: str, target_port: int
 ) -> str:
-    user_prefix = f"{jump_user}@" if jump_user else ""
-    return f"ssh -W {target_host}:{target_port} -p {jump_port} {user_prefix}{jump_host}"
+    # ponytail: POSIX quoting only; add Windows-aware quoting if Windows SSH jump hosts required
+    user_prefix = f"{shlex.quote(jump_user)}@" if jump_user else ""
+    return (
+        f"ssh -W {shlex.quote(target_host)}:{int(target_port)}"
+        f" -p {int(jump_port)} {user_prefix}{shlex.quote(jump_host)}"
+    )
 
 
 def parse_sftp_uri(uri: str) -> SFTPSession | None:
@@ -263,7 +268,6 @@ class SFTPVfs:
 
     def exec_find(self, remote_dir: str, name_pattern: str, timeout: int = 30) -> list[str]:
         """Run `find` on server, return list of absolute remote paths."""
-        import shlex
         if self._client is None:
             raise RuntimeError("Not connected — call connect() first")
         cmd = f"find {shlex.quote(remote_dir)} -name {shlex.quote(name_pattern)} -maxdepth 20 2>/dev/null"

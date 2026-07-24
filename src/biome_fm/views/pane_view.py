@@ -14,6 +14,8 @@ from biome_fm.models.directory_model import (
     COL_SIZE,
     DirectoryModel,
     DirSortFilterProxy,
+    GIT_STATUS_ROLE,
+    SIZE_BAR_ROLE,
 )
 from biome_fm.models.file_item import FileItem
 from biome_fm.models.finder_tags import finder_tag_color, get_finder_tags
@@ -49,6 +51,14 @@ from biome_fm.views.group_delegate import GroupDelegate
 from biome_fm.views.jump_bar import JumpBar
 
 _MOVE_MODS = Qt.KeyboardModifier.ShiftModifier | Qt.KeyboardModifier.AltModifier
+_GIT_BAR: dict[str, str] = {
+    "M ": "#E69F00", " M": "#E69F00", "MM": "#E69F00",
+    "A ": "#009E73", "AM": "#009E73",
+    "D ": "#E74C3C", " D": "#E74C3C",
+    "??": "#808080",
+    "R ": "#CC79A7", " R": "#CC79A7",
+    "dirty": "#E69F00",
+}
 
 
 def _match_positions(pattern: str, text: str) -> list[int]:
@@ -84,6 +94,25 @@ class _DropHintDelegate(GroupDelegate):
 
     def paint(self, painter, option, index) -> None:
         super().paint(painter, option, index)
+        # Size bar overlay (Item #45)
+        if index.column() == COL_SIZE:
+            frac = index.data(SIZE_BAR_ROLE)
+            if isinstance(frac, float) and frac > 0:
+                painter.save()
+                accent = option.palette.highlight().color()
+                accent.setAlpha(45)
+                bar_w = int(option.rect.width() * frac)
+                painter.fillRect(option.rect.adjusted(0, 1, -(option.rect.width() - bar_w), -1), accent)
+                painter.restore()
+        # Git status bar (Item #51): 3px left-edge indicator on Name column
+        if index.column() == COL_NAME:
+            xy = index.data(GIT_STATUS_ROLE)
+            color = _GIT_BAR.get(xy) if xy else None
+            if color:
+                painter.save()
+                r = option.rect
+                painter.fillRect(r.left(), r.top() + 2, 3, r.height() - 4, QColor(color))
+                painter.restore()
         # DnD drop hint
         if index.row() == self._table._drop_hint_row:
             painter.save()
@@ -600,10 +629,15 @@ class _PaneTableView(QTableView):
         menu.addAction(
             "Copy Path\tCtrl+Shift+C", lambda: p.context_action_requested.emit("copy_path")
         )
+        if p._can_presign():
+            menu.addAction(
+                "Copy Presigned URL…",
+                lambda: p.context_action_requested.emit("presigned_url"),
+            )
         menu.addAction("View\tF3", lambda: p.context_action_requested.emit("quick_look"))
         finder_label = "Open in Finder" if sys.platform == "darwin" else "Open in File Manager"
         menu.addAction(finder_label, lambda: p.context_action_requested.emit("open_finder"))
-        menu.addAction("Open Terminal Here\tF9", lambda: p.context_action_requested.emit("open_terminal"))
+        menu.addAction("Open Terminal Here", lambda: p.context_action_requested.emit("open_terminal"))
         menu.addAction("Checksum...", lambda: p.context_action_requested.emit("checksum"))
         menu.addSeparator()
         if p._model.marks:
@@ -628,8 +662,8 @@ class _PaneTableView(QTableView):
         cursor_item = p.current_cursor_item()
         if cursor_item and not cursor_item.is_dir:
             ext = cursor_item.path.suffix
-            for label, _action_id in builtin_actions(ext):
-                ai_menu.addAction(label)
+            for label, action_id in builtin_actions(ext):
+                ai_menu.addAction(label, lambda a=action_id: p.context_action_requested.emit(a))
             ai_menu.addSeparator()
         ai_menu.addAction("Ask AI…", lambda: p.ai_context_requested.emit())
         # Plugin extra actions
@@ -697,15 +731,19 @@ class PaneView(QWidget):
         self._proxy.setSourceModel(self._model)
         self.plugin_menu_extra = None  # Callable[[], list[ActionSpec]] — set by app.py
         self._git_status_fn = None  # Callable[[Path], str | None] — set by app.py
+        self._can_presign = lambda: False  # Callable[[], bool] — set by app.py
         self._setup_ui()
         self._setup_accessibility()
 
     def _setup_accessibility(self) -> None:
         self._btn_back.setAccessibleName("Back")
         self._btn_fwd.setAccessibleName("Forward")
+        self._btn_up.setAccessibleName("Up")
         self._btn_new_tab.setAccessibleName("New tab")
         self._status_label.setAccessibleName("Status")
         self.filter_bar.setAccessibleName("Filter")
+        self._bookmark_menu.setAccessibleName("Bookmarks")
+        self.jump_bar.setAccessibleName("Type to navigate")
 
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -734,6 +772,8 @@ class PaneView(QWidget):
                 self._btn_back = btn
             elif name == "nav_forward":
                 self._btn_fwd = btn
+            elif name == "nav_up":
+                self._btn_up = btn
 
         self._bookmark_menu = BookmarkMenu(self)
         self._bookmark_menu.bookmark_chosen.connect(self.bookmark_chosen)

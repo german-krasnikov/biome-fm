@@ -1,7 +1,6 @@
 """Unit tests for LocalVFS.copy() using os.sendfile with fallback."""
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from unittest.mock import patch
 

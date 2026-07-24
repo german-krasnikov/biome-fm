@@ -6,7 +6,6 @@ from pathlib import Path
 from biome_fm.models.vfs import LocalVFS
 from biome_fm.presenters.manager_presenter import ManagerPresenter
 from biome_fm.presenters.tabs_presenter import TabsPresenter
-from biome_fm.presenters.pane_presenter import PanePresenter
 from dataclasses import dataclass, field
 
 

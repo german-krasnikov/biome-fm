@@ -1,6 +1,7 @@
 """Unit tests for WatchService and _Debouncer. No filesystem I/O from watchfiles."""
 from __future__ import annotations
 
+import threading
 import time
 from pathlib import Path
 
@@ -107,3 +108,78 @@ def test_import_error_graceful(tmp_path, monkeypatch):
     svc = WatchService(callback=lambda p: None)  # no _watch_fn, module-level also None
     svc.start(tmp_path)
     assert svc._thread is None  # no thread started
+
+
+# ── Race condition regression tests (Item #12) ───────────────────────────────
+
+def test_old_stop_event_not_cleared_by_new_start(tmp_path):
+    """Old thread's stop event must remain set after set_path — no race."""
+    captured_events: list[threading.Event] = []
+
+    def _fake(path, stop_event=None, **kwargs):
+        captured_events.append(stop_event)
+        if stop_event:
+            stop_event.wait(timeout=5.0)
+        if False:
+            yield
+
+    dir1 = tmp_path / "a"; dir1.mkdir()
+    dir2 = tmp_path / "b"; dir2.mkdir()
+
+    svc = WatchService(callback=lambda p: None, _watch_fn=_fake)
+    svc.start(dir1)
+    time.sleep(0.02)
+    svc.set_path(dir2)
+    time.sleep(0.05)
+
+    assert len(captured_events) >= 1
+    assert captured_events[0].is_set(), "old thread's stop event was cleared — race!"
+    svc.stop()
+
+
+def test_set_path_no_ghost_threads(tmp_path):
+    """Only one live watch thread after set_path settles."""
+    active: list[threading.Thread] = []
+
+    def _fake(path, stop_event=None, **kwargs):
+        active.append(threading.current_thread())
+        if stop_event:
+            stop_event.wait(timeout=5.0)
+        if False:
+            yield
+
+    dir1 = tmp_path / "a"; dir1.mkdir()
+    dir2 = tmp_path / "b"; dir2.mkdir()
+
+    svc = WatchService(callback=lambda p: None, _watch_fn=_fake)
+    svc.start(dir1)
+    time.sleep(0.02)
+    svc.set_path(dir2)
+    time.sleep(0.05)  # let old thread exit
+
+    alive = [t for t in active if t.is_alive()]
+    assert len(alive) == 1
+    svc.stop()
+
+
+def test_rapid_set_path_single_thread(tmp_path):
+    """Rapid set_path calls leave exactly one live watch thread."""
+    dirs = [tmp_path / str(i) for i in range(5)]
+    for d in dirs:
+        d.mkdir()
+
+    def _fake(path, stop_event=None, **kwargs):
+        if stop_event:
+            stop_event.wait(timeout=5.0)
+        if False:
+            yield
+
+    svc = WatchService(callback=lambda p: None, _watch_fn=_fake)
+    svc.start(dirs[0])
+    for d in dirs[1:]:
+        svc.set_path(d)
+    time.sleep(0.2)
+
+    assert svc._thread is not None and svc._thread.is_alive()
+    svc.stop()
+    assert not svc._thread.is_alive()

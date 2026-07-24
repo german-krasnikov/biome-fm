@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 
 
 def _make_item(path: Path, size: int = 0, modified: float = 0.0):

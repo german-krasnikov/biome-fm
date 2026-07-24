@@ -1,7 +1,6 @@
 """F268 — Detached Batch Operations: OpQueue.active_count()."""
 import threading
 
-import pytest
 
 from biome_fm.commands.base import Command
 from biome_fm.operations.queue import OpQueue

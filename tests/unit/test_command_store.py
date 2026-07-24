@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 
 from biome_fm.models.command_store import CommandStore, UserCommand
 

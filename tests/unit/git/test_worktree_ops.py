@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 
 from biome_fm.git.worktree_ops import list_worktrees
 

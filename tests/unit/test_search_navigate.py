@@ -44,8 +44,9 @@ def test_navigate_to_populates_items_before_select():
     p = PanePresenter(view, vfs)
 
     p.navigate_to(Path("/home/user/docs"))
+    p._nav_future.result(); p.drain_nav()  # deliver items (async nav)
 
-    # set_items was called before we'd call select_item
+    # set_items was called after drain
     assert view.set_items.called
     called_items = view.set_items.call_args[0][0]
     names = [i.name for i in called_items if i.name != ".."]

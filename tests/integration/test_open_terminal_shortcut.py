@@ -6,7 +6,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PySide6.QtCore import QPoint, QTimer
+from PySide6.QtCore import QTimer
 from PySide6.QtGui import QContextMenuEvent
 
 from biome_fm.qt import QApplication, QMenu

@@ -1,5 +1,4 @@
 """Integration tests for shared panel detach+close buttons."""
-import pytest
 
 
 def test_add_panel_buttons_connects(qtbot):

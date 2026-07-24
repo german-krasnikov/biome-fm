@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from biome_fm.utils.atomic_write import atomic_write
+
 
 class TabGroupStore:
     def __init__(self, path: Path) -> None:
@@ -16,8 +18,7 @@ class TabGroupStore:
             return {}
 
     def _save(self, data: dict[str, list[str]]) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._path.write_text(json.dumps(data))
+        atomic_write(self._path, json.dumps(data))
 
     def save_group(self, name: str, paths: list[Path]) -> None:
         data = self._load()

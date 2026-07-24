@@ -8,6 +8,7 @@ try:
 except ImportError:
     _keyring = None  # type: ignore[assignment]
 
+CRED_SERVICE = "biome-fm"
 _FALLBACK: dict[tuple[str, str], str] = {}
 _log = logging.getLogger(__name__)
 _warned = False

@@ -49,6 +49,8 @@ def presenter(tmp_path: Path):
     view = _FakeView()
     p = PanePresenter(view, LocalVFS())
     p.navigate_to(tmp_path)
+    p._nav_future.result()
+    p.drain_nav()
     view._cursor = FileItem(
         name="alpha.txt", path=tmp_path / "alpha.txt",
         is_dir=False, size=1, modified=0.0,

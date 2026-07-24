@@ -6,7 +6,6 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import pytest
 
 
 def test_terminal_instantiates(qtbot):

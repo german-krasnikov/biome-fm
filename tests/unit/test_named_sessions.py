@@ -1,7 +1,6 @@
 """F267 — Named Sessions: save/load/list/delete via SessionStore."""
 from __future__ import annotations
 
-import pytest
 from pathlib import Path
 
 from biome_fm.models.session_store import SessionStore

@@ -5,7 +5,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
 
 from biome_fm.models.file_item import FileItem
 from biome_fm.presenters.manager_presenter import ManagerPresenter

@@ -117,6 +117,7 @@ def test_select_where_marks_matching() -> None:
     vfs = _FakeVFS(items)
     p = PanePresenter(view, vfs)
     p.navigate_to(Path("/d"))
+    p._nav_future.result(); p.drain_nav()  # populate _items
     p.select_where(lambda i: i.name.endswith(".py"))
     assert Path("/d/foo.py") in view.marked
     assert Path("/d/baz.py") in view.marked

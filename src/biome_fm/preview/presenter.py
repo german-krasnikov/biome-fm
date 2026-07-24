@@ -10,7 +10,10 @@ from typing import Protocol
 
 _CACHE_TTL = 60.0
 
+from collections.abc import Callable
+
 from biome_fm.models.file_item import FileItem
+from biome_fm.plugins.types import ThemeTokens, _DARK_FALLBACK
 from biome_fm.preview.provider import ContentKind, PreviewMode, PreviewRequest, PreviewResult
 from biome_fm.preview.registry import PreviewRegistry
 
@@ -47,14 +50,23 @@ class PreviewPresenter:
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="preview")
         self._queue: queue.SimpleQueue[PreviewResult] = queue.SimpleQueue()
         self._current: Path | None = None
-        self._cache: dict[tuple[Path, float, bool], tuple[PreviewResult, float]] = {}
+        self._cache: dict[tuple[Path, float, bool, PreviewMode], tuple[PreviewResult, float]] = {}
         self._cache_lock = threading.Lock()
         self._dark = True  # theme hint; updated via set_dark()
+        self._tokens: ThemeTokens = dict(_DARK_FALLBACK)
         self._forced_mode: PreviewMode = PreviewMode.AUTO
         self._tail_mode: bool = False
+        self._on_idle: Callable[[], None] | None = None
+        self._on_work: Callable[[], None] | None = None
+        self._in_flight: int = 0  # background tasks pending; guarded by _cache_lock
 
     def set_dark(self, dark: bool) -> None:
         self._dark = dark
+
+    def set_tokens(self, tokens: ThemeTokens) -> None:
+        self._tokens = tokens
+        with self._cache_lock:
+            self._cache.clear()
 
     def set_tail_mode(self, enabled: bool) -> None:
         self._tail_mode = enabled
@@ -109,7 +121,8 @@ class PreviewPresenter:
 
     def _render_item(self, item: FileItem) -> None:
         self._current = item.path
-        cache_key = (item.path, item.modified, self._dark)
+        mode_at_submit = self._forced_mode
+        cache_key = (item.path, item.modified, self._dark, mode_at_submit)
         with self._cache_lock:
             entry = self._cache.get(cache_key)
             hit = entry[0] if entry and (time.monotonic() - entry[1]) < _CACHE_TTL else None
@@ -117,9 +130,13 @@ class PreviewPresenter:
             self._view.show_result(hit)
             return
         self._view.set_busy(True)
+        if self._on_work:
+            self._on_work()
+        with self._cache_lock:
+            self._in_flight += 1
         provider = self._get_provider(item.path, item)
-        req = PreviewRequest(path=item.path, dark=self._dark)
-        self._pool.submit(self._run, provider, req, cache_key)
+        req = PreviewRequest(path=item.path, dark=self._dark, tokens=self._tokens)
+        self._pool.submit(self._run, provider, req, cache_key, mode_at_submit)
 
     def _get_provider(self, path: Path, item: FileItem | None = None):
         match self._forced_mode:
@@ -144,7 +161,13 @@ class PreviewPresenter:
                     return HexPreviewProvider()
                 return self._registry.find(path)
 
-    def _run(self, provider, req: PreviewRequest, cache_key: tuple[Path, float, bool]) -> None:
+    def _run(
+        self,
+        provider,
+        req: PreviewRequest,
+        cache_key: tuple[Path, float, bool, PreviewMode],
+        mode_at_submit: PreviewMode,
+    ) -> None:
         """Background thread — must not touch Qt."""
         try:
             result = provider.render(req)
@@ -154,8 +177,11 @@ class PreviewPresenter:
             if len(self._cache) >= self._CACHE_MAX:
                 self._cache.pop(next(iter(self._cache)))
             self._cache[cache_key] = (result, time.monotonic())
-        if req.path == self._current and req.dark == self._dark:
+        if req.path == self._current and req.dark == self._dark \
+                and mode_at_submit == self._forced_mode:
             self._queue.put(result)
+        with self._cache_lock:
+            self._in_flight -= 1
 
     def drain(self) -> None:
         """Drain result queue. Called by QTimer in main thread."""
@@ -167,7 +193,10 @@ class PreviewPresenter:
                 if self._tail_mode:
                     self._view.scroll_to_bottom()
         except queue.Empty:
-            pass
+            with self._cache_lock:
+                idle = self._in_flight == 0
+            if idle and self._on_idle:
+                self._on_idle()
 
     def toggle_panel(self) -> None:
         self._view.set_visible(not self._view.is_panel_visible())

@@ -5,6 +5,8 @@ import json
 import sys
 from pathlib import Path
 
+from biome_fm.utils.atomic_write import atomic_write
+
 _FINDER_COLORS: dict[str, str] = {
     "Red": "#ff6b6b", "Orange": "#ffa94d", "Yellow": "#ffd43b",
     "Green": "#51cf66", "Blue": "#339af0", "Purple": "#cc5de8",
@@ -126,4 +128,4 @@ def _set_comment_fallback(path: Path, comment: str) -> None:
     except (OSError, json.JSONDecodeError):
         pass
     data["comment"] = comment
-    mp.write_text(json.dumps(data))
+    atomic_write(mp, json.dumps(data))

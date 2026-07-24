@@ -58,17 +58,26 @@ class NoOpProvider:
 
 def make_providers(cfg) -> dict[str, AIProviderProtocol]:
     """Build dict of available providers from Config."""
+    from biome_fm.models.credential_store import CRED_SERVICE, get_credential
     result: dict[str, AIProviderProtocol] = {}
-    # Claude
-    claude_key = cfg.ai_claude_key or os.environ.get("ANTHROPIC_API_KEY", "")
+    # Claude — keyring first, then config (not yet migrated), then env
+    claude_key = (
+        get_credential(CRED_SERVICE, "claude")
+        or cfg.ai_claude_key
+        or os.environ.get("ANTHROPIC_API_KEY", "")
+    )
     if claude_key:
         try:
             from biome_fm.ai.claude_provider import ClaudeProvider as _Claude
             result["claude"] = _Claude(claude_key, model=cfg.ai_claude_model)
         except ImportError:
             pass
-    # OpenAI
-    openai_key = cfg.ai_openai_key or os.environ.get("OPENAI_API_KEY", "")
+    # OpenAI — keyring first, then config, then env
+    openai_key = (
+        get_credential(CRED_SERVICE, "openai")
+        or cfg.ai_openai_key
+        or os.environ.get("OPENAI_API_KEY", "")
+    )
     if openai_key:
         try:
             from biome_fm.ai.openai_provider import OpenAIProvider

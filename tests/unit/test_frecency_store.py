@@ -4,7 +4,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from biome_fm.models.frecency_store import FrecencyEntry, FrecencyStore
+from biome_fm.models.frecency_store import FrecencyStore
 
 
 def test_record_increments_visits(tmp_path):

@@ -36,13 +36,13 @@ class VFSRouter:
     def _archive_extensions(self) -> frozenset[str]:
         exts = set(_BUILTIN_EXTENSIONS)
         if self._pm is not None:
-            for lst in self._pm.hook.extra_archive_extensions():
+            for lst in self._pm.extra_archive_extensions():
                 exts.update(lst)
         return frozenset(exts)
 
     def _resolve(self, path: Path):
         if self._pm is not None:
-            plugin_vfs = self._pm.hook.provide_vfs(path=str(path))
+            plugin_vfs = self._pm.provide_vfs(path=str(path))
             if plugin_vfs:
                 return plugin_vfs, path
         raw = str(path)

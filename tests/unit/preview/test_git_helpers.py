@@ -1,7 +1,6 @@
 """Unit tests for _git_helpers — TDD red phase."""
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest

@@ -81,7 +81,5 @@ class _Chip(QFrame):
         btn.clicked.connect(lambda: self.remove_clicked.emit(self._index))
         layout.addWidget(label)
         layout.addWidget(btn)
-        self.setStyleSheet(
-            "background: #2a2a3a; border: 1px solid #444; border-radius: 4px;"
-        )
+        self.setObjectName("context_chip")
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)

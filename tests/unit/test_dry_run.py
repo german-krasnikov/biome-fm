@@ -4,7 +4,6 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import pytest
 
 from biome_fm.commands.base import Command, CommandHistory
 from biome_fm.commands.copy_cmd import CopyCmd

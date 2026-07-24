@@ -5,7 +5,7 @@ import pytest
 
 from biome_fm.models.directory_model import DirectoryModel
 from biome_fm.models.file_item import FileItem
-from biome_fm.qt import QColor, Qt
+from biome_fm.qt import Qt
 
 
 @pytest.fixture()

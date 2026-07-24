@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from biome_fm.models.file_item import FileItem
-from biome_fm.presenters.search_presenter import SearchResult, SearchScope, find_duplicate_names
+from biome_fm.presenters.search_presenter import SearchScope, find_duplicate_names
 
 
 def _item(name: str) -> FileItem:

@@ -5,7 +5,6 @@ import threading
 from pathlib import Path
 from unittest.mock import MagicMock, call
 
-import pytest
 
 from biome_fm.presenters.sync_executor import SyncExecutor
 from biome_fm.presenters.sync_presenter import SyncOp

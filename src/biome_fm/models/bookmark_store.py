@@ -6,6 +6,7 @@ import os
 import tomllib
 from pathlib import Path
 
+from biome_fm.models._store_base import toml_escape as _esc
 from biome_fm.models.bookmark_node import BookmarkNode
 from biome_fm.models.bookmark_node import display_label as _node_label
 
@@ -204,13 +205,9 @@ class BookmarkStore:
 
     # ── persistence ───────────────────────────────────────────────────────────
 
-    @staticmethod
-    def _esc(s: str) -> str:
-        return s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
-
     def _save(self) -> None:
         flat = _flatten_nodes(self._nodes)
-        e = self._esc
+        e = _esc
         lines: list[str] = []
         for item in flat:
             lines.append("\n[[bookmarks.items]]")

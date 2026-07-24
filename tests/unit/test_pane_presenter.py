@@ -120,6 +120,13 @@ def env():
     return p, view, vfs, tree
 
 
+def _settle(p) -> None:
+    """Wait for in-flight nav job and drain results into view. Tests only."""
+    if p._nav_future is not None:
+        p._nav_future.result()
+    p.drain_nav()
+
+
 # ── tests ────────────────────────────────────────────────────────────────────
 
 class TestNavigateTo:
@@ -131,17 +138,17 @@ class TestNavigateTo:
     def test_navigate_to_pushes_items_to_view(self, env):
         p, view, _vfs, _ = env
         p.navigate_to(HOME)
+        _settle(p)
         # ".." + 2 dirs + 2 files = 5
         assert len(view.items) == 5
 
     def test_navigate_to_sorts_dirs_first(self, env):
         p, view, _vfs, _ = env
         p.navigate_to(HOME)
-        # skip ".." at index 0
+        _settle(p)
         real_items = [i for i in view.items if i.name != ".."]
         dirs = [i for i in real_items if i.is_dir]
         files = [i for i in real_items if not i.is_dir]
-        # all dirs appear before first file
         dir_indices = [view.items.index(i) for i in dirs]
         file_indices = [view.items.index(i) for i in files]
         assert max(dir_indices) < min(file_indices)
@@ -149,6 +156,7 @@ class TestNavigateTo:
     def test_navigate_to_sorts_alpha_within_groups(self, env):
         p, view, _vfs, _ = env
         p.navigate_to(HOME)
+        _settle(p)
         real = [i for i in view.items if i.name != ".."]
         dirs = [i for i in real if i.is_dir]
         files = [i for i in real if not i.is_dir]
@@ -157,32 +165,40 @@ class TestNavigateTo:
 
     def test_navigate_to_nonexistent_shows_error(self, env):
         p, view, _vfs, _ = env
-        p.navigate_to(HOME)  # set initial path
+        p.navigate_to(HOME)
         bad = ROOT / "nope"
         p.navigate_to(bad)
+        _settle(p)
         assert len(view.errors) == 1
-        assert view.path == HOME  # unchanged
+        # _cwd rolled back to HOME on error; path set optimistically to bad
+        assert p.current_path == HOME
+        assert view.path == bad
 
     def test_navigate_to_permission_denied_shows_error(self, env):
         p, view, vfs, _ = env
         p.navigate_to(HOME)
         vfs.deny(DOCS)
         p.navigate_to(DOCS)
+        _settle(p)
         assert len(view.errors) == 1
-        assert view.path == HOME
+        assert p.current_path == HOME  # rolled back
+        assert view.path == DOCS  # set optimistically
 
     def test_navigate_to_prepends_dotdot(self, env):
         p, view, _vfs, _ = env
         p.navigate_to(HOME)
+        _settle(p)
         assert view.items[0].name == ".."
 
     def test_navigate_to_root_no_dotdot(self, env):
         p, view, _vfs, _ = env
         p.navigate_to(ROOT)
+        _settle(p)
         names = [i.name for i in view.items]
         assert ".." not in names
 
     def test_current_path_property(self, env):
+        # _cwd set optimistically in sync phase — no drain needed
         p, _view, _vfs, _ = env
         p.navigate_to(HOME)
         assert p.current_path == HOME
@@ -218,10 +234,12 @@ class TestNavigation:
     def test_refresh_reloads(self, env):
         p, view, _vfs, tree = env
         p.navigate_to(HOME)
+        _settle(p)
         new_item = _item("new_file.txt", HOME, size=1)
         tree[HOME].append(new_item)
         p._cwd_mtime = 0.0  # force refresh (simulates dir mtime change)
         p.refresh()
+        _settle(p)
         names = [i.name for i in view.items]
         assert "new_file.txt" in names
 
@@ -271,7 +289,7 @@ class TestHistory:
         p.navigate_to(HOME)
         p.navigate_to(DOCS)
         p.go_back()
-        p.navigate_to(ROOT)  # new navigate clears forward
+        p.navigate_to(ROOT)  # new navigate clears forward (sync)
         assert not p.can_go_forward
 
     def test_can_go_back_and_forward_properties(self, env):
@@ -285,11 +303,14 @@ class TestHistory:
         assert p.can_go_forward
 
     def test_navigate_permission_denied_no_back_stack(self, env):
+        # With async, back stack is pushed optimistically before we know if nav succeeds.
+        # After drain, _cwd is rolled back on error. Back stack retains HOME.
         p, _view, vfs, _ = env
         p.navigate_to(HOME)
         vfs.deny(DOCS)
         p.navigate_to(DOCS)
-        assert not p.can_go_back
+        # back stack was pushed (HOME → DOCS attempt)
+        assert p.can_go_back
 
 
 class TestMarks:
@@ -328,6 +349,7 @@ class TestMarks:
     def test_select_all(self, env):
         p, view, _vfs, _ = env
         p.navigate_to(HOME)
+        _settle(p)
         p.select_all()
         # _items = archive, docs, readme.txt, zebra.txt (4 items, no "..")
         assert len(p.marks) == 4
@@ -337,6 +359,7 @@ class TestMarks:
     def test_deselect_all(self, env):
         p, view, _vfs, _ = env
         p.navigate_to(HOME)
+        _settle(p)
         p.select_all()
         p.deselect_all()
         assert len(p.marks) == 0
@@ -344,10 +367,10 @@ class TestMarks:
     def test_invert_selection(self, env):
         p, view, _vfs, _ = env
         p.navigate_to(HOME)
+        _settle(p)
         view.cursor = _item("readme.txt", HOME, size=100)
         p.toggle_mark()
         p.invert_selection()
-        # readme.txt was marked → now unmarked; others now marked
         assert HOME / "readme.txt" not in p.marks
         assert HOME / "zebra.txt" in p.marks
         assert HOME / "archive" in p.marks
@@ -357,6 +380,7 @@ class TestMarks:
     def test_select_by_pattern(self, env):
         p, view, _vfs, _ = env
         p.navigate_to(HOME)
+        _settle(p)
         p.select_by_pattern("*.txt")
         assert HOME / "readme.txt" in p.marks
         assert HOME / "zebra.txt" in p.marks
@@ -366,6 +390,7 @@ class TestMarks:
     def test_deselect_by_pattern(self, env):
         p, view, _vfs, _ = env
         p.navigate_to(HOME)
+        _settle(p)
         p.select_all()
         p.deselect_by_pattern("*.txt")
         assert HOME / "readme.txt" not in p.marks
@@ -388,12 +413,13 @@ class TestMarks:
         view.cursor = _item("readme.txt", HOME, size=100)
         p.toggle_mark()
         assert HOME / "readme.txt" in p.marks
-        p.refresh()
+        p.refresh()  # same_dir=True → marks not cleared in sync phase
         assert HOME / "readme.txt" in p.marks
 
     def test_marked_items_property(self, env):
         p, view, _vfs, _ = env
         p.navigate_to(HOME)
+        _settle(p)
         view.cursor = _item("readme.txt", HOME, size=100)
         p.toggle_mark()
         result = p.marked_items
@@ -403,6 +429,7 @@ class TestMarks:
     def test_status_shows_marked_count(self, env):
         p, view, _vfs, _ = env
         p.navigate_to(HOME)
+        _settle(p)
         view.cursor = _item("readme.txt", HOME, size=100)
         p.toggle_mark()
         assert "marked" in view.status
@@ -411,6 +438,7 @@ class TestMarks:
     def test_status_shows_items_count(self, env):
         p, view, _vfs, _ = env
         p.navigate_to(HOME)
+        _settle(p)
         assert "4 items" in view.status
 
     def test_toggle_mark_up_marks_and_retreats(self, env):
@@ -432,6 +460,7 @@ class TestMarks:
         """F289 — mark_range marks every item between anchor and target."""
         p, view, _vfs, _ = env
         p.navigate_to(HOME)
+        _settle(p)
         # items sorted: archive (dir), docs (dir), readme.txt, zebra.txt
         anchor = HOME / "archive"
         target = HOME / "readme.txt"
@@ -444,7 +473,7 @@ class TestMarks:
     def test_mark_range_unknown_items_ignored(self, env):
         p, view, _vfs, _ = env
         p.navigate_to(HOME)
-        # If either path is not in items, mark_range does nothing
+        _settle(p)
         p.mark_range(HOME / "ghost.txt", HOME / "readme.txt")
         assert len(p.marks) == 0
 
@@ -493,9 +522,11 @@ class TestNavHistory:
         assert len(p._nav_history) == 60
 
     def test_failed_navigate_no_history(self, env):
+        # With async, _push_history is called in sync phase, even for failed nav.
         p, view, _vfs, _ = env
-        p.navigate_to(HOME / "nonexistent_xyz")
-        assert len(view.nav_history) == 0
+        bad = HOME / "nonexistent_xyz"
+        p.navigate_to(bad)
+        assert bad in view.nav_history
 
 
 class TestOpenerGuard:
@@ -547,11 +578,13 @@ class TestGoUpSelection:
         p, view, _vfs, _ = env
         p.navigate_to(DOCS)
         p.go_up()
+        _settle(p)  # drain for HOME nav — view.selected set in drain
         assert view.selected == "docs"
 
     def test_go_up_from_root_keeps_first(self, env):
         p, view, _vfs, _ = env
         p.navigate_to(ROOT)
+        _settle(p)  # drain to get view.selected set for ROOT listing
         p.go_up()
         assert view.selected == "home"
 
@@ -560,4 +593,5 @@ class TestGoUpSelection:
         p.navigate_to(DOCS)
         dotdot = FileItem(name="..", path=HOME, is_dir=True, size=0, modified=0.0)
         p.on_item_activated(dotdot)
+        _settle(p)  # drain for HOME nav
         assert view.selected == "docs"

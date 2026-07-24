@@ -1,7 +1,8 @@
 """Tests for SettingsPresenter."""
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from biome_fm.config import Config
+from biome_fm.models import credential_store as cs
 from biome_fm.presenters.settings_presenter import SettingsPresenter
 
 
@@ -34,15 +35,20 @@ def test_load_populates_plugins():
 
 
 def test_apply_updates_config():
+    """Keys are stored in keyring; config plaintext fields are cleared."""
     cfg = Config(theme="dark")
     v = _fake_view()
-    p = SettingsPresenter(cfg, v)
-    result = p.apply()
+    stored: dict = {}
+    with patch.object(cs, "_keyring", None), patch.object(cs, "_FALLBACK", stored):
+        p = SettingsPresenter(cfg, v)
+        result = p.apply()
     assert result.theme == "light"
     assert result.show_hidden is True
     assert result.ai_default_provider == "openai"
-    assert result.ai_claude_key == "key1"
-    assert result.ai_openai_key == "key2"
+    assert result.ai_claude_key == ""    # cleared from config
+    assert result.ai_openai_key == ""   # cleared from config
+    assert stored[("biome-fm", "claude")] == "key1"
+    assert stored[("biome-fm", "openai")] == "key2"
 
 
 def test_apply_returns_same_config_object():

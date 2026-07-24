@@ -1,7 +1,6 @@
 """Integration tests for SelectByAttrDialog (F221)."""
 from __future__ import annotations
 
-import pytest
 
 from biome_fm.views.select_criteria_dialog import SelectByAttrDialog
 

@@ -5,9 +5,8 @@ import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import pytest
 
-from biome_fm.models.url_signer import sign_url
+from biome_fm.models.url_signer import can_sign_url, sign_url
 
 
 def _vfs_with_fs(**kwargs):
@@ -49,3 +48,17 @@ def test_sign_url_rclone(monkeypatch):
 
 def test_sign_url_unknown_vfs():
     assert sign_url(Path("/some/file.txt"), object()) is None
+
+
+def test_can_sign_url_fsspec():
+    assert can_sign_url(_vfs_with_fs()) is True
+
+
+def test_can_sign_url_local():
+    assert can_sign_url(object()) is False
+
+
+def test_can_sign_url_rclone():
+    class RcloneVFS:
+        pass
+    assert can_sign_url(RcloneVFS()) is True

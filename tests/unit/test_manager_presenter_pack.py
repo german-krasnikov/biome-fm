@@ -4,7 +4,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import pytest
 
 from biome_fm.models.file_item import FileItem
 from biome_fm.models.vfs import LocalVFS

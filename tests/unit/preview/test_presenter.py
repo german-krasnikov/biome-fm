@@ -4,7 +4,7 @@ from unittest.mock import Mock
 
 from biome_fm.models.file_item import FileItem
 from biome_fm.preview.presenter import PreviewPresenter, PreviewViewProtocol
-from biome_fm.preview.provider import ContentKind, PreviewResult
+from biome_fm.preview.provider import ContentKind, PreviewMode, PreviewResult
 from biome_fm.preview.registry import PreviewRegistry
 
 
@@ -74,7 +74,7 @@ def test_cache_hit_skips_thread():
     presenter, view = _make_presenter(is_visible=False)
     item = _make_item()
     cached = PreviewResult(ContentKind.HTML, "<p>cached</p>")
-    presenter._cache[(item.path, item.modified, presenter._dark)] = (cached, time.monotonic())
+    presenter._cache[(item.path, item.modified, presenter._dark, PreviewMode.AUTO)] = (cached, time.monotonic())
     presenter.toggle_item(item)
     view.show_result.assert_called_once_with(cached)
     view.set_busy.assert_not_called()
@@ -134,3 +134,88 @@ def test_cache_has_lock():
     presenter, _ = _make_presenter()
     assert hasattr(presenter, "_cache_lock")
     assert isinstance(presenter._cache_lock, type(threading.Lock()))
+
+
+# ── Item-7: explicit modes bypass registry, AUTO delegates to it ─────────────
+
+def test_git_blame_mode_bypasses_registry():
+    from biome_fm.preview.provider import PreviewMode
+    from biome_fm.preview.providers.git_blame import GitBlamePreviewProvider
+    presenter, _ = _make_presenter()
+    presenter._forced_mode = PreviewMode.GIT_BLAME
+    assert isinstance(presenter._get_provider(Path("/some/file.py")), GitBlamePreviewProvider)
+
+
+def test_git_log_mode_bypasses_registry():
+    from biome_fm.preview.provider import PreviewMode
+    from biome_fm.preview.providers.git_log import GitLogPreviewProvider
+    presenter, _ = _make_presenter()
+    presenter._forced_mode = PreviewMode.GIT_LOG
+    assert isinstance(presenter._get_provider(Path("/some/file.py")), GitLogPreviewProvider)
+
+
+def test_auto_mode_delegates_to_registry():
+    from biome_fm.preview.provider import PreviewMode
+    from biome_fm.preview.providers.code import CodePreviewProvider
+    presenter, _ = _make_presenter()
+    presenter._registry.find.return_value = CodePreviewProvider()
+    presenter._forced_mode = PreviewMode.AUTO
+    item = _make_item("script.py")
+    result = presenter._get_provider(item.path, item)
+    presenter._registry.find.assert_called_once_with(item.path)
+    assert isinstance(result, CodePreviewProvider)
+
+
+# ── Item-10: mode in cache key ────────────────────────────────────────────────
+
+def test_mode_switch_busts_cache():
+    """AUTO cache entry is not served when mode switches to GIT_BLAME."""
+    import time
+    from biome_fm.preview.provider import PreviewMode
+    presenter, view = _make_presenter()
+    item = _make_item()
+    cached = PreviewResult(ContentKind.HTML, "<cached>")
+    # Prime cache under AUTO key
+    presenter._cache[(item.path, item.modified, presenter._dark, PreviewMode.AUTO)] = (
+        cached, time.monotonic()
+    )
+    # Switch to GIT_BLAME — should miss cache
+    presenter._forced_mode = PreviewMode.GIT_BLAME
+    presenter._render_item(item)
+    view.set_busy.assert_called_once_with(True)
+    view.show_result.assert_not_called()
+
+
+def test_same_mode_reuses_cache():
+    """Same mode key → cache hit, show_result immediately, no set_busy."""
+    import time
+    from biome_fm.preview.provider import PreviewMode
+    presenter, view = _make_presenter()
+    item = _make_item()
+    cached = PreviewResult(ContentKind.HTML, "<cached>")
+    presenter._cache[(item.path, item.modified, presenter._dark, PreviewMode.AUTO)] = (
+        cached, time.monotonic()
+    )
+    presenter._render_item(item)  # _forced_mode is AUTO by default
+    view.show_result.assert_called_once_with(cached)
+    view.set_busy.assert_not_called()
+
+
+def test_race_guard_discards_stale_mode_result():
+    """_run does NOT enqueue result when mode changed since submission."""
+    from biome_fm.preview.provider import PreviewMode, PreviewRequest
+    presenter, view = _make_presenter()
+    item = _make_item()
+    presenter._current = item.path
+    req = PreviewRequest(path=item.path, dark=presenter._dark)
+    cache_key = (item.path, item.modified, presenter._dark, PreviewMode.AUTO)
+    fake_result = PreviewResult(ContentKind.TEXT, "auto render")
+    fake_provider = Mock(render=Mock(return_value=fake_result))
+
+    # Flip mode to HEX BEFORE _run executes (simulates race)
+    presenter._forced_mode = PreviewMode.HEX
+
+    # Call _run synchronously with mode_at_submit=AUTO — guard should block enqueue
+    presenter._run(fake_provider, req, cache_key, PreviewMode.AUTO)
+
+    assert presenter._queue.empty()

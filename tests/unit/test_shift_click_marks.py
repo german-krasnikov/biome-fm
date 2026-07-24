@@ -43,6 +43,7 @@ def _setup(root: Path) -> tuple[PanePresenter, FakeView]:
     view = FakeView()
     p = PanePresenter(view, vfs)
     p.navigate_to(root)
+    p._nav_future.result(); p.drain_nav()  # populate _items
     return p, view
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from biome_fm.config import Config
+from biome_fm.models.credential_store import CRED_SERVICE, get_credential, set_credential
 
 
 class SettingsViewProtocol(Protocol):
@@ -61,7 +62,10 @@ class SettingsPresenter:
         self._view.set_sync_browsing(self._config.sync_browsing)
         self._view.set_file_type_colors(self._config.file_type_colors)
         self._view.set_ai_provider(self._config.ai_default_provider)
-        self._view.set_ai_keys(self._config.ai_claude_key, self._config.ai_openai_key)
+        self._view.set_ai_keys(
+            get_credential(CRED_SERVICE, "claude") or self._config.ai_claude_key,
+            get_credential(CRED_SERVICE, "openai") or self._config.ai_openai_key,
+        )
         self._view.set_ollama(self._config.ai_ollama_url, self._config.ai_ollama_model)
         self._view.set_glass(self._config.glass)
         self._view.set_glass_opacity(self._config.glass_opacity)
@@ -80,8 +84,10 @@ class SettingsPresenter:
         self._config.file_type_colors = self._view.get_file_type_colors()
         self._config.ai_default_provider = self._view.get_ai_provider()
         claude, openai = self._view.get_ai_keys()
-        self._config.ai_claude_key = claude
-        self._config.ai_openai_key = openai
+        set_credential(CRED_SERVICE, "claude", claude)
+        set_credential(CRED_SERVICE, "openai", openai)
+        self._config.ai_claude_key = ""   # keep plaintext field empty after save
+        self._config.ai_openai_key = ""
         url, model = self._view.get_ollama()
         self._config.ai_ollama_url = url
         self._config.ai_ollama_model = model

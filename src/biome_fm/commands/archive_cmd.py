@@ -191,6 +191,15 @@ class Encrypted7zCmd(Command):
 _ZIP_EXTS = frozenset((".zip", ".jar", ".whl"))
 
 
+def _validate_zip_names(names: list[str], dest_dir: Path) -> None:
+    """Raise ValueError if any ZIP entry would extract outside dest_dir."""
+    dest_resolved = dest_dir.resolve()
+    for name in names:
+        target = (dest_dir / name).resolve()
+        if not target.is_relative_to(dest_resolved):
+            raise ValueError(f"Zip Slip detected: {name!r} would extract to {target}")
+
+
 class ExtractCmd(Command):
     """Extract archive to dest_dir. Not undoable."""
 
@@ -205,6 +214,7 @@ class ExtractCmd(Command):
             name = self._archive.name.lower()
             if any(name.endswith(e) for e in _ZIP_EXTS):
                 with zipfile.ZipFile(self._archive) as zf:
+                    _validate_zip_names(zf.namelist(), self._dest_dir)
                     zf.extractall(self._dest_dir)
             else:
                 with tarfile.open(self._archive) as tf:

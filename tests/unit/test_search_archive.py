@@ -6,7 +6,6 @@ import tarfile
 import zipfile
 from pathlib import Path
 
-import pytest
 
 from biome_fm.models.archive_vfs import ArchiveVFS
 from biome_fm.presenters.search_presenter import SearchMode, SearchPresenter

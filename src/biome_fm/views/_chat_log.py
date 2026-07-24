@@ -6,6 +6,7 @@ import re
 
 from PySide6.QtGui import QTextBlockFormat
 
+from biome_fm.plugins.types import ThemeTokens, _DARK_FALLBACK
 from biome_fm.qt import (
     QDesktopServices,
     QTextBrowser,
@@ -17,31 +18,36 @@ from biome_fm.qt import (
 from biome_fm.views._linkify import _linkify_html
 
 
-def _make_styles(dark: bool) -> dict[str, tuple[str, str]]:
-    if dark:
-        return {
-            "user": ("right", "background:#1a2840;color:#e0e0e0;border-radius:12px 12px 2px 12px"),
-            "assistant": ("left", "background:transparent;color:#e0e0e0;border-radius:12px 12px 12px 2px"),
-            "error": ("left", "background:#2a1a1a;color:#ef9a9a;border-radius:8px"),
-        }
+def _make_styles(tokens: ThemeTokens) -> dict[str, tuple[str, str]]:
+    bg = tokens["surface2"]
+    fg = tokens["text"]
+    h = tokens["red"].lstrip("#")
+    err_bg = f"rgba({int(h[:2],16)},{int(h[2:4],16)},{int(h[4:6],16)},0.15)"
+    err_fg = tokens["red"]
     return {
-        "user": ("right", "background:#cce4ff;color:#1a2840;border-radius:12px 12px 2px 12px"),
-        "assistant": ("left", "background:transparent;color:#1a2840;border-radius:12px 12px 12px 2px"),
-        "error": ("left", "background:#ffd6d6;color:#8b0000;border-radius:8px"),
+        "user": ("right", f"background:{bg};color:{fg};border-radius:12px 12px 2px 12px"),
+        "assistant": ("left", f"background:transparent;color:{fg};border-radius:12px 12px 12px 2px"),
+        "error": ("left", f"background:{err_bg};color:{err_fg};border-radius:8px"),
     }
 
-_BODY_RE = re.compile(r"<body[^>]*>(.*?)</body>", re.DOTALL | re.IGNORECASE)
 
-_CODE_CSS = """
-code, pre { background:#2d2d2d; border-radius:4px; font-size:0.88em; }
-pre { padding:8px 10px; }
-code { padding:2px 4px; }
-pre code { background:none; padding:0; }
-h1,h2,h3,h4,h5,h6 { margin-top:0.8em; margin-bottom:0.3em; }
-blockquote { border-left:3px solid #555; margin:0.5em 0; padding:0 10px; color:#aaa; }
-table { border-collapse:collapse; }
-th,td { border:1px solid #444; padding:4px 8px; }
-"""
+def _make_code_css(tokens: ThemeTokens) -> str:
+    s = tokens["surface"]
+    b = tokens["border"]
+    d = tokens["text_dim"]
+    return (
+        f"code, pre {{ background:{s}; border-radius:4px; font-size:0.88em; }}"
+        f"pre {{ padding:8px 10px; }}"
+        f"code {{ padding:2px 4px; }}"
+        f"pre code {{ background:none; padding:0; }}"
+        f"h1,h2,h3,h4,h5,h6 {{ margin-top:0.8em; margin-bottom:0.3em; }}"
+        f"blockquote {{ border-left:3px solid {b}; margin:0.5em 0; padding:0 10px; color:{d}; }}"
+        f"table {{ border-collapse:collapse; }}"
+        f"th,td {{ border:1px solid {b}; padding:4px 8px; }}"
+    )
+
+
+_BODY_RE = re.compile(r"<body[^>]*>(.*?)</body>", re.DOTALL | re.IGNORECASE)
 
 
 def _md_fragment(content: str) -> str:
@@ -61,14 +67,15 @@ class ChatLog(QTextBrowser):
     path_link_clicked = Signal(str)
     shell_ops_clicked = Signal()
 
-    def __init__(self, parent=None, *, dark: bool = True):
+    def __init__(self, parent=None, *, tokens: ThemeTokens | None = None):
         super().__init__(parent)
         self.setOpenLinks(False)
         self.setReadOnly(True)
         self.viewport().setAutoFillBackground(False)
-        self.document().setDefaultStyleSheet(_CODE_CSS)
+        self._tokens: ThemeTokens = tokens or _DARK_FALLBACK
+        self.document().setDefaultStyleSheet(_make_code_css(self._tokens))
         self.anchorClicked.connect(self._on_anchor_clicked)
-        self._styles = _make_styles(dark)
+        self._styles = _make_styles(self._tokens)
         self._streaming = False
         self._buf: list[str] = []
         self._stream_block_start: int = 0
@@ -86,12 +93,17 @@ class ChatLog(QTextBrowser):
         else:
             QDesktopServices.openUrl(url)
 
-    def set_dark(self, dark: bool) -> None:
-        self._styles = _make_styles(dark)
+    def set_tokens(self, tokens: ThemeTokens) -> None:
+        self._tokens = tokens
+        self._styles = _make_styles(tokens)
+        self.document().setDefaultStyleSheet(_make_code_css(tokens))
 
     def append_bubble(self, role: str, content: str) -> None:
         """Insert a complete message bubble."""
-        align, style = self._styles.get(role, ("left", "background:#333;color:#ccc"))
+        align, style = self._styles.get(
+            role,
+            ("left", f"background:{self._tokens['surface2']};color:{self._tokens['text']}"),
+        )
         cursor = QTextCursor(self.document())
         cursor.movePosition(cursor.MoveOperation.End)
         if cursor.position() > 0 and cursor.block().text():
@@ -127,7 +139,7 @@ class ChatLog(QTextBrowser):
         self._insert_clean_block(cursor)
         self._thinking_pos = cursor.position()
         cursor.insertHtml(
-            '<span style="color:#888;font-style:italic;margin:4px 8px">⋯</span>'
+            f'<span style="color:{self._tokens["text_dim"]};font-style:italic;margin:4px 8px">⋯</span>'
         )
         self._dot_state = 0
         self._dot_timer.start()
@@ -152,13 +164,13 @@ class ChatLog(QTextBrowser):
         cursor.movePosition(cursor.MoveOperation.End, cursor.MoveMode.KeepAnchor)
         dots = self._DOTS[self._dot_state]
         cursor.insertHtml(
-            f'<span style="color:#888;font-style:italic;margin:4px 8px">{dots}</span>'
+            f'<span style="color:{self._tokens["text_dim"]};font-style:italic;margin:4px 8px">{dots}</span>'
         )
         self._scroll_bottom()
 
     def append_tool_event(self, description: str) -> None:
         self.append(
-            f'<div style="color:#888;font-style:italic;font-size:11px;margin:1px 8px">'
+            f'<div style="color:{self._tokens["text_dim"]};font-style:italic;font-size:11px;margin:1px 8px">'
             f"&#9881; {html.escape(description)}</div>"
         )
         self._scroll_bottom()

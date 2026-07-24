@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
 
 from biome_fm.session import PaneSideState, SessionState, TabState, load_session, save_session
 from biome_fm.models.session_store import SessionStore

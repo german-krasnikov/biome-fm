@@ -88,6 +88,12 @@ def _item(path: Path) -> FileItem:
     return FileItem(name=path.name, path=path, is_dir=path.is_dir(), size=0, modified=0.0)
 
 
+def _settle(p) -> None:
+    if p._nav_future is not None:
+        p._nav_future.result()
+    p.drain_nav()
+
+
 @pytest.fixture()
 def setup(tmp_path):
     left_dir = tmp_path / "left"
@@ -102,7 +108,9 @@ def setup(tmp_path):
     lp = PanePresenter(lv, vfs)
     rp = PanePresenter(rv, vfs)
     lp.navigate_to(left_dir)
+    _settle(lp)
     rp.navigate_to(right_dir)
+    _settle(rp)
 
     mgr = ManagerPresenter(lp, rp, vfs, bus=bus)
     return mgr, lp, rp, lv, rv, vfs, bus, left_dir, right_dir
@@ -227,6 +235,8 @@ def test_operation_refreshes_both_panes(setup):
     f = left_dir / "refresh.txt"
     f.write_text("x")
     mgr.copy_selected([_item(f)])
+    _settle(lp)  # drain refresh job for left pane
+    _settle(rp)  # drain refresh job for right pane
     assert lv.set_items_calls == calls_before_l + 1
     assert rv.set_items_calls == calls_before_r + 1
 
@@ -307,7 +317,9 @@ def test_no_bus_does_not_crash(tmp_path):
     lp = PanePresenter(lv, vfs)
     rp = PanePresenter(rv, vfs)
     lp.navigate_to(left_dir)
+    _settle(lp)
     rp.navigate_to(right_dir)
+    _settle(rp)
     mgr = ManagerPresenter(lp, rp, vfs)  # no bus
     mgr.switch_active_pane()  # active=right now; would publish event — should not crash
     f = right_dir / "x.txt"

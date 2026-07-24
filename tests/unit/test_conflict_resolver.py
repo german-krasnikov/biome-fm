@@ -1,8 +1,6 @@
 """Tests for ConflictResolver and auto_rename — pure Python, no Qt."""
-import threading
 from pathlib import Path
 
-import pytest
 
 from biome_fm.models.conflict_resolver import ConflictAction, ConflictResolver, auto_rename
 

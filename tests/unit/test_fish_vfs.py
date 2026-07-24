@@ -1,8 +1,8 @@
 """TDD tests for FISH VFS (Files over Shell)."""
 from __future__ import annotations
 
-from pathlib import Path, PurePosixPath
-from unittest.mock import MagicMock
+from pathlib import PurePosixPath
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -86,3 +86,46 @@ def test_read_bytes_calls_cat():
     cmd = vfs._client.exec_command.call_args[0][0]
     assert "cat" in cmd
     assert "/etc/hosts" in cmd
+
+
+# ── Security: host key policy (#30) ─────────────────────────────────────────
+
+paramiko = pytest.importorskip("paramiko")
+
+
+def test_fish_vfs_default_uses_reject_policy():
+    import biome_fm.models.fish_vfs as m
+    mock_client = MagicMock()
+    with patch.object(m._paramiko, "SSHClient", return_value=mock_client):
+        vfs = m.FISHVfs(host="test.example.com")
+        try:
+            vfs.connect()
+        except Exception:
+            pass
+    policy_calls = mock_client.set_missing_host_key_policy.call_args_list
+    assert policy_calls, "set_missing_host_key_policy must be called"
+    assert isinstance(policy_calls[0][0][0], m._paramiko.RejectPolicy)
+
+
+def test_fish_vfs_auto_add_uses_auto_add_policy():
+    import biome_fm.models.fish_vfs as m
+    mock_client = MagicMock()
+    with patch.object(m._paramiko, "SSHClient", return_value=mock_client):
+        vfs = m.FISHVfs(host="test.example.com", auto_add_host_key=True)
+        try:
+            vfs.connect()
+        except Exception:
+            pass
+    applied = mock_client.set_missing_host_key_policy.call_args[0][0]
+    assert isinstance(applied, m._paramiko.AutoAddPolicy)
+
+
+def test_fish_vfs_no_paramiko_raises():
+    import biome_fm.models.fish_vfs as m
+    original = m._HAS_PARAMIKO
+    m._HAS_PARAMIKO = False
+    try:
+        with pytest.raises(RuntimeError, match="paramiko"):
+            m.FISHVfs(host="x")
+    finally:
+        m._HAS_PARAMIKO = original

@@ -27,7 +27,6 @@ class TestPermissionsEditorDialog:
     def test_octal_input(self, qtbot, tmp_path: Path) -> None:
         from biome_fm.views.permissions_editor_dialog import (
             PermissionsEditorDialog,
-            _mode_from_checkboxes,
         )
 
         f = tmp_path / "f.txt"

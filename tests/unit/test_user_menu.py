@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from biome_fm.models.user_menu import UserMenuItem, load_user_menu
+from biome_fm.models.user_menu import load_user_menu
 
 
 def _write_menu(path: Path, items: list[dict]) -> None:

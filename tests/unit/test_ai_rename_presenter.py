@@ -1,7 +1,6 @@
 """Unit tests for ai_rename_presenter.suggest_renames."""
 import json
 
-import pytest
 
 from biome_fm.presenters.ai_rename_presenter import suggest_renames
 

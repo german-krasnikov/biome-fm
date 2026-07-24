@@ -1,7 +1,6 @@
 """Sprint 2 cleanup tests — format_size, run_git, ls_parser, uri_parser relocation."""
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 
@@ -113,7 +112,7 @@ def test_parse_ls_line_mtime():
 # ── uri_parser import from new location ───────────────────────────────────────
 
 def test_uri_parser_importable_from_utils():
-    from biome_fm.utils.uri_parser import detect_scheme, parse_uri, ParsedURI
+    from biome_fm.utils.uri_parser import detect_scheme, parse_uri
     assert detect_scheme("sftp://host/path") == "sftp"
     r = parse_uri("sftp://alice@host:22/home")
     assert r.scheme == "sftp"
@@ -122,5 +121,5 @@ def test_uri_parser_importable_from_utils():
 
 def test_uri_parser_shim_still_works():
     # backward-compat shim must still export the same names
-    from biome_fm.presenters.uri_parser import detect_scheme, parse_uri, ParsedURI
+    from biome_fm.utils.uri_parser import detect_scheme
     assert detect_scheme("s3://bucket") == "s3"

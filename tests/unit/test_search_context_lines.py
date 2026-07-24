@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-from biome_fm.models.file_item import FileItem
 from biome_fm.models.vfs import LocalVFS
 from biome_fm.presenters.search_presenter import SearchMode, SearchPresenter
 

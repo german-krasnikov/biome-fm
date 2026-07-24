@@ -1,6 +1,7 @@
 """Unit tests for PanePresenter.toggle_flat_view() — TDD red phase."""
+import time
 from pathlib import Path
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 
 
 def _make_presenter(tmp_path: Path):
@@ -15,6 +16,17 @@ def _make_presenter(tmp_path: Path):
     return p, view
 
 
+def _wait_drain(p, timeout: float = 1.0) -> None:
+    """Poll drain_flat until set_items is called or timeout expires."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        p.drain_flat()
+        if p._view.set_items.called:
+            return
+        time.sleep(0.01)
+    p.drain_flat()  # final attempt
+
+
 def test_flat_view_includes_subdir_files(tmp_path):
     """Files in subdirectories appear in flat listing."""
     (tmp_path / "a.txt").write_text("a")
@@ -24,6 +36,7 @@ def test_flat_view_includes_subdir_files(tmp_path):
 
     p, view = _make_presenter(tmp_path)
     p.toggle_flat_view()
+    _wait_drain(p)
 
     view.set_items.assert_called_once()
     items = view.set_items.call_args[0][0]
@@ -40,6 +53,7 @@ def test_flat_view_relative_names(tmp_path):
 
     p, view = _make_presenter(tmp_path)
     p.toggle_flat_view()
+    _wait_drain(p)
 
     items = view.set_items.call_args[0][0]
     assert any(i.name == str(Path("foo") / "bar.txt") for i in items)
@@ -57,6 +71,7 @@ def test_flat_view_excludes_hidden(tmp_path):
 
     p, view = _make_presenter(tmp_path)
     p.toggle_flat_view()
+    _wait_drain(p)
 
     items = view.set_items.call_args[0][0]
     names = {i.name for i in items}
@@ -71,6 +86,7 @@ def test_flat_view_second_toggle_goes_back(tmp_path):
 
     p, view = _make_presenter(tmp_path)
     p.toggle_flat_view()
+    _wait_drain(p)
 
     view.reset_mock()
     p.toggle_flat_view()  # already virtual → go_back
@@ -85,6 +101,7 @@ def test_flat_view_empty_dir(tmp_path):
     """Empty directory produces an empty virtual view."""
     p, view = _make_presenter(tmp_path)
     p.toggle_flat_view()
+    _wait_drain(p)
 
     items = view.set_items.call_args[0][0]
     assert items == []
@@ -92,3 +109,59 @@ def test_flat_view_empty_dir(tmp_path):
     # label contains the dir name
     label_path = view.set_path.call_args[0][0]
     assert tmp_path.name in str(label_path)
+
+
+# ── New async-behaviour tests ────────────────────────────────────────────────
+
+
+def test_flat_view_scanning_status_shown(tmp_path):
+    """set_status('Scanning...') is called immediately, before drain."""
+    p, view = _make_presenter(tmp_path)
+    p.toggle_flat_view()
+    # Check status BEFORE drain — must be "Scanning..." synchronously
+    view.set_status.assert_called_with("Scanning...")
+
+
+def test_flat_view_stale_result_discarded(tmp_path):
+    """Results are discarded when user navigated away before drain completes."""
+    other = tmp_path / "other"
+    other.mkdir()
+    (tmp_path / "file.txt").write_text("x")
+
+    p, view = _make_presenter(tmp_path)
+    p.toggle_flat_view()
+
+    # Navigate away before draining — cwd is now 'other'
+    p.navigate_to(other)
+    view.reset_mock()
+
+    # Wait for walk then drain — must not set items (stale result)
+    deadline = time.monotonic() + 1.0
+    while time.monotonic() < deadline:
+        if not p._flat_queue.empty():
+            break
+        time.sleep(0.01)
+
+    p.drain_flat()
+    view.set_items.assert_not_called()
+
+
+def test_flat_view_cancel_stops_walk(tmp_path):
+    """Cancel flag causes walk to enqueue None; drain_flat is a no-op."""
+    (tmp_path / "a.txt").write_text("a")
+
+    p, view = _make_presenter(tmp_path)
+    p.toggle_flat_view()
+
+    # Cancel immediately
+    p._flat_cancel[0] = True
+
+    # Wait for worker to notice and enqueue None
+    deadline = time.monotonic() + 1.0
+    while time.monotonic() < deadline:
+        if not p._flat_queue.empty():
+            break
+        time.sleep(0.01)
+
+    p.drain_flat()
+    view.set_items.assert_not_called()

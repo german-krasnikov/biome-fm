@@ -1,7 +1,6 @@
 """Unit tests for ImagePreviewProvider EXIF overlay (F317)."""
 from pathlib import Path
 
-import pytest
 
 from biome_fm.preview.provider import ContentKind, PreviewRequest
 from biome_fm.preview.providers.image import ImagePreviewProvider, _read_exif

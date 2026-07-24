@@ -1,6 +1,5 @@
 """Integration tests for TagDialog."""
 import pytest
-from pytestqt.qtbot import QtBot
 
 from biome_fm.views.tag_dialog import TagDialog
 

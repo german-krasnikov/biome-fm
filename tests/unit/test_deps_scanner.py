@@ -1,8 +1,6 @@
 """TDD tests for deps_scanner.scan_cleanup_dirs."""
 import threading
-from pathlib import Path
 
-import pytest
 
 from biome_fm.models.deps_scanner import scan_cleanup_dirs
 

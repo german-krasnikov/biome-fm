@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from biome_fm.models._store_base import atomic_write_json
+
 
 class FileAssociations:
     def __init__(self, config_path: Path) -> None:
@@ -20,4 +22,4 @@ class FileAssociations:
         self._data[suffix] = app
 
     def save(self) -> None:
-        self._path.write_text(json.dumps(self._data, indent=2))
+        atomic_write_json(self._path, self._data)

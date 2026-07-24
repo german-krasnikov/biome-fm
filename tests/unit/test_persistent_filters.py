@@ -4,7 +4,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import pytest
 
 from biome_fm.models.file_item import FileItem
 from biome_fm.models.view_state import ViewState
@@ -107,7 +106,8 @@ def test_filter_restored_on_navigate_back():
     view._view_state = ViewState()
     view.filter_text = ""
     view.filter_visible = False
-    # Navigate back to HOME — filter should be restored
+    # Navigate back to HOME — filter should be restored (in drain)
     p.navigate_to(HOME)
+    p._nav_future.result(); p.drain_nav()
     assert view.filter_text == "*.py"
     assert view.filter_visible is True

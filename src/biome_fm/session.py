@@ -5,6 +5,8 @@ import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from biome_fm.utils.atomic_write import atomic_write
+
 
 @dataclass
 class TabState:
@@ -60,5 +62,4 @@ def load_session(path: Path) -> SessionState | None:
 
 def save_session(state: SessionState, path: Path) -> None:
     """Save session as JSON. Creates parent dirs."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(asdict(state), indent=2) + "\n", encoding="utf-8")
+    atomic_write(path, json.dumps(asdict(state), indent=2) + "\n")

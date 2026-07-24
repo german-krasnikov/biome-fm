@@ -1,7 +1,6 @@
 """TDD: Accessible names on key widgets."""
 from __future__ import annotations
 
-import pytest
 
 
 def test_pane_has_accessible_name(qtbot) -> None:

@@ -37,13 +37,13 @@ def test_git_branch_displayed() -> None:
     from biome_fm.git.branch_ops import current_branch
     mock_result = MagicMock()
     mock_result.stdout = "main\n"
-    with patch("biome_fm.git.branch_ops.subprocess.run", return_value=mock_result):
+    with patch("biome_fm.git.run.subprocess.run", return_value=mock_result):
         branch = current_branch(Path("/some/repo"))
     assert branch == "main"
 
 
 def test_git_branch_no_repo() -> None:
     from biome_fm.git.branch_ops import current_branch
-    with patch("biome_fm.git.branch_ops.subprocess.run", side_effect=FileNotFoundError):
+    with patch("biome_fm.git.run.subprocess.run", side_effect=FileNotFoundError):
         branch = current_branch(Path("/tmp"))
     assert branch == ""

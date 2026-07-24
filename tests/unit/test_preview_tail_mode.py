@@ -1,5 +1,4 @@
 """F416 — Tail mode unit tests (Qt-free)."""
-import queue
 from unittest.mock import Mock
 
 from biome_fm.preview.presenter import PreviewPresenter

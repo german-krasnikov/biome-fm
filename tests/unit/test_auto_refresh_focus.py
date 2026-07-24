@@ -1,7 +1,7 @@
 """Unit tests for F246 — Auto-Refresh with focus/unfocus."""
 from __future__ import annotations
 
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 
 from biome_fm.app import _handle_app_state_change
 from biome_fm.qt import Qt

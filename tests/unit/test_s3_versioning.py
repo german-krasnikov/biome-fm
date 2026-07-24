@@ -4,7 +4,6 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 import biome_fm.models.fsspec_vfs as _mod
 

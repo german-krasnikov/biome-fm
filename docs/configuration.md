@@ -20,7 +20,6 @@ Backup 1 is always the most recent. Old backups rotate out automatically.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `diff_tool` | string | `""` | External diff command (e.g. `"opendiff %a %b"`). `%a`/`%b` are replaced with the two files. |
 | `theme` | string | `"dark"` | Base theme: `"dark"` or `"light"`. Overridden by `follow_system_theme` when true. |
 | `follow_system_theme` | bool | `true` | Track the OS light/dark theme automatically |
 | `editor_cmd` | string | `""` | External editor command for `F4`. Empty = built-in editor |
@@ -66,7 +65,7 @@ Has no effect on platforms or compositors that do not support transparency.
 
 ## Column Visibility
 
-Toggle columns via `Ctrl+Shift+Y` or by adding them to `hidden_columns`:
+Hide columns by adding them to `hidden_columns` in `config.toml`:
 
 ```toml
 hidden_columns = ["Ext", "Git"]

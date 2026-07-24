@@ -4,14 +4,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
 
 from biome_fm.models.finder_tags import (
     _get_comment_fallback,
     _meta_path,
     _set_comment_fallback,
-    get_finder_comment,
-    set_finder_comment,
 )
 
 

@@ -1,6 +1,7 @@
 """FISH VFS — Files over Shell. SSH exec_command fallback when SFTP unavailable."""
 from __future__ import annotations
 
+import logging
 import shlex
 from pathlib import Path, PurePosixPath
 
@@ -14,12 +15,15 @@ except ImportError:
 from biome_fm.models.file_item import FileItem
 from biome_fm.models.ls_parser import parse_ls_line
 
+_log = logging.getLogger(__name__)
+
 
 class FISHVfs:
     """SSH exec_command VFS for devices without SFTP subsystem."""
 
     def __init__(self, host: str, port: int = 22, user: str = "",
-                 key_path: str = "", proxy_command: str = "") -> None:
+                 key_path: str = "", proxy_command: str = "",
+                 auto_add_host_key: bool = False) -> None:
         if not _HAS_PARAMIKO:
             raise RuntimeError("Install paramiko: pip install paramiko")
         self._host = host
@@ -27,11 +31,17 @@ class FISHVfs:
         self._user = user
         self._key_path = key_path
         self._proxy_command = proxy_command
+        self._auto_add_host_key = auto_add_host_key
         self._client = None
 
     def connect(self) -> None:
         client = _paramiko.SSHClient()
-        client.set_missing_host_key_policy(_paramiko.AutoAddPolicy())
+        if self._auto_add_host_key:
+            _log.warning("FISH: auto-accepting host keys for %s — MITM risk", self._host)
+            client.set_missing_host_key_policy(_paramiko.AutoAddPolicy())
+        else:
+            client.set_missing_host_key_policy(_paramiko.RejectPolicy())
+        # ponytail: RejectPolicy raises SSHException on unknown key; add UI key-acceptance prompt in follow-up
         sock = _paramiko.ProxyCommand(self._proxy_command) if self._proxy_command else None
         kw: dict = dict(hostname=self._host, port=self._port, username=self._user or None, sock=sock)
         if self._key_path:

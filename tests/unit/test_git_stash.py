@@ -1,10 +1,8 @@
 """Unit tests for Git Stash Manager."""
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 
 def test_list_parsed():

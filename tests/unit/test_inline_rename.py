@@ -1,8 +1,6 @@
 """Unit tests for inline rename delegate and DirectoryModel flags."""
 from pathlib import Path
-from unittest.mock import MagicMock
 
-import pytest
 from PySide6.QtWidgets import QLineEdit
 
 from biome_fm.models.directory_model import COL_NAME, DirectoryModel

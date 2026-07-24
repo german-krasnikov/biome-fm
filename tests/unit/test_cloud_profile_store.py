@@ -75,3 +75,22 @@ class TestTOMLRoundTrip:
         s.add(CloudProfile(name="x", scheme="s3", host="h"))
         s.save()
         assert path.exists()
+
+
+# ---------------------------------------------------------------------------
+# TOML injection hardening (Item #6)
+# ---------------------------------------------------------------------------
+
+_INJECTION = 'evil"\nbucket = "hacked'
+
+
+def test_injection_payload_roundtrip(tmp_path):
+    path = tmp_path / "c.toml"
+    s1 = CloudProfileStore(path)
+    s1.add(CloudProfile(name="x", scheme="s3", host=_INJECTION, user='u"1'))
+    s1.save()
+    s2 = CloudProfileStore(path)
+    s2.load()
+    p = s2.get("x")
+    assert p.host == _INJECTION
+    assert p.user == 'u"1'

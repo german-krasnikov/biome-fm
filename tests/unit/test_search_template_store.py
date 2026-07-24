@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 
 from biome_fm.models.search_template_store import SearchTemplate, SearchTemplateStore
 
@@ -58,3 +57,19 @@ def test_toml_format_is_table_array(tmp_path: Path) -> None:
     assert "[[templates]]" in raw
     assert 'name = "test"' in raw
     assert 'pattern = "*.rs"' in raw
+
+
+# ---------------------------------------------------------------------------
+# TOML injection hardening (Item #6)
+# ---------------------------------------------------------------------------
+
+_INJECTION = '*.py"\nmode = "regex'
+
+
+def test_injection_payload_roundtrip(tmp_path: Path) -> None:
+    path = tmp_path / "s.toml"
+    store = SearchTemplateStore(path)
+    store.save(SearchTemplate(name='t"1', pattern=_INJECTION, mode="wildcard"))
+    store2 = SearchTemplateStore(path)
+    assert store2.templates[0].pattern == _INJECTION
+    assert store2.templates[0].name == 't"1'

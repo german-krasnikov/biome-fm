@@ -40,3 +40,41 @@ def test_listdir_without_paramiko():
     vfs = SFTPVfs(session)
     with pytest.raises(RuntimeError, match="paramiko"):
         vfs.listdir(Path("/"))
+
+
+# ── Security: proxy command injection prevention ─────────────────────────────
+
+from biome_fm.models.sftp_vfs import make_jump_proxy_command
+
+
+def test_make_jump_proxy_command_quotes_hostname():
+    result = make_jump_proxy_command(
+        jump_host="evil; rm -rf ~",
+        jump_port=22,
+        jump_user="",
+        target_host="target.example.com",
+        target_port=22,
+    )
+    # semicolon inside single-quoted arg, not at shell top-level
+    assert "'evil; rm -rf ~'" in result
+    # strip the quoted part and verify no bare semicolon remains
+    assert ";" not in result.replace("'evil; rm -rf ~'", "")
+
+
+def test_make_jump_proxy_command_quotes_jump_user():
+    result = make_jump_proxy_command(
+        jump_host="jump.host",
+        jump_port=22,
+        jump_user="user; evil",
+        target_host="target",
+        target_port=2222,
+    )
+    assert "'user; evil'@" in result
+
+
+def test_make_jump_proxy_command_normal_case():
+    result = make_jump_proxy_command("jump.host", 22, "alice", "target.host", 2222)
+    assert "alice@" in result
+    assert "target.host" in result
+    assert "-p 22" in result
+    assert "-W" in result

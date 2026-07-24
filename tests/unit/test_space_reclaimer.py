@@ -3,9 +3,7 @@ from __future__ import annotations
 
 import threading
 import time
-from pathlib import Path
 
-import pytest
 
 from biome_fm.models.deps_scanner import _DEFAULT_PATTERNS, load_junk_patterns, scan_cleanup_dirs
 from biome_fm.presenters.space_reclaimer_presenter import ReclaimEntry, SpaceReclaimerPresenter

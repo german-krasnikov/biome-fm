@@ -5,7 +5,6 @@ import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import pytest
 
 from biome_fm.presenters.search_presenter import SearchScope, system_index_search
 

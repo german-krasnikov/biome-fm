@@ -11,7 +11,7 @@ from unittest.mock import MagicMock
 
 def _make_sftp_vfs(stdout_lines: list[str]):
     """Return an SFTPVfs with a mocked _client."""
-    from biome_fm.models.sftp_vfs import SFTPVfs, SFTPSession
+    from biome_fm.models.sftp_vfs import SFTPVfs
 
     vfs = SFTPVfs.__new__(SFTPVfs)
     client = MagicMock()
@@ -34,7 +34,7 @@ def test_exec_find_uses_shlex_quote():
 
 
 def test_exec_find_raises_when_not_connected():
-    from biome_fm.models.sftp_vfs import SFTPVfs, SFTPSession
+    from biome_fm.models.sftp_vfs import SFTPVfs
 
     vfs = SFTPVfs.__new__(SFTPVfs)
     vfs._client = None

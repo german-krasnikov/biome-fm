@@ -10,7 +10,6 @@ from biome_fm.operations.queue import OpQueue
 class TestOpQueue:
     def test_progress_callback_fires(self):
         """OpQueue submit → OpStarted + OpDone events appear in drain."""
-        from biome_fm.operations.task import OpDone, OpStarted
 
         class NoopCmd(Command):
             def execute(self) -> None:

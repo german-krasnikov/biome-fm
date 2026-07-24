@@ -100,7 +100,10 @@ class PluginManager:
 
     def call_register_commands(self, registry: object) -> None:
         """Call register_commands historically — late plugins are still invoked."""
-        self._pm.hook.register_commands.call_historic(kwargs={"registry": registry})
+        try:
+            self._pm.hook.register_commands.call_historic(kwargs={"registry": registry})
+        except Exception:
+            _log.exception("Plugin hook register_commands raised")
 
     def register_commands(self, registry: object) -> None:
         """Backward-compat alias for call_register_commands."""
@@ -125,3 +128,53 @@ class PluginManager:
         except Exception:
             _log.exception("Plugin hook provide_preview_providers raised")
             return []
+
+    def before_file_operation(self, op: str, src: object, dst: object) -> bool | None:
+        """Safe delegate — crash = None (allow), not False (veto)."""
+        try:
+            return self._pm.hook.before_file_operation(op=op, src=src, dst=dst)
+        except Exception:
+            _log.exception("Plugin hook before_file_operation raised")
+            return None
+
+    def provide_theme(self, name: str) -> object | None:
+        try:
+            return self._pm.hook.provide_theme(name=name)
+        except Exception:
+            _log.exception("Plugin hook provide_theme raised")
+            return None
+
+    def context_menu_actions(self, items: list, pane_id: str) -> list:
+        try:
+            return self._pm.hook.context_menu_actions(items=items, pane_id=pane_id)
+        except Exception:
+            _log.exception("Plugin hook context_menu_actions raised")
+            return []
+
+    def extra_columns(self) -> list:
+        try:
+            return self._pm.hook.extra_columns()
+        except Exception:
+            _log.exception("Plugin hook extra_columns raised")
+            return []
+
+    def column_value(self, item: object, column_id: str) -> str | None:
+        try:
+            return self._pm.hook.column_value(item=item, column_id=column_id)
+        except Exception:
+            _log.exception("Plugin hook column_value raised")
+            return None
+
+    def extra_archive_extensions(self) -> list:
+        try:
+            return self._pm.hook.extra_archive_extensions()
+        except Exception:
+            _log.exception("Plugin hook extra_archive_extensions raised")
+            return []
+
+    def provide_vfs(self, path: str) -> object | None:
+        try:
+            return self._pm.hook.provide_vfs(path=path)
+        except Exception:
+            _log.exception("Plugin hook provide_vfs raised")
+            return None

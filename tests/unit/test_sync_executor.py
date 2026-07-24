@@ -4,7 +4,6 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-import pytest
 
 from biome_fm.presenters.sync_executor import SyncExecutor
 from biome_fm.presenters.sync_presenter import SyncOp

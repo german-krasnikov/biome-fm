@@ -4,7 +4,6 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-import pytest
 
 from biome_fm.preview.provider import ContentKind, PreviewRequest
 from biome_fm.preview.providers.script import ScriptPreviewProvider, ScriptSpec, load_script_providers

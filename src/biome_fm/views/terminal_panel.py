@@ -15,8 +15,9 @@ from biome_fm.qt import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QPlainTextEdit,
     QProcess,
+    QTextBrowser,
+    QUrl,
     QVBoxLayout,
     QWidget,
     Signal,
@@ -35,6 +36,7 @@ class TerminalPanel(QWidget):
     detach_requested = Signal()
     close_requested = Signal()
     cwd_changed = Signal(Path)  # emitted when OSC 7 sequence detected
+    file_navigated = Signal(Path, int)  # (absolute_path, line_number)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -50,10 +52,13 @@ class TerminalPanel(QWidget):
         add_panel_buttons(hl, self.detach_requested.emit, self.close_requested.emit)
         layout.addWidget(header)
 
-        self._out = QPlainTextEdit()
+        self._out = QTextBrowser()
         self._out.setAccessibleName("Terminal")
         self._out.setReadOnly(True)
-        self._out.setMaximumBlockCount(2000)
+        self._out.setOpenLinks(False)
+        self._out.setOpenExternalLinks(False)
+        self._out.anchorClicked.connect(self._on_anchor)
+        # ponytail: no block limit on QTextBrowser; add manual trimming if memory matters
         layout.addWidget(self._out)
 
         self._inp = QLineEdit()
@@ -89,7 +94,7 @@ class TerminalPanel(QWidget):
     def _read_out(self) -> None:
         if self._proc:
             data = self._proc.readAllStandardOutput().data().decode("utf-8", errors="replace")
-            self._out.appendPlainText(data.rstrip())
+            self._append_linked(data.rstrip(), cwd=self._proc.workingDirectory())
             for m in _OSC7_RE.finditer(data):
                 self.cwd_changed.emit(Path(m.group(1)))
 
@@ -103,4 +108,16 @@ class TerminalPanel(QWidget):
     def _read_err(self) -> None:
         if self._proc:
             data = self._proc.readAllStandardError().data().decode("utf-8", errors="replace")
-            self._out.appendPlainText(data.rstrip())
+            self._append_linked(data.rstrip(), cwd=self._proc.workingDirectory())
+
+    def _append_linked(self, text: str, cwd: str = "") -> None:
+        from biome_fm.views._error_linkifier import linkify
+        for line in text.splitlines():
+            self._out.append(linkify(line, cwd))
+
+    def _on_anchor(self, url: QUrl) -> None:
+        if url.scheme() != "biome-file":
+            return
+        path = Path(url.path())
+        line = int(url.query().removeprefix("line=") or "1")
+        self.file_navigated.emit(path, line)

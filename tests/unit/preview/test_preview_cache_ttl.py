@@ -5,7 +5,7 @@ from unittest.mock import Mock
 import biome_fm.preview.presenter as presenter_mod
 from biome_fm.models.file_item import FileItem
 from biome_fm.preview.presenter import PreviewPresenter, PreviewViewProtocol, _CACHE_TTL
-from biome_fm.preview.provider import ContentKind, PreviewResult
+from biome_fm.preview.provider import ContentKind, PreviewMode, PreviewResult
 from biome_fm.preview.registry import PreviewRegistry
 
 
@@ -30,7 +30,7 @@ def test_cache_hit_within_ttl():
     cached = PreviewResult(ContentKind.HTML, "<cached>")
     # Store with a timestamp that is NOT expired (now)
     import time
-    p._cache[(item.path, item.modified, p._dark)] = (cached, time.monotonic())
+    p._cache[(item.path, item.modified, p._dark, p._forced_mode)] = (cached, time.monotonic())
 
     p._render_item(item)
 
@@ -45,7 +45,7 @@ def test_cache_expired_after_ttl(monkeypatch):
     item = _item()
     old_result = PreviewResult(ContentKind.HTML, "<stale>")
     # Store with timestamp 0 (epoch) — guaranteed expired
-    p._cache[(item.path, item.modified, p._dark)] = (old_result, 0.0)
+    p._cache[(item.path, item.modified, p._dark, p._forced_mode)] = (old_result, 0.0)
 
     # Monkeypatch monotonic to return a value well past TTL
     monkeypatch.setattr(presenter_mod.time, "monotonic", lambda: _CACHE_TTL + 1.0)
@@ -64,7 +64,7 @@ def test_cache_eviction_at_max():
     ts = time.monotonic()
     # Fill to max
     for i in range(p._CACHE_MAX):
-        key = (Path(f"/tmp/{i}.txt"), float(i), True)
+        key = (Path(f"/tmp/{i}.txt"), float(i), True, PreviewMode.AUTO)
         p._cache[key] = (PreviewResult(ContentKind.TEXT, str(i)), ts)
 
     first_key = next(iter(p._cache))
@@ -73,7 +73,7 @@ def test_cache_eviction_at_max():
     with p._cache_lock:
         if len(p._cache) >= p._CACHE_MAX:
             p._cache.pop(next(iter(p._cache)))
-        p._cache[(Path("/tmp/new.txt"), 99.0, True)] = (
+        p._cache[(Path("/tmp/new.txt"), 99.0, True, PreviewMode.AUTO)] = (
             PreviewResult(ContentKind.TEXT, "new"), ts
         )
 

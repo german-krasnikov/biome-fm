@@ -1,7 +1,6 @@
 """Integration tests for fuzzy quick filter in DirSortFilterProxy."""
 from pathlib import Path
 
-import pytest
 
 from biome_fm.models.directory_model import DirectoryModel, DirSortFilterProxy
 from biome_fm.models.file_item import FileItem

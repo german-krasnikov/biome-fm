@@ -3,7 +3,7 @@ F400: Natural/version sort for filenames.
 """
 import unicodedata
 from biome_fm.utils.encoding import normalize_filename
-from biome_fm.models.directory_model import _nat_key
+from biome_fm.utils.nat_sort import nat_key as _nat_key
 
 NFC_CAFE = unicodedata.normalize("NFC", "café")  # U+00E9
 NFD_CAFE = unicodedata.normalize("NFD", "café")  # e + combining accent

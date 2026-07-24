@@ -24,10 +24,11 @@ def test_inactive_tab_not_loaded() -> None:
 
 
 def test_normal_tab_loads_immediately() -> None:
-    """Default (deferred=False) must call vfs.listdir immediately."""
+    """Default (deferred=False) must call vfs.listdir (async, via pool)."""
     tabs, vfs = _make_tabs()
     vfs.listdir.return_value = []
     tabs.new_tab(Path("/tmp/foo"))
+    tabs.presenter_at(0)._nav_future.result()  # wait for pool job
     vfs.listdir.assert_called_once()
 
 
@@ -41,8 +42,9 @@ def test_tab_loads_on_switch() -> None:
 
     vfs.listdir.assert_not_called()
 
-    # switch to tab 0 — should load /tmp/alpha
+    # switch to tab 0 — should load /tmp/alpha (async, via pool)
     tabs.switch_tab(0)
+    tabs.presenter_at(0)._nav_future.result()  # wait for pool job
     assert vfs.listdir.call_count == 1
     called_path = vfs.listdir.call_args[0][0]
     assert called_path == Path("/tmp/alpha")

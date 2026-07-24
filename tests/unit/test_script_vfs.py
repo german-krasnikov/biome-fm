@@ -81,3 +81,26 @@ def test_open_file_returns_bytesio(spec, monkeypatch):
     vfs = ScriptVFS(ARCHIVE, spec)
     with vfs.open_file(ARCHIVE / "readme.txt") as f:
         assert f.read() == b"content"
+
+
+# ── Security regression: shell injection prevention (already fixed) ──────────
+
+def test_listdir_quotes_archive_path_with_special_chars(monkeypatch):
+    """Regression: archive paths with shell metacharacters must be quoted."""
+    evil_archive = Path("/tmp/evil; rm -rf ~.rpm")
+    spec = ScriptVFSSpec(
+        extensions=[".rpm"],
+        list_cmd="rpm_list {archive} {dir}",
+        read_cmd="rpm_read {archive} {path}",
+    )
+    captured: list[str] = []
+    monkeypatch.setattr(subprocess, "check_output",
+                        lambda cmd, **kw: captured.append(cmd) or "")
+
+    ScriptVFS(evil_archive, spec).listdir(evil_archive)
+
+    assert captured, "check_output must have been called"
+    cmd = captured[0]
+    # Semicolon must only appear inside a quoted argument
+    before_quote = cmd.split("'")[0]
+    assert ";" not in before_quote

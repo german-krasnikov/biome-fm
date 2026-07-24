@@ -1,7 +1,6 @@
 """TDD: TagCmd — batch tag assign/remove with undo. F283."""
 from __future__ import annotations
 
-from pathlib import Path
 
 import pytest
 

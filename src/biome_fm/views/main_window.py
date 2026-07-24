@@ -16,6 +16,7 @@ from biome_fm.qt import (
     QStringListModel,
     Qt,
     QToolBar,
+    QToolButton,
     QVBoxLayout,
     QWidget,
     Signal,
@@ -96,6 +97,7 @@ class MainWindow(QMainWindow):
     nl_op_requested = Signal()
     panelize_requested = Signal()
     cloud_profiles_requested = Signal()
+    branch_clicked = Signal()
 
     def __init__(
         self,
@@ -123,6 +125,10 @@ class MainWindow(QMainWindow):
     def _setup_accessibility(self) -> None:
         self._cmd_line.setAccessibleName("Command line")
         self.action_bar.setAccessibleName("Action bar")
+        self._ws_btn.setAccessibleName("Workspaces")
+        self._git_btn.setAccessibleName("Git branch")
+        self._ops_label.setAccessibleName("Active operations")
+        self._remote_status_label.setAccessibleName("Remote connection status")
 
     def _setup_ui(self, left: QWidget | None, right: QWidget | None) -> None:
         central = QWidget()
@@ -161,18 +167,28 @@ class MainWindow(QMainWindow):
         self._cmd_line.setCompleter(self._completer)
 
         self.action_bar = ActionBar()
+        self.workspace_menu = QMenu(self)
+        self._ws_btn = QToolButton(self)
+        self._ws_btn.setText("Workspaces")
+        self._ws_btn.setToolTip("Quick-switch workspace (Ctrl+Alt+1..5)")
+        self._ws_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._ws_btn.setMenu(self.workspace_menu)
+        self.action_bar.layout().addWidget(self._ws_btn)
         layout.addWidget(self.action_bar)
 
         layout.addWidget(self._cmd_line)
 
         self.setCentralWidget(central)
         sb = QStatusBar()
-        self._git_label = QLabel()
+        self._git_btn = QToolButton()
+        self._git_btn.setAutoRaise(True)
+        self._git_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._git_btn.clicked.connect(self.branch_clicked)
         self._ops_label = QLabel()
         self._remote_status_label = QLabel()
         self._remote_status_label.hide()
         sb.addPermanentWidget(self._remote_status_label)
-        sb.addPermanentWidget(self._git_label)
+        sb.addPermanentWidget(self._git_btn)
         sb.addPermanentWidget(self._ops_label)
         self.setStatusBar(sb)
         self._build_menubar()
@@ -384,7 +400,8 @@ class MainWindow(QMainWindow):
         return self._splitter.sizes()
 
     def update_git_branch(self, branch: str) -> None:
-        self._git_label.setText(f"  {branch}" if branch else "")
+        self._git_btn.setText(f"  {branch}" if branch else "")
+        self._git_btn.setEnabled(bool(branch))
 
     def update_ops_count(self, n: int) -> None:
         self._ops_label.setText(f" {n} op(s) running" if n > 0 else "")

@@ -42,6 +42,7 @@ class TabsPresenter:
         self._views: list[PaneViewProtocol] = []
         self._active_idx: int = 0
         self._locked: set[int] = set()
+        self._links: dict[int, tuple["TabsPresenter", int]] = {}
         self._pending: dict[int, Path] = {}  # deferred tab paths
 
     # ── tab management ────────────────────────────────────────────────────────
@@ -83,6 +84,23 @@ class TabsPresenter:
     def is_locked(self, idx: int) -> bool:
         return idx in self._locked
 
+    def link_tab(self, local_idx: int, other: "TabsPresenter", other_idx: int) -> None:
+        self._links[local_idx] = (other, other_idx)
+        other._links[other_idx] = (self, local_idx)
+
+    def unlink_tab(self, local_idx: int) -> None:
+        if local_idx in self._links:
+            other, other_idx = self._links.pop(local_idx)
+            other._links.pop(other_idx, None)
+
+    def is_linked(self, idx: int) -> bool:
+        return idx in self._links
+
+    def shutdown(self) -> None:
+        """Cancel background work in all tab presenters. Call on window close."""
+        for presenter in self._tabs:
+            presenter.cleanup()
+
     def close_tab(self, idx: int) -> None:
         if self.tab_count <= 1 or idx in self._locked:
             return
@@ -90,9 +108,13 @@ class TabsPresenter:
         self._tabs.pop(idx)
         self._views.pop(idx)
         self._tabs_view.remove_tab(idx)
-        # Shift locked/pending indices above idx down by one
+        # Shift locked/pending/links indices above idx down by one
         self._locked = {k - 1 if k > idx else k for k in self._locked}
         self._pending = {(k - 1 if k > idx else k): v for k, v in self._pending.items() if k != idx}
+        self._links = {(k - 1 if k > idx else k): v for k, v in self._links.items() if k != idx}
+        # Keep partner back-references in sync with shifted local keys
+        for new_k, (other, other_k) in self._links.items():
+            other._links[other_k] = (self, new_k)
         if self._active_idx >= self.tab_count:
             self._active_idx = self.tab_count - 1
         elif self._active_idx > idx:
@@ -155,6 +177,11 @@ class TabsPresenter:
         self.active.navigate_to(path)
         self._tabs_view.set_tab_title(self._active_idx, str(path))
         self._tabs_view.set_tab_tooltip(self._active_idx, str(path))
+        if self._active_idx in self._links:
+            other, other_idx = self._links[self._active_idx]
+            other._tabs[other_idx].navigate_to(path)
+            other._tabs_view.set_tab_title(other_idx, str(path))
+            other._tabs_view.set_tab_tooltip(other_idx, str(path))
 
     def refresh(self) -> None:
         self.active.refresh()
@@ -208,6 +235,9 @@ class TabsPresenter:
         self.active.navigate_virtual(items, label, on_activate=on_activate)
 
     def on_item_activated(self, item: FileItem) -> None:
+        if item.is_dir and self._active_idx in self._locked:
+            self.new_tab(item.path)
+            return
         self.active.on_item_activated(item)
         p = self.active.current_path
         self._tabs_view.set_tab_title(self._active_idx, p.name or str(p))

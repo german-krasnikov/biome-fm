@@ -2,12 +2,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from biome_fm.models.docker_vfs import DockerVFS, _docker_available
-from biome_fm.models.ls_parser import parse_ls_line
 
 
 _PARENT = Path("/")

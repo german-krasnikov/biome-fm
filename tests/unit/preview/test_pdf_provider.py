@@ -1,13 +1,11 @@
 """Unit tests for PDFPreviewProvider — no Qt, no real PDF files."""
 from __future__ import annotations
 
-import subprocess
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from biome_fm.preview.provider import ContentKind, PreviewRequest, PreviewResult
+from biome_fm.preview.provider import ContentKind, PreviewRequest
 from biome_fm.preview.providers.pdf import PDFPreviewProvider
 
 
