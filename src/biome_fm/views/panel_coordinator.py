@@ -172,12 +172,14 @@ class PanelCoordinator(QObject):
         self._apply(self._mgr.on_float_closed(name))
 
     def _overlay_index(self, name: str) -> int:
-        base = {"preview": 2, "ai": 3, "search": 4, "terminal": 5}[name]
-        if name in ("ai", "search", "terminal") and not self._in_splitter.get("preview", True):
+        base = {"preview": 2, "ai": 3, "search": 4, "terminal": 5, "info": 6}[name]
+        if name in ("ai", "search", "terminal", "info") and not self._in_splitter.get("preview", True):
             base -= 1
-        if name in ("search", "terminal") and not self._in_splitter.get("ai", True):
+        if name in ("search", "terminal", "info") and not self._in_splitter.get("ai", True):
             base -= 1
-        if name == "terminal" and not self._in_splitter.get("search", True):
+        if name in ("terminal", "info") and not self._in_splitter.get("search", True):
+            base -= 1
+        if name == "info" and not self._in_splitter.get("terminal", True):
             base -= 1
         return min(base, self._splitter.count())
 

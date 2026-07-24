@@ -20,6 +20,9 @@ src/biome_fm/
 │                       #   _copy_path: exports marked paths to clipboard (newline-joined); falls back to cursor item;
 │                       #   _quick_look/_reveal_in_finder closures;
 │                       #   Ctrl+Z/Ctrl+Shift+Z/F3/Ctrl+I/Ctrl+R/Ctrl+W/Ctrl+Shift+C/Ctrl+Shift+L shortcuts;
+│                       #   F4 → built-in EditorDialog (exec); Shift+F4 → external editor (editor_cmd);
+│                       #   F10 / action bar ai_requested → coord.toggle("ai", active_pane_id);
+│                       #   expand_rules() used instead of HighlightRule constructor to handle comma patterns;
 │                       #   shortcut fixes: Ctrl+Shift+T→flat-view only; Ctrl+Alt+M→treemap; Ctrl+Alt+G→large-files;
 │                       #   _wire_pane() / _wire_ctx() / _new_tab(side=None) helpers;
 │                       #   ClipboardService wired to Ctrl+X/C/V; cut_paths pushed to DirectoryModel;
@@ -46,7 +49,8 @@ src/biome_fm/
 ├── panel_manager.py    # Pure-Python state machine (no Qt); states: HIDDEN / OVERLAY / FLOATING;
 │                       #   Effect dataclass (kind, target_side); kind values:
 │                       #   show_overlay, show_floating, hide, focus_floating, set_opposite_visible;
-│                       #   PanelManager.toggle(name, active_side) → list[Effect]
+│                       #   PanelManager.toggle(name, active_side) → list[Effect];
+│                       #   PANELS = ("preview", "ai", "search", "terminal", "info") — "info" added
 ├── event_bus.py        # Decoupled pub/sub (EventBus singleton);
 │                       #   events: FilesChanged, ActivePaneChanged, OperationStarted,
 │                       #   OperationFinished, PaneNavigated, SyncBrowsingToggled,
@@ -195,7 +199,9 @@ src/biome_fm/
 │   │                        #   add/update/remove/all/find_by_shortcut/save/load
 │   ├── highlight_rules.py  # HighlightRule(pattern, color) frozen dataclass — glob + hex color;
 │   │                        #   match_highlight(name, rules) → color | None; pure Python, no Qt dep;
-│   │                        #   case-insensitive fnmatch; used by DirectoryModel for custom file colors
+│   │                        #   case-insensitive fnmatch; used by DirectoryModel for custom file colors;
+│   │                        #   HIGHLIGHT_PRESETS dict: "default" (empty), "dark" (light tones), "light" (dark tones);
+│   │                        #   expand_rules(rules: list[dict]) → list[HighlightRule]: splits comma-separated patterns
 │   ├── remote_cache.py     # RemoteListCache — thread-safe (RLock) TTL=30s cache for remote
 │   │                        #   directory listings; get/set/invalidate; key = str(path)
 │   ├── rclone_vfs.py       # RcloneVFS — VFS backed by `rclone lsjson` subprocess;
@@ -294,7 +300,10 @@ src/biome_fm/
 │   │                         #   undo/redo via CommandHistory → refresh_both();
 │   │                         #   swap_panes() exchanges left/right pane paths + histories;
 │   │                         #   move_tab_to_other_pane(tab_idx) moves active tab to opposite side
-│   ├── ai_presenter.py       # AI chat bridge (AIProvider ↔ AIChatViewProtocol)
+│   ├── ai_presenter.py       # AI chat bridge (AIProvider ↔ AIChatViewProtocol);
+│   │                         #   clear_session() resets _epoch, _history, attachments, stream buffer,
+│   │                         #   terminates in-flight request, calls view.clear_session();
+│   │                         #   AIChatViewProtocol now requires clear_session() method
 │   ├── compare_presenter.py  # Directory diff (left vs right pane);
 │   │                         #   content_diff(left_item, right_item) → unified diff string;
 │   │                         #   content_compare(left_item, right_item) → bool (byte-exact equality)
@@ -312,7 +321,9 @@ src/biome_fm/
 │   │                         #   vfs.exec_find() when available (duck-typed); SFTP server-side find
 │   ├── settings_presenter.py # SettingsPresenter (no Qt) + SettingsViewProtocol;
 │   │                         #   load/save Config fields via protocol methods;
-│   │                         #   tabs: General, Appearance, AI, Plugins
+│   │                         #   tabs: General, Appearance, AI, Plugins;
+│   │                         #   SettingsViewProtocol extended: editor_cmd, global_hotkey,
+│   │                         #   follow_system_theme, serial_ops — get/set pairs added
 │   ├── editor_presenter.py   # EditorPresenter(view, path) — logic for built-in text editor;
 │   │                         #   save() writes view text to path; is_modified() compares to saved_text;
 │   │                         #   _EditorView Protocol (toPlainText/setPlainText)
@@ -384,6 +395,16 @@ src/biome_fm/
 │   │                     #   signals: back/forward/up/home + undo/redo/refresh/new_tab _requested,
 │   │                     #   close_tab_requested (File → Close Tab, Ctrl+W),
 │   │                     #   command_submitted, about_to_close; tab_shortcut (Tab key QShortcut);
+│   │                     #   workspaces_requested removed; Workspaces is now a QMenu submenu
+│   │                     #   under View (workspace_menu attr still exposed as a QMenu);
+│   │                     #   Workspaces standalone QToolButton (_ws_btn) removed from action bar;
+│   │                     #   new signals: dup_tab, save_session, restore_session, select_pattern,
+│   │                     #   select_criteria, copy_path, copy_names, bulk_rename, quick_cd,
+│   │                     #   jump, bookmarks, bookmark_toggle, swap, target_eq_source,
+│   │                     #   zoom_in/out/reset, fullscreen, treemap, large_files, task_runner,
+│   │                     #   permissions, shortcuts_help, about — all _requested suffixed;
+│   │                     #   Help menu added: Keyboard Shortcuts (F1), About;
+│   │                     #   menubar.setContextMenuPolicy(PreventContextMenu) — no toolbar popup on RMB;
 │   │                     #   splitter handle(1): 5px wide, accent on hover; RMB or MiddleButton →
 │   │                     #   _show_ratio_menu(global_pos) → 25/75, 50/50, 75/25 via _set_pane_ratio();
 │   │                     #   eventFilter catches QEvent.Type.ContextMenu + MiddleButton on handle
@@ -450,12 +471,18 @@ src/biome_fm/
 │   │                     #   PaneView._on_jump() scans proxy rows for prefix match
 │   ├── ai_chat_panel.py  # Passive AI chat (message_submitted Signal);
 │   │                     #   composed of ChatLog (_chat_log.py) + ContextBar (_context_bar.py)
-│   │                     #   + model selector QComboBox; bubble-style streaming with theme tokens
+│   │                     #   + model selector QComboBox; bubble-style streaming with theme tokens;
+│   │                     #   session_clear_requested Signal — emitted by "Clear" button in header;
+│   │                     #   clear_session() clears ChatLog and ContextBar chips;
+│   │                     #   Clear button sits in header next to provider/model combos
 │   ├── ai_context_dialog.py # AI Context Actions dialog — shows AI-suggested actions for files;
 │   │                          #   fetches suggestions async (ThreadPoolExecutor); action_chosen Signal(str)
 │   ├── ai_rename_dialog.py  # AI Rename Suggestions dialog — QTableWidget (original→suggested);
 │   │                          #   save_requested Signal(list[(old,new)]); rows editable before accept
-│   ├── action_bar.py     # F1-F10 function key bar (tooltips on all buttons)
+│   ├── action_bar.py     # F1-F10 function key bar (tooltips on all buttons);
+│   │                     #   buttons: F3 View, F4 Edit, F5 Copy, F6 Move, F7 Mkdir, F8 Delete, F9 Rename, F10 AI;
+│   │                     #   ai_requested Signal replaces the former exit_requested (Alt+F4 button removed);
+│   │                     #   F10 AI button emits ai_requested → toggles AI chat panel in app.py
 │   ├── command_palette.py # Fuzzy-search command launcher (Ctrl+P);
 │   │                     #   results sorted by hit count from CommandRegistry.search()
 │   ├── preview_panel.py  # PreviewPanel (QWidget): QStackedWidget with 3 widgets
@@ -477,7 +504,8 @@ src/biome_fm/
 │   │                         #   detach() creates floating QDialog; save_state/restore_state
 │   │                         #   round-trips overlay_side to PanelSession;
 │   │                         #   toggle_fullscreen_shell() (Ctrl+O): shows TerminalPanel full-window,
-│   │                         #   hides both pane sides; toggles back on second press (F406)
+│   │                         #   hides both pane sides; toggles back on second press (F406);
+│   │                         #   _overlay_index supports "info" panel (base index 6, shifts with hidden siblings)
 │   ├── breadcrumb_bar.py # BreadcrumbBar: QStackedWidget (breadcrumb ↔ edit modes);
 │   │                      #   segment buttons are DnD drop targets (accept files_dropped);
 │   │                      #   breadcrumb mode = _CrumbRow with _SegmentButton per path segment;
@@ -488,7 +516,8 @@ src/biome_fm/
 │   │                      #   path_segments(path) → list[(label, Path)] pure helper (no Qt)
 │   ├── settings_dialog.py # QDialog (4 tabs: General/Appearance/AI/Plugins);
 │   │                      #   passive view implementing SettingsViewProtocol;
-│   │                      #   General: show_hidden QCheckBox, sync_browsing QCheckBox;
+│   │                      #   General: show_hidden, sync_browsing, editor_cmd, global_hotkey,
+│   │                      #     serial_ops, follow_system_theme fields added;
 │   │                      #   Appearance: theme QComboBox, file_type_colors QCheckBox;
 │   │                      #   AI: provider QComboBox, API key QLineEdits, Ollama URL/model;
 │   │                      #   Plugins: read-only QListWidget of installed plugins
@@ -524,7 +553,8 @@ src/biome_fm/
 │   │                        #   drives find_duplicates() via background thread + queue drain;
 │   │                        #   QProgressBar while scanning; delete_selected button
 │   ├── editor_dialog.py    # EditorDialog — built-in QPlainTextEdit editor (QDialog);
-│   │                        #   Ctrl+S saves via EditorPresenter; saved Signal(Path); unsaved-changes guard;
+│   │                        #   Ctrl+S saves via EditorPresenter; saved Signal(Path);
+│   │                        #   closeEvent: if is_modified() → QMessageBox Save/Discard/Cancel;
 │   │                        #   find/replace toolbar: Ctrl+F → show; QTextDocument.find() for next/prev;
 │   │                        #   replace/replace-all via setPlainText; go-to-line: Ctrl+G → line number input
 │   ├── git_commit_dialog.py # GitCommitDialog(repo, ai_call) — staged file list + message QPlainTextEdit;
@@ -601,7 +631,10 @@ src/biome_fm/
 │   │                        #   above first row of each group; reads GROUP_ROLE from proxy
 │   ├── highlight_rules_dialog.py # HighlightRulesDialog — QTableWidget (pattern/color rows);
 │   │                               #   Add/Remove buttons; color cells open QColorDialog;
-│   │                               #   save_requested Signal(list[HighlightRule])
+│   │                               #   save_requested Signal(list[HighlightRule]);
+│   │                               #   preset QComboBox: Custom / Default (none) / Dark / Light;
+│   │                               #   selecting a preset loads HIGHLIGHT_PRESETS rules into table;
+│   │                               #   manually editing any cell switches combo back to "Custom"
 │   ├── large_file_dialog.py # LargeFileDialog — scan_large_files() os.walk; configurable min-size;
 │   │                         #   sortable QTableView; top-100 results
 │   ├── treemap_panel.py    # TreemapPanel (QWidget) — QPainter squarify storage treemap;

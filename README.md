@@ -236,6 +236,17 @@ Full architecture: [`AI/architecture.md`](AI/architecture.md)
 ## Recent Changes
 
 <details>
+<summary><strong>v0.33.0</strong> — 2026-07-24 — Issues 5–12: UX polish, highlight presets, Help menu</summary>
+
+- F4 now opens the built-in editor; Shift+F4 opens external editor; Alt+F4 action bar button replaced by F10 AI
+- Workspaces moved to View → Workspaces submenu; F10 / action bar button toggles AI chat panel
+- Highlight presets (Default / Dark / Light) in HighlightRulesDialog; comma-separated patterns supported
+- Help menu added (Keyboard Shortcuts F1, About); 24 missing menu entries across File/Edit/Navigate/View/Tools
+- AI chat Clear Session button; EditorDialog unsaved-changes guard (Save/Discard/Cancel on close)
+
+</details>
+
+<details>
 <summary><strong>v0.32.0</strong> — 2026-07-24 — 60-item architecture audit: security, performance, features</summary>
 
 - Security: shell injection hardened in `BatchExecCmd`/`ScriptVFS`/proxy; Zip Slip protection; API keys migrated to keyring; FISH VFS SSH `RejectPolicy`
@@ -275,16 +286,6 @@ Full architecture: [`AI/architecture.md`](AI/architecture.md)
 - Batch Execute on Selection (`BatchExecCmd`), Folder Watch Rules (`WatchRuleEngine`)
 - Advanced Filter Bar (`parse_filter` / `FilterSpec`), Multi-Rename Metadata Fields (`[META:key]`, `metadata_reader.py`)
 - Smart Space Reclaimer (`SpaceReclaimerPresenter`), External IPC Interface (`ipc/server.py` + `ipc/client.py`)
-
-</details>
-
-<details>
-<summary><strong>v0.29.0</strong> — 2026-07-21 — Sprint 8: remote VFS + Docker</summary>
-
-- SSH jump host / tunnel, remote file search (server-side find), cross-VFS streaming resume
-- FISH protocol VFS, extfs-style Script VFS (RPM/DEB/ISO), ISO 9660 + macOS DMG VFS
-- Docker container filesystem browser, rsync backend for delta-transfer
-- S3 object versioning browser, plugin-defined custom columns
 
 </details>
 

@@ -11,14 +11,14 @@ def test_dialog_creates(qtbot):
 def test_dialog_has_tabs(qtbot):
     dlg = SettingsDialog()
     qtbot.addWidget(dlg)
-    assert dlg._tabs.count() == 4
+    assert dlg._tabs.count() == 5
 
 
 def test_dialog_tab_labels(qtbot):
     dlg = SettingsDialog()
     qtbot.addWidget(dlg)
     labels = [dlg._tabs.tabText(i) for i in range(dlg._tabs.count())]
-    assert labels == ["General", "Appearance", "AI", "Plugins"]
+    assert labels == ["General", "Appearance", "AI", "Accessibility", "Plugins"]
 
 
 def test_dialog_protocol_methods(qtbot):

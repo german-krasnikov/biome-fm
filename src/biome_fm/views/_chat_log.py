@@ -222,6 +222,16 @@ class ChatLog(QTextBrowser):
         self._buf.clear()
         self._stream_block_start = 0
 
+    def reset(self) -> None:
+        """Clear all content and reset streaming state."""
+        self._dot_timer.stop()
+        self._streaming = False
+        self._buf = []
+        self._stream_block_start = 0
+        self._thinking_pos = -1
+        self._dot_state = 0
+        super().clear()
+
     def _scroll_bottom(self) -> None:
         sb = self.verticalScrollBar()
         sb.setValue(sb.maximum())

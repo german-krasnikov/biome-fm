@@ -3,6 +3,31 @@
 All notable changes to Biome FM are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.33.0] — 2026-07-24
+
+### Fixed
+
+- **KeyError 'info' in PanelManager** — `PanelManager.PANELS` now includes `"info"`; toggling the info panel no longer raises `KeyError` (Issue #10)
+- **Menubar context menu** — right-click on the menu bar no longer shows a spurious toolbar context menu (`PreventContextMenu` policy) (Issue #10)
+
+### Changed
+
+- **F4 opens built-in editor** — `F4` now opens the file in the built-in `EditorDialog` instead of the external editor (Issue #5)
+- **Shift+F4 opens external editor** — `Shift+F4` opens the file in the external editor configured via `editor_cmd` (Issue #5)
+- **Alt+F4 button removed** — the "Alt+F4 Exit" button in the bottom action bar is replaced by "F10 AI" (Issue #6)
+- **Workspaces moved to View menu** — Workspaces is now a submenu under **View → Workspaces** instead of a standalone action bar button (Issue #7)
+
+### Added
+
+- **F10 AI button** — bottom action bar gains an "F10 AI" button (and `F10` shortcut) that toggles the AI chat panel (Issue #11)
+- **Highlight presets** — `HighlightRulesDialog` now has a preset picker (Custom / Default / Dark / Light); presets load named rule sets from `HIGHLIGHT_PRESETS` in `models/highlight_rules.py`; comma-separated glob patterns per rule are expanded via the new `expand_rules()` helper (Issue #9)
+- **24 new menu entries** — File, Edit, Navigate, View, and Tools menus populated with previously missing entries; new **Help** menu with Keyboard Shortcuts (`F1`) and About (Issue #8)
+- **4 new settings in dialog** — `editor_cmd`, `global_hotkey`, `follow_system_theme`, and `serial_ops` now appear in the Settings dialog (Issue #8)
+- **AI chat Clear Session** — AI chat panel header gains a "Clear" button that resets history, attachments, and the chat log
+- **Editor unsaved-changes guard** — closing `EditorDialog` with unsaved changes shows a Save / Discard / Cancel confirmation dialog
+
+---
+
 ## [v0.32.0] — 2026-07-24
 
 ### Security (Items #1–3, #20, #23–24, #30)

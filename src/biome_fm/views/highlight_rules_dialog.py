@@ -3,11 +3,14 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QTableWidget, QTableWidgetItem
 
+from biome_fm.models.highlight_rules import HIGHLIGHT_PRESETS
 from biome_fm.qt import (
     QColor,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QHBoxLayout,
+    QLabel,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -24,13 +27,27 @@ class HighlightRulesDialog(QDialog):
         self.setWindowTitle("Highlight Rules")
         self.resize(400, 300)
 
+        self._preset_combo = QComboBox()
+        self._preset_combo.addItem("Custom", userData=None)
+        self._preset_combo.addItem("Default (none)", userData="default")
+        self._preset_combo.addItem("Dark (light tones)", userData="dark")
+        self._preset_combo.addItem("Light (dark tones)", userData="light")
+
+        preset_row = QHBoxLayout()
+        preset_row.addWidget(QLabel("Preset:"))
+        preset_row.addWidget(self._preset_combo)
+        preset_row.addStretch()
+
         self._table = QTableWidget(0, 2)
         self._table.setHorizontalHeaderLabels(["Pattern", "Color"])
         self._table.horizontalHeader().setStretchLastSection(True)
         self._table.cellDoubleClicked.connect(self._on_cell_double_clicked)
+        self._table.itemChanged.connect(self._on_item_changed)
 
         for rule in rules:
             self._add_row(rule.get("pattern", ""), rule.get("color", "#ffffff"))
+
+        self._preset_combo.currentIndexChanged.connect(self._on_preset_changed)
 
         self._btn_add = QPushButton("Add")
         self._btn_remove = QPushButton("Remove")
@@ -49,9 +66,26 @@ class HighlightRulesDialog(QDialog):
         box.rejected.connect(self.reject)
 
         layout = QVBoxLayout(self)
+        layout.addLayout(preset_row)
         layout.addWidget(self._table)
         layout.addLayout(btn_row)
         layout.addWidget(box)
+
+    def _on_preset_changed(self, index: int) -> None:
+        key = self._preset_combo.itemData(index)
+        if key is None:
+            return
+        self._table.blockSignals(True)
+        self._table.setRowCount(0)
+        for rule in HIGHLIGHT_PRESETS[key]:
+            self._add_row(rule["pattern"], rule["color"])
+        self._table.blockSignals(False)
+
+    def _on_item_changed(self) -> None:
+        # User edited table manually — switch to Custom
+        self._preset_combo.blockSignals(True)
+        self._preset_combo.setCurrentIndex(0)
+        self._preset_combo.blockSignals(False)
 
     def _add_row(self, pattern: str, color: str) -> None:
         row = self._table.rowCount()

@@ -40,6 +40,7 @@ class AIChatViewProtocol(Protocol):
     def set_provider_list(self, providers: list[str], active: str,
                           models: list[str], active_model: str) -> None: ...
     def append_tool_event(self, description: str) -> None: ...
+    def clear_session(self) -> None: ...
 
 
 @dataclass
@@ -192,6 +193,17 @@ class AIPresenter:
             self._provider.terminate()
         self._view.discard_stream()
         self._view.set_busy(False)
+
+    def clear_session(self) -> None:
+        self._epoch += 1
+        self._history.clear()
+        self._pending_attachments.clear()
+        self._stream_buffer.clear()
+        if hasattr(self._provider, "terminate"):
+            self._provider.terminate()
+        self._view.discard_stream()
+        self._view.set_busy(False)
+        self._view.clear_session()
 
     def _notify_idle(self) -> None:
         self._draining = False

@@ -47,6 +47,7 @@ class AIChatPanel(QWidget):
     model_changed = Signal(str)
     provider_changed = Signal(str)
     cancel_requested = Signal()
+    session_clear_requested = Signal()
     attachment_dropped = Signal(object)  # Path
     detach_requested = Signal()
     close_requested = Signal()
@@ -76,6 +77,10 @@ class AIChatPanel(QWidget):
         header.addWidget(self._provider_combo)
         header.addWidget(self._model_combo)
         header.addStretch()
+        self._clear_btn = QPushButton("Clear")
+        self._clear_btn.setToolTip("Clear session")
+        self._clear_btn.clicked.connect(self.session_clear_requested.emit)
+        header.addWidget(self._clear_btn)
         from biome_fm.views._panel_buttons import add_panel_buttons
         add_panel_buttons(header, self.detach_requested, self.close_requested)
         layout.addLayout(header)
@@ -154,6 +159,10 @@ class AIChatPanel(QWidget):
 
     def discard_stream(self) -> None:
         self._log.stream_discard()
+
+    def clear_session(self) -> None:
+        self._log.reset()
+        self._context_bar.clear_chips()
 
     def add_attachment_chip(self, name: str) -> None:
         self._context_bar.add_chip(name)

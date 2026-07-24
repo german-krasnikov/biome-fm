@@ -41,11 +41,22 @@ class SettingsDialog(QDialog):
         self._auto_preview_cb = QCheckBox("Auto-preview on cursor")
         self._git_status_cb.setChecked(True)
         self._auto_preview_cb.setChecked(True)
+        self._follow_system_theme_cb = QCheckBox("Follow system theme")
+        self._follow_system_theme_cb.setChecked(True)
+        self._serial_ops_cb = QCheckBox("Serial operations (queue instead of parallel)")
+        self._editor_cmd = QLineEdit()
+        self._editor_cmd.setPlaceholderText("e.g. vim, code --wait")
+        self._global_hotkey = QLineEdit()
+        self._global_hotkey.setPlaceholderText("e.g. <ctrl>+<alt>+b")
         gl.addRow(self._hidden_cb)
         gl.addRow(self._sync_cb)
         gl.addRow(self._colors_cb)
         gl.addRow(self._git_status_cb)
         gl.addRow(self._auto_preview_cb)
+        gl.addRow(self._follow_system_theme_cb)
+        gl.addRow(self._serial_ops_cb)
+        gl.addRow("External editor command:", self._editor_cmd)
+        gl.addRow("Global hotkey (summon window):", self._global_hotkey)
         self._tabs.addTab(general, "General")
 
         # ── Appearance ────────────────────────────────────────────────────────
@@ -232,3 +243,27 @@ class SettingsDialog(QDialog):
 
     def get_high_contrast(self) -> bool:
         return self._high_contrast_cb.isChecked()
+
+    def set_editor_cmd(self, val: str) -> None:
+        self._editor_cmd.setText(val)
+
+    def get_editor_cmd(self) -> str:
+        return self._editor_cmd.text()
+
+    def set_global_hotkey(self, val: str) -> None:
+        self._global_hotkey.setText(val)
+
+    def get_global_hotkey(self) -> str:
+        return self._global_hotkey.text()
+
+    def set_follow_system_theme(self, val: bool) -> None:
+        self._follow_system_theme_cb.setChecked(val)
+
+    def get_follow_system_theme(self) -> bool:
+        return self._follow_system_theme_cb.isChecked()
+
+    def set_serial_ops(self, val: bool) -> None:
+        self._serial_ops_cb.setChecked(val)
+
+    def get_serial_ops(self) -> bool:
+        return self._serial_ops_cb.isChecked()

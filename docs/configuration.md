@@ -22,7 +22,7 @@ Backup 1 is always the most recent. Old backups rotate out automatically.
 |-------|------|---------|-------------|
 | `theme` | string | `"dark"` | Base theme: `"dark"` or `"light"`. Overridden by `follow_system_theme` when true. |
 | `follow_system_theme` | bool | `true` | Track the OS light/dark theme automatically |
-| `editor_cmd` | string | `""` | External editor command for `F4`. Empty = built-in editor |
+| `editor_cmd` | string | `""` | External editor command opened by `Shift+F4`. `F4` always uses the built-in editor. |
 | `show_git_status` | bool | `true` | Show git XY status column in file list |
 | `auto_preview` | bool | `true` | Auto-open preview on cursor move |
 | `hidden_columns` | list | `[]` | Column names to hide (`"Size"`, `"Modified"`, `"Ext"`, `"Git"`) |

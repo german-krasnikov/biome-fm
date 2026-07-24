@@ -87,7 +87,6 @@ def test_main_window_status_labels_accessible(qtbot) -> None:
 
     w = MainWindow()
     qtbot.addWidget(w)
-    assert w._ws_btn.accessibleName() == "Workspaces"
     assert w._git_btn.accessibleName() == "Git branch"
     assert w._ops_label.accessibleName() == "Active operations"
     assert w._remote_status_label.accessibleName() == "Remote connection status"

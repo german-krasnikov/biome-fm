@@ -14,7 +14,7 @@ class ActionBar(QWidget):
     mkdir_requested = Signal()
     delete_requested = Signal()
     rename_requested = Signal()
-    exit_requested = Signal()
+    ai_requested = Signal()
 
     _BUTTONS: typing.ClassVar[list[tuple[str, str, str]]] = [
         ("F3 View",     "view_requested",   "Preview file (F3)"),
@@ -24,7 +24,7 @@ class ActionBar(QWidget):
         ("F7 Mkdir",    "mkdir_requested",  "Create folder (F7)"),
         ("F8 Delete",   "delete_requested", "Delete selected (F8)"),
         ("F9 Rename",   "rename_requested", "Rename file (F9)"),
-        ("Alt+F4 Exit", "exit_requested",   "Quit Biome FM (Alt+F4)"),
+        ("F10 AI",      "ai_requested",     "Open AI chat (F10)"),
     ]
 
     def __init__(self, parent: QWidget | None = None) -> None:

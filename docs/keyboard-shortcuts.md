@@ -63,7 +63,9 @@
 | Key | Action |
 |-----|--------|
 | `Space` / `F3` | Toggle preview panel |
-| `F4` | Open current file in editor |
+| `F4` | Open current file in built-in editor |
+| `Shift+F4` | Open current file in external editor (`editor_cmd`) |
+| `F10` | Toggle AI chat panel |
 | `F11` | Fullscreen preview viewer |
 | `Ctrl+I` | Toggle AI chat panel |
 | `Ctrl+`` ` | Toggle embedded terminal |

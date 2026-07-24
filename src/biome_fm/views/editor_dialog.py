@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QVBoxLayout,
@@ -163,6 +164,26 @@ class EditorDialog(QDialog):
     def _save(self) -> None:
         self._presenter.save()
         self.saved.emit(self._path)
+
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        if self._presenter.is_modified():
+            reply = QMessageBox.question(
+                self,
+                "Unsaved Changes",
+                "Save changes before closing?",
+                QMessageBox.StandardButton.Save
+                | QMessageBox.StandardButton.Discard
+                | QMessageBox.StandardButton.Cancel,
+            )
+            if reply == QMessageBox.StandardButton.Save:
+                self._save()
+                event.accept()
+            elif reply == QMessageBox.StandardButton.Discard:
+                event.accept()
+            else:
+                event.ignore()
+        else:
+            event.accept()
 
     def _goto_line(self) -> None:
         from PySide6.QtWidgets import QInputDialog

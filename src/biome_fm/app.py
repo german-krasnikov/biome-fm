@@ -41,7 +41,7 @@ from biome_fm.models.clipboard_service import ClipboardService
 from biome_fm.models.command_store import CommandStore
 from biome_fm.models.dir_state_store import DirStateStore
 from biome_fm.models.frecency_store import FrecencyStore
-from biome_fm.models.highlight_rules import HighlightRule
+from biome_fm.models.highlight_rules import expand_rules
 from biome_fm.models.project_detector import detect_project
 from biome_fm.models.search_template_store import SearchTemplateStore
 from biome_fm.models.session_store import SessionStore
@@ -615,6 +615,7 @@ def create_app() -> MainWindow:
     ai_panel.provider_changed.connect(_on_provider_changed)
     ai_panel.model_changed.connect(ai_presenter.switch_model)
     ai_panel.cancel_requested.connect(ai_presenter.cancel)
+    ai_panel.session_clear_requested.connect(ai_presenter.clear_session)
     ai_panel.attachment_dropped.connect(lambda path: (drain_timer.start(), ai_presenter.add_attachment(path)))
     ai_panel._context_bar.chip_removed.connect(ai_presenter.remove_attachment)
 
@@ -1749,7 +1750,7 @@ def create_app() -> MainWindow:
     bar.delete_requested.connect(lambda: manager.delete_selected(_op_items()))
     bar.mkdir_requested.connect(_ask_mkdir)
     bar.rename_requested.connect(_ask_rename)
-    bar.exit_requested.connect(window.close)
+    bar.ai_requested.connect(lambda: coord.toggle("ai", manager.active_pane_id))
 
     def _switch_pane() -> None:
         manager.switch_active_pane()
@@ -1810,6 +1811,7 @@ def create_app() -> MainWindow:
         mode, recursive = result
         manager.chmod_selected(items, mode, recursive)
 
+    window.permissions_requested.connect(_set_permissions)
     QShortcut(QKeySequence("Ctrl+Alt+P"), window).activated.connect(_set_permissions)
 
     # F408 — live zoom shortcuts
@@ -1822,19 +1824,34 @@ def create_app() -> MainWindow:
     QShortcut(QKeySequence("Ctrl+0"), window).activated.connect(lambda: _zoom(0))
 
     QShortcut(QKeySequence("F3"),           window).activated.connect(_toggle_preview_f3)
+    QShortcut(QKeySequence("F10"),          window).activated.connect(
+        lambda: coord.toggle("ai", manager.active_pane_id)
+    )
 
     def _open_in_editor_f4() -> None:
         item = _active().current_item()
-        if item is not None and item.name != "..":
-            open_in_editor(item.path, cfg.editor_cmd)
+        if item is None or item.name == "..":
+            return
+        from biome_fm.views.editor_dialog import EditorDialog
+        dlg = EditorDialog(item.path, window)
+        dlg.saved.connect(lambda _: _active().refresh())
+        dlg.exec()
 
+    bar.edit_requested.connect(_open_in_editor_f4)
     QShortcut(QKeySequence("F4"),           window).activated.connect(_open_in_editor_f4)
+    def _open_in_external_f4() -> None:
+        i = _active().current_item()
+        if i and i.name != "..":
+            open_in_editor(i.path, cfg.editor_cmd)
+
+    QShortcut(QKeySequence("Shift+F4"),     window).activated.connect(_open_in_external_f4)
 
     def _open_task_runner() -> None:
         from biome_fm.views.task_runner_dialog import TaskRunnerDialog
         dlg = TaskRunnerDialog(_active().current_path, window)
         dlg.exec()
 
+    window.task_runner_requested.connect(_open_task_runner)
     QShortcut(QKeySequence("Ctrl+Shift+M"), window).activated.connect(_open_task_runner)
 
     def _open_fullscreen() -> None:
@@ -1879,6 +1896,33 @@ def create_app() -> MainWindow:
     window.new_tab_requested.connect(_new_tab)
     window.close_tab_requested.connect(lambda: _active().close_tab(_active().active_idx))
     QShortcut(QKeySequence("Ctrl+R"), window).activated.connect(lambda: _active().refresh())
+
+    # ── New menu signals (Issue 8) ────────────────────────────────
+    window.dup_tab_requested.connect(_dup_tab)
+    window.save_session_requested.connect(_save_named_session)
+    window.restore_session_requested.connect(_open_session_picker)
+    window.select_pattern_requested.connect(_select_by_pattern)
+    window.select_criteria_requested.connect(_select_by_criteria)
+    window.copy_path_requested.connect(_copy_path)
+    window.copy_names_requested.connect(_copy_names)
+    window.bulk_rename_requested.connect(_bulk_rename_editor)
+    window.quick_cd_requested.connect(_open_quick_cd)
+    window.jump_requested.connect(_open_jump_dialog)
+    window.bookmarks_requested.connect(_open_bm_dialog)
+    window.bookmark_toggle_requested.connect(_bookmark_toggle)
+    window.swap_requested.connect(manager.swap_panes)
+    window.target_eq_source_requested.connect(manager.target_equals_source)
+    window.zoom_in_requested.connect(lambda: _zoom(+1))
+    window.zoom_out_requested.connect(lambda: _zoom(-1))
+    window.zoom_reset_requested.connect(lambda: _zoom(0))
+    window.fullscreen_requested.connect(_open_fullscreen)
+    window.shortcuts_help_requested.connect(_open_shortcut_help)
+
+    def _open_about() -> None:
+        from biome_fm.qt import QMessageBox
+        QMessageBox.about(window, "About Biome FM", "Biome FM\nAI-powered dual-pane file manager.")
+
+    window.about_requested.connect(_open_about)
 
     # ── Active pane border ────────────────────────────────────────
     def _on_active_changed(event: ActivePaneChanged) -> None:
@@ -2074,7 +2118,7 @@ def create_app() -> MainWindow:
     fuzzy.file_chosen.connect(_on_fuzzy_chosen)
 
     def _apply_highlight_rules(rules: list[dict]) -> None:
-        hr = [HighlightRule(d["pattern"], d["color"]) for d in rules]
+        hr = expand_rules(rules)
         for _t in (left_tabs, right_tabs):
             for _v in (_t.view_at(i) for i in range(_t.tab_count)):
                 _m = getattr(_v, "_model", None)
@@ -2094,7 +2138,6 @@ def create_app() -> MainWindow:
 
     QShortcut(QKeySequence("Ctrl+,"), window).activated.connect(_open_settings)
     window.settings_requested.connect(_open_settings)
-    window.workspaces_requested.connect(_open_workspace_dialog)
 
     def _refresh_workspace_menu() -> None:
         m = window.workspace_menu
@@ -2135,6 +2178,7 @@ def create_app() -> MainWindow:
         panel.scan(_active().current_path)
         panel.show()
 
+    window.treemap_requested.connect(_open_storage_treemap)
     QShortcut(QKeySequence("Ctrl+Alt+M"), window).activated.connect(_open_storage_treemap)
 
     def _open_large_file_finder() -> None:
@@ -2143,6 +2187,7 @@ def create_app() -> MainWindow:
         dlg.navigate_requested.connect(lambda p: _active().navigate_to(p.parent))
         dlg.show()
 
+    window.large_files_requested.connect(_open_large_file_finder)
     QShortcut(QKeySequence("Ctrl+Alt+G"), window).activated.connect(_open_large_file_finder)
 
     def _open_panelize() -> None:
