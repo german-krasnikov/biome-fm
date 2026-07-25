@@ -3,28 +3,95 @@
 All notable changes to Biome FM are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [v0.33.0] — 2026-07-24
-
-### Fixed
-
-- **KeyError 'info' in PanelManager** — `PanelManager.PANELS` now includes `"info"`; toggling the info panel no longer raises `KeyError` (Issue #10)
-- **Menubar context menu** — right-click on the menu bar no longer shows a spurious toolbar context menu (`PreventContextMenu` policy) (Issue #10)
-
-### Changed
-
-- **F4 opens built-in editor** — `F4` now opens the file in the built-in `EditorDialog` instead of the external editor (Issue #5)
-- **Shift+F4 opens external editor** — `Shift+F4` opens the file in the external editor configured via `editor_cmd` (Issue #5)
-- **Alt+F4 button removed** — the "Alt+F4 Exit" button in the bottom action bar is replaced by "F10 AI" (Issue #6)
-- **Workspaces moved to View menu** — Workspaces is now a submenu under **View → Workspaces** instead of a standalone action bar button (Issue #7)
+## [v0.34.0] — 2026-07-25
 
 ### Added
 
-- **F10 AI button** — bottom action bar gains an "F10 AI" button (and `F10` shortcut) that toggles the AI chat panel (Issue #11)
-- **Highlight presets** — `HighlightRulesDialog` now has a preset picker (Custom / Default / Dark / Light); presets load named rule sets from `HIGHLIGHT_PRESETS` in `models/highlight_rules.py`; comma-separated glob patterns per rule are expanded via the new `expand_rules()` helper (Issue #9)
-- **24 new menu entries** — File, Edit, Navigate, View, and Tools menus populated with previously missing entries; new **Help** menu with Keyboard Shortcuts (`F1`) and About (Issue #8)
-- **4 new settings in dialog** — `editor_cmd`, `global_hotkey`, `follow_system_theme`, and `serial_ops` now appear in the Settings dialog (Issue #8)
-- **AI chat Clear Session** — AI chat panel header gains a "Clear" button that resets history, attachments, and the chat log
-- **Editor unsaved-changes guard** — closing `EditorDialog` with unsaved changes shows a Save / Discard / Cancel confirmation dialog
+**Plastic SCM Plugin** (`src/biome_fm/plastic/`)
+
+A full-featured Plastic SCM integration plugin, accessible via `Ctrl+Shift+P` or right-click → Plastic SCM…
+
+**Core infrastructure:**
+- `PlasticPlugin` — `on_navigate` detects `.plastic/` workspace; `register_commands` wires `Ctrl+Shift+P`; `context_menu_actions` injects Diff/Undo/Checkin; `_active_path_fn` injection skips workspace chooser when active pane path is known
+- `PlasticWindow` (QMainWindow) — 12-page sidebar + 1 hidden diff page; 100ms drain timer calls `PlasticPresenter.drain()`
+- `PlasticPresenter` — Qt-free; `ThreadPoolExecutor(1)` + `SimpleQueue`; all cm ops run off main thread; `_bg_refresh` loads `workspace_info` first (ordering is load-bearing)
+- `_cm.py` — `run_cm(args, cwd, timeout, safe)` subprocess wrapper; `CMError` on non-zero exit; `safe=True` returns `""` on any error
+- `_models.py` — dataclasses: `PlasticItem`, `Changeset`, `Branch`, `Label`, `Shelve`, `Lock`, `Revision`, `BlameLine`, `Review`, `ChangelistInfo`, `WorkspaceInfo`, `Xlink`, `Attribute`, `AclEntry`, `UserInfo`, `GroupInfo`, `ConfigEntry`, `WorkspaceEntry`, `RepoEntry`, `Trigger`; helpers: `parse_date()`, `STATUS_LABELS`, `_fmt_size()`
+
+**Pending Changes (Page 0):**
+- `_status.py` — `get_status(cwd)`, `parse_status()`; handles pipe and plain cm output; strips trailing `True/False NO_MERGES` metadata; tries `--machinereadable` first
+- Vertical splitter: file tree above, `InlineDiffPanel` below; 200ms debounce; `StatusIconDelegate` draws colored bold letters (M/A/D/R/C/?)
+- Checkin dialog, Undo, Undo All, Undo Keep, Update; "Group by Status" toggle; changelist grouping
+
+**Changesets (Page 1):**
+- `_changesets.py` — `get_changesets`, `checkin`, `update`, `undo`, `undo_all`, `undo_keep`, `rollback_changeset`, `edit_comment`; master-detail layout with `CSDetailWidget`
+- Commit graph column: `CSGraphRow` + `build_cs_graph()` in `_dag.py`; `GraphDelegate` paints dots + lane lines in `_components.py`
+- `on_cs_selected()` tries `cs_log_files()` first (cloud/Unity compatible), falls back to `cs_range_diff()` + `parse_cs_diff_files()`
+
+**Branches (Page 2):**
+- `_branches.py` — `get_branches`, `switch_branch`, `switch_changeset`, `delete_branch`, `rename_branch`; 4-field format captures parent branch
+- `BranchTreeModel` — prefix-grouped `QStandardItemModel` tree; `set_current()` bolds active branch; recursive `QSortFilterProxyModel` filtering; "View in DAG" context menu
+
+**Labels (Page 3):** `_labels.py` — `get_labels`, `create_label`, `delete_label`, `rename_label`
+
+**Shelves (Page 4):** `_shelve.py` — `shelve`, `unshelve`, `delete_shelve`, `get_shelves`, `parse_shelves`
+
+**Reviews (Page 5):** `_reviews.py` — `parse_reviews`, `create_review`, `edit_review_status`, `delete_review`; `ReviewModel`
+
+**Xlinks (Page 6):** `_xlinks.py` — `list_xlinks`, `add_xlink`, `remove_xlink`; `XlinkModel`
+
+**Admin (Page 7) — tabbed:**
+- `_acl.py` — `get_acl`, `set_acl`, `delete_acl`; `AclModel`
+- `_attributes.py` — `list_attributes`, `set_attribute`, `delete_attribute`; `AttributeModel`, `AttributesDialog`
+- `_users.py` — `list_users`, `add_user`, `delete_user`; `list_groups`, `add_group`, `delete_group`, `add_group_member`; `UserModel`, `GroupModel`
+- `_conf_files.py` — `read_conf`/`write_conf` for `ignore.conf` / `cloaked.conf`; `ConfEditorDialog`
+- `_config.py` — `list_config`, `set_config` via `cm config`; `ConfigModel`
+- `_partial.py` — `get_partial_status`, `configure_partial`, `add_partial`, `remove_partial`
+
+**Branch DAG (Page 8):** `_dag.py` — `load_dag_data`, `parse_branch_dag`, `assign_lanes` (BFS), `layout_dag`, `build_cs_graph`; `BranchDAGWidget` (`QGraphicsView` + QPainter)
+
+**Workspaces & Repos (Page 9):** `_workspace_mgmt.py` — CRUD for workspaces and repos; `WorkspaceModel`, `RepoModel`
+
+**Triggers (Page 10):** `_triggers.py` — `list_triggers`, `create_trigger`, `delete_trigger`; `TriggerModel`
+
+**Git Sync (Page 11):** `_git_sync.py` — `sync_git(url, cwd)`, `git_sync_status(cwd)` via `cm sync git`
+
+**Diff infrastructure:**
+- `_diff.py` — `workspace_diff`, `cs_diff`, `cs_log_files` (cloud/Unity via `cm log --itemformat`), `cs_range_diff`, `branch_diff`, `label_range_diff`, `shelve_diff`, `parse_cs_diff_files`, `is_binary`, `is_image`, `count_diff_lines`, `get_merge_sides`, `get_server_path`
+- `InlineDiffPanel` — toggleable unified/SBS diff; `LineNumberedDiffEdit` with gutter; image preview fallback
+- `SideBySideDiffDialog` — 2-pane synchronized scrolling
+- `ThreeWayMergeDialog` — 3-pane scroll sync; reads Plastic sidecar conflict files (`.BASE.*`, `.SOURCE.*`)
+
+**Other operations:**
+- `_merge.py` — `merge_branch` (preview/resolve/semantic flags), `merge_changeset`
+- `_lock.py` — `lock` (`cm lock create br:<branch> <path>`), `unlock`, `get_locks`, `parse_locks` (4-field `path|owner|branch|status`)
+- `_history.py` — `get_file_history`, `parse_history`; `HistoryDialog`, `HistoryModel`
+- `_annotate.py` — `get_blame`, `parse_blame`; `BlameDialog`
+- `_changelist.py` — `parse_changelist_status`, `create_changelist`, `delete_changelist`, `add_to_changelist`, `remove_from_changelist`
+- `_fileops.py` — `add`, `remove`, `move`
+- `_find.py` — `find_files(pattern, cwd)` via `cm find files where name like '%…%'`; `FindResultsDialog`
+- `_workspace.py` — `get_workspace_info(cwd)` parses `cm wi`; regex fallback for single-line cm versions
+
+**Qt components in `_components.py`:**
+`_BaseModel`, `ChangesetModel` (6-col with graph column), `GraphDelegate`, `BranchTreeModel`, `LabelModel`, `ShelveModel`, `CSDiffFileModel`, `ReviewModel`, `StatusModel`, `CSDetailWidget`, `_DetailsPanel`, `CheckinDialog`, `MergeOptionsDialog`, `DiffHighlighter`, `HistoryModel`, `HistoryDialog`, `BlameDialog`, `FindResultsDialog`, `SideBySideDiffDialog`, `LineNumberedDiffEdit`, `_LineNumberArea`, `InlineDiffPanel`, `StatusIconDelegate`, `XlinkModel`, `AttributeModel`, `AttributesDialog`, `AclModel`, `UserModel`, `GroupModel`, `BranchDAGWidget`, `ThreeWayMergeDialog`, `ConfigModel`, `WorkspaceModel`, `RepoModel`, `TriggerModel`, `ConfEditorDialog`
+
+**Tests:** ~750 unit tests + ~100 integration tests in `tests/unit/plastic/` and `tests/integration/`
+
+**Additional UI changes:**
+- **F10 AI button** — bottom action bar gains "F10 AI" button toggling AI chat panel; replaces Alt+F4 exit button (Issue #11)
+- **Highlight presets** — `HighlightRulesDialog` preset picker: Custom / Default / Dark / Light; `expand_rules()` handles comma-separated patterns (Issue #9)
+- **AI chat Clear Session** — "Clear" button in AI chat header resets history, attachments, and chat log
+- **Editor unsaved-changes guard** — closing `EditorDialog` with unsaved changes shows Save / Discard / Cancel
+
+### Fixed
+
+- **Plastic SCM lock CLI** — `lock()` now calls `cm lock create br:<branch> <path>`; `parse_locks` handles 4-field `path|owner|branch|status` format
+- **`parse_status` trailing metadata** — strips `True/False NO_MERGES` from plain-format cm output
+- **`cm wi` fallback parser** — regex fallback handles single-line `"Branch /main@repo@server"` format from some cm versions
+- **CS file list on cloud/Unity** — `cs_log_files()` uses `cm log --itemformat` instead of `cm diff cs:A..cs:B` (fails on cloud workspaces)
+- **KeyError 'info' in PanelManager** — `PANELS` tuple now includes `"info"` (Issue #10)
+- **Menubar context menu** — `PreventContextMenu` policy prevents spurious toolbar popup on RMB (Issue #10)
+- **F4 / Shift+F4 editor** — F4 opens built-in `EditorDialog`; Shift+F4 opens external editor (Issue #5)
 
 ---
 

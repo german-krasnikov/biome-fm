@@ -963,6 +963,267 @@ src/biome_fm/
                             #   _Debouncer fires callback at most once per delay after last trigger;
                             #   WatchService.start(path, callback)/stop();
                             #   watchfiles absent → silent no-op (optional dep)
+
+├── plastic/                # Plastic SCM plugin (biome_fm.plugins entry point)
+│   ├── __init__.py         # re-exports Plugin = PlasticPlugin
+│   ├── _cm.py              # run_cm(args, cwd, timeout=10) → stdout str; CMError on non-zero exit
+│   ├── _models.py          # Frozen dataclasses: PlasticItem, Changeset, Branch, Label;
+│   │                       #   Shelve(shelve_id, date, owner, comment);
+│   │                       #   Lock(path, owner, branch, status="Locked");
+│   │                       #   CSDiffFile(path, status, added, removed, diff_text) — file changed
+│   │                       #     in a CS; status: "A"|"M"|"D"; added/removed line counts;
+│   │                       #   Branch.parent: str = "" — parent branch name (UX overhaul);
+│   │                       #   _fmt_size(n: int) → str — B/KB/MB/GB formatter (re-exported);
+│   │                       #   STATUS_LABELS dict — maps Plastic status codes to human labels
+│   │                       #     ("CO" → "Checked Out", "AD" → "Added", etc.);
+│   │                       #   Revision(rev_id, cs_id, date, owner, comment, branch) — Phase 4;
+│   │                       #   BlameLine(line_no, owner, cs_id, date, content) — Phase 4;
+│   │                       #   Review(review_id, status, assignee, date, title, target_cs=0) — Phase 4;
+│   │                       #   ChangelistInfo(name, description: str="") — Phase 4;
+│   │                       #   WorkspaceInfo(name, path, server, branch, cs_id) — Phase 4;
+│   │                       #   Xlink(local_path, server, repo) — Phase 5;
+│   │                       #   Attribute(name, value) — Phase 5;
+│   │                       #   AclEntry(principal, permission) — Phase 5;
+│   │                       #   UserInfo(name, email) — Phase 5;
+│   │                       #   GroupInfo(name, members: list[str]) — Phase 5;
+│   │                       #   ConfigEntry(key, value) — Phase 6B;
+│   │                       #   WorkspaceEntry(name, path, server, repo) — Phase 6C;
+│   │                       #   RepoEntry(name, server) — Phase 6C;
+│   │                       #   Trigger(trigger_id, name, event, filter_, command) — Phase 6C;
+│   │                       #   parse_date(s) → datetime shared by all parsers
+│   ├── _status.py          # get_status(cwd) → list[PlasticItem]; parse_status(output)
+│   │                       #   pipe format: splits all "|", takes field[0]=code, field[1]=path;
+│   │                       #   plain format: splits on whitespace, then re.sub strips trailing
+│   │                       #   "True/False NO_MERGES" metadata from path string;
+│   │                       #   both paths accept "CO|/path|False|NO_MERGES" or "CO  /path  False NO_MERGES"
+│   ├── _changesets.py      # get_changesets(cwd) → list[Changeset]; parse_changesets(output);
+│   │                       #   checkin(paths, msg, cwd); update(cwd); undo(paths, cwd);
+│   │                       #   rollback_changeset(cs_id, cwd) — cm undo --changeset=cs:{cs_id};
+│   │                       #   edit_comment(cs_id, new_comment, cwd) — Phase 4;
+│   │                       #   undo_all(cwd) — revert all pending changes (Phase 6A);
+│   │                       #   undo_keep(path, cwd) — undo while keeping local edits (Phase 6A)
+│   ├── _branches.py        # get_branches(cwd) → list[Branch]; parse_branches(output);
+│   │                       #   4-field cm format: {name}|{parent}|{date}|{owner} — populates Branch.parent;
+│   │                       #   switch_branch(branch, cwd); switch_changeset(cs_id, cwd);
+│   │                       #   delete_branch(branch, cwd); rename_branch(old, new, cwd) — Phase 4
+│   ├── _labels.py          # get_labels(cwd) → list[Label]; parse_labels(output);
+│   │                       #   create_label(name, cs_id, cwd); delete_label(name, cwd);
+│   │                       #   rename_label(old, new, cwd) — Phase 4
+│   ├── _history.py         # get_file_history(path, cwd) → list[Revision];
+│   │                       #   parse_history(output) — Phase 4
+│   ├── _annotate.py        # get_blame(path, cwd) → list[BlameLine];
+│   │                       #   parse_blame(output) — Phase 4
+│   ├── _reviews.py         # get_reviews(cwd) → list[Review]; create_review(title, changesets, cwd);
+│   │                       #   delete_review(review_id, cwd); update_review_status(review_id, status, cwd)
+│   │                       #   — Phase 4
+│   ├── _changelist.py      # get_changelists(cwd) → list[ChangelistInfo];
+│   │                       #   create_changelist(name, comment, cwd); delete_changelist(name, cwd);
+│   │                       #   move_to_changelist(name, paths, cwd) — Phase 4
+│   ├── _fileops.py         # add(paths, cwd); remove(paths, cwd); move(src, dst, cwd) — Phase 4
+│   ├── _find.py            # find_files(pattern, cwd) → list[str]; wraps cm find — Phase 4
+│   ├── _workspace.py       # get_workspace_info(cwd) → WorkspaceInfo; parses cm wi "key: value" lines;
+│   │                       #   fallback regex re.search(r'Branch\s+(/[^@\s]+)') handles single-line
+│   │                       #   "Branch /main@repo@server" format from some cm versions;
+│   │                       #   also extracts repo name from Branch line when "Workspace name:" key absent
+│   ├── _components.py      # Qt model classes extracted from _window.py (Phase 3):
+│   │                       #   _BaseModel, ChangesetModel, LabelModel,
+│   │                       #   ShelveModel, StatusModel, _DetailsPanel, CheckinDialog,
+│   │                       #   DiffHighlighter; helpers: _btn, _filter_edit, _make_proxy;
+│   │                       #   Phase 4: HistoryDialog, BlameDialog, ReviewModel,
+│   │                       #   MergeOptionsDialog, FindResultsDialog;
+│   │                       #   Phase 5: BranchDAGWidget (QPainter DAG with lanes + cross-branch
+│   │                       #   edges via BFS), ThreeWayMergeDialog (3-pane scroll sync, sidecar
+│   │                       #   file reading), SideBySideDiffDialog (2-pane scroll sync),
+│   │                       #   XlinkModel, AclModel, UserModel, GroupModel,
+│   │                       #   AttributeModel, AttributesDialog;
+│   │                       #   Phase 6B: ConfigModel (key/value table), ConfEditorDialog
+│   │                       #   (QPlainTextEdit for ignore.conf / cloaked.conf);
+│   │                       #   Phase 6C: WorkspaceModel, RepoModel, TriggerModel;
+│   │                       #   UX overhaul (Batches A–F):
+│   │                       #     BranchTreeModel — replaces flat BranchModel; groups branches by
+│   │                       #       "/" prefix into QStandardItemModel tree; set_current() bolds
+│   │                       #       active branch; branch_at(index) → Branch | None;
+│   │                       #       recursive QSortFilterProxyModel filtering on QTreeView;
+│   │                       #       owner_item + date_item get ToolTip set (Batch F);
+│   │                       #     CSDiffFileModel — 4-col table (Path/Status/Added/Removed) for
+│   │                       #       CSDiffFile; tooltip shows diff_text;
+│   │                       #     ChangesetModel — DisplayRole: CS# plain (no bold), date as
+│   │                       #       _DT_SHORT ("%b %d, %H:%M"); ToolTipRole: full date on col 1,
+│   │                       #       owner on col 2, comment on col 3, branch on col 4 (Batch F);
+│   │                       #     CSDetailWidget — QStackedWidget: page 0 = "Select a changeset"
+│   │                       #       placeholder; page 1 = metadata label + CSDiffFileModel table
+│   │                       #       + InlineDiffPanel; load_cs() switches to page 1,
+│   │                       #       clear() switches back to page 0 (Batch F);
+│   │                       #       file table: Path col (idx 1) Stretch, others fixed; splitter
+│   │                       #       sizes [500, 300] (file list taller than diff pane);
+│   │                       #     _LineNumberArea — QWidget gutter painted by LineNumberedDiffEdit;
+│   │                       #     LineNumberedDiffEdit — QPlainTextEdit with gutter line numbers;
+│   │                       #       updateRequest connected to repaint gutter on scroll/resize;
+│   │                       #     InlineDiffPanel — toggleable unified/SBS diff view; two
+│   │                       #       LineNumberedDiffEdit widgets for SBS; QLabel image preview;
+│   │                       #       binary-file notice label; unified/SBS QToolButton toggle;
+│   │                       #       page 4 = "Select a file" placeholder (default, Batch F);
+│   │                       #       _STATUS_LETTER dict maps status codes → M/A/D/R/C/?;
+│   │                       #     StatusIconDelegate — draws colored letter (M/A/D/R/C/?) using
+│   │                       #       QFontDatabase.systemFont(FixedFont) bold instead of dot;
+│   │                       #       renders background (highlight/base) before letter (Batch F);
+│   │                       #     ChangesetModel — 6 columns (graph/CS#/date/owner/comment/branch);
+│   │                       #       col 0 = graph column: DisplayRole → None, UserRole → cs_id;
+│   │                       #       GraphDelegate reads cs_id from UserRole for CSGraphRow lookup;
+│   │                       #     GraphDelegate — QStyledItemDelegate; paints dot + branch lines for
+│   │                       #       graph column; set_graph(rows: list[CSGraphRow]) wires data;
+│   │                       #       _rows: dict[int, CSGraphRow] (cs_id key)
+│   ├── _diff.py            # workspace_diff(path, cwd) → str; cs_diff(local_path, cs_id, ...) → str;
+│   │                       #   get_server_path(local_path, cwd) → str;
+│   │                       #   is_binary(path, chunk=8192) → bool — null-byte sniff;
+│   │                       #   is_image(path) → bool — suffix check against common image exts;
+│   │                       #   count_diff_lines(diff) → (added, removed);
+│   │                       #   parse_cs_diff_files(diff_text) → list[CSDiffFile] — splits a
+│   │                       #     unified diff on `diff --cc` sections; extracts per-file stats;
+│   │                       #   cs_log_files(cs_id, cwd) → list[CSDiffFile] — uses `cm log
+│   │                       #     --itemformat` to list changed files; works on cloud/Unity
+│   │                       #     Plastic where cs_range_diff fails; _CM_STATUS_MAP C→M A→A D→D M→R;
+│   │                       #   cs_range_diff(cs1, cs2, cwd); branch_diff(branch, cwd);
+│   │                       #   label_range_diff(label1, label2, cwd); shelve_diff(shelve_id, cwd)
+│   │                       #   — Phase 4
+│   ├── _shelve.py          # shelve(msg, cwd, paths=None) → None;
+│   │                       #   unshelve(shelve_id, cwd) → None;
+│   │                       #   get_shelves(cwd) → list[Shelve]; parse_shelves(output)
+│   ├── _merge.py           # merge_branch(branch, cwd, *, preview, resolve, semantic) → str;
+│   │                       #   semantic: bool kwarg adds --semantic flag (Phase 6A);
+│   │                       #   MergeOptionsDialog checkbox wires to this flag;
+│   │                       #   merge_changeset(cs_id, cwd) → str;
+│   │                       #   preview_merge(branch, cwd) → str (dry-run, no changes);
+│   │                       #   resolve(path, method, cwd) — accept mine/theirs/merge — Phase 4
+│   ├── _lock.py            # lock(path, cwd) → None; unlock(path, cwd) → None;
+│   │                       #   get_locks(cwd) → list[Lock]; parse_locks(output)
+│   ├── _presenter.py       # PlasticPresenter — ThreadPoolExecutor + SimpleQueue drain;
+│   │                       #   drain() called by QTimer (50ms); all ops run off main thread;
+│   │                       #   _bg_submit/_bg_refresh wrapped in try/finally → ("busy", True/False);
+│   │                       #   _bg_refresh: workspace_info fetched FIRST to set _wk_path before
+│   │                       #   status items are pushed to the view (ordering is load-bearing);
+│   │                       #   diff_file/diff_changeset prepend "+N / -M lines" header;
+│   │                       #   Phase 4: file_history(item), blame_file(item), load_reviews(),
+│   │                       #   create_review(title, cs_ids), delete_review(review_id),
+│   │                       #   load_changelists(), create_changelist(name), move_to_changelist(name, items),
+│   │                       #   add_files(items), remove_files(items), move_file(src, dst),
+│   │                       #   find_files(pattern), load_workspace_info();
+│   │                       #   Phase 5: load_xlinks/add_xlink/remove_xlink, replication_push/pull,
+│   │                       #   load_attributes/set_attribute/delete_attribute,
+│   │                       #   load_acl/set_acl_entry/delete_acl_entry,
+│   │                       #   load_users/add_user/delete_user,
+│   │                       #   load_groups/add_group/delete_group/add_group_member, load_dag();
+│   │                       #   Phase 6A: undo_all(), undo_keep(items), merge_branch(semantic=),
+│   │                       #   replica_package_create(output_path), replica_package_import(file_path);
+│   │                       #   Phase 6B: load_conf_file(kind)/save_conf_file(kind, text),
+│   │                       #   load_config()/set_config_entry(key, value),
+│   │                       #   load_partial_status/configure_partial/add_partial/remove_partial;
+│   │                       #   Phase 6C: load_workspaces/create_workspace/delete_workspace,
+│   │                       #   load_repos/create_repo/delete_repo,
+│   │                       #   load_triggers/create_trigger/delete_trigger,
+│   │                       #   load_git_sync_status/do_git_sync(url);
+│   │                       #   UX overhaul: on_cs_selected(cs_id) — loads CS files off-thread;
+│   │                       #   tries cs_log_files() first (works on cloud Plastic), falls back
+│   │                       #   to cs_range_diff() + parse_cs_diff_files() if empty;
+│   │                       #   PlasticViewProtocol extended: set_history, set_blame, set_reviews,
+│   │                       #   set_changelists, set_workspace_info, set_xlinks, set_dag,
+│   │                       #   set_attributes, set_acl, set_users, set_groups,
+│   │                       #   set_workspaces, set_repos, set_triggers, set_cs_files
+│   ├── _plugin.py          # PlasticPlugin — hookimpls: register_commands, context_menu_actions;
+│   │                       #   _open_window() creates PlasticWindow + PlasticPresenter,
+│   │                       #   wires all signals (14 Phase 2; +12 Phase 4; +20 Phase 5; +18 Phase 6; +1 UX overhaul: cs_selected)
+│   ├── _dag.py             # DAG data structures and layout (Phase 5.1);
+│   │                       #   BranchNode, DAGNode dataclasses; load_dag_data(cwd) → (branches, changesets);
+│   │                       #   parse_branch_dag(output); assign_lanes(branches) → dict[name,lane] via BFS;
+│   │                       #   layout_dag(branches, changesets) → list[DAGNode];
+│   │                       #   CSGraphRow(cs_id, lane, active_lanes: frozenset[int], color_idx) — one row
+│   │                       #     per changeset for the table graph column; _N_GRAPH_COLORS = 8;
+│   │                       #   build_cs_graph(changesets, branch_nodes) → list[CSGraphRow] — BFS lane
+│   │                       #     assignment + branch-span active-lane computation (newest-first order)
+│   ├── _xlinks.py          # Xlink CRUD ops (Phase 5.4);
+│   │                       #   Xlink frozen dataclass; parse_xlinks, list_xlinks, add_xlink, remove_xlink
+│   ├── _replication.py     # Push/pull replication (Phase 5.5); timeout=300s;
+│   │                       #   replication_push(server, repo, cwd), replication_pull(server, cwd) → str;
+│   │                       #   package_create(output_path, cwd) → str — cm replica package create (Phase 6A);
+│   │                       #   package_import(file_path, cwd) → str — cm replica package import (Phase 6A)
+│   ├── _attributes.py      # Attribute CRUD (Phase 5.6);
+│   │                       #   parse_attributes, list_attributes, set_attribute, delete_attribute
+│   ├── _acl.py             # ACL management (Phase 5.7);
+│   │                       #   AclEntry frozen dataclass; parse_acl, get_acl, set_acl, delete_acl
+│   ├── _users.py           # User/Group CRUD (Phase 5.8);
+│   │                       #   UserInfo, GroupInfo dataclasses;
+│   │                       #   parse_users, list_users, add_user, delete_user;
+│   │                       #   parse_groups, list_groups, add_group, delete_group, add_group_member
+│   ├── _conf_files.py      # ignore.conf / cloaked.conf editors (Phase 6B);
+│   │                       #   read_conf(path), write_conf(path, text);
+│   │                       #   ignore_conf_path(wk_path), cloaked_conf_path(wk_path) → Path helpers;
+│   │                       #   ConfEditorDialog (in _components.py) reads/writes via these fns
+│   ├── _config.py          # Plastic workspace config (Phase 6B);
+│   │                       #   ConfigEntry(key, value) frozen dataclass (in _models.py);
+│   │                       #   parse_config(output) → list[ConfigEntry];
+│   │                       #   list_config(cwd) → list[ConfigEntry]; set_config(key, value, cwd)
+│   ├── _partial.py         # Partial workspace management (Phase 6B);
+│   │                       #   get_partial_status(cwd) → str; configure_partial(cwd) → str;
+│   │                       #   add_partial(path, cwd); remove_partial(path, cwd)
+│   ├── _workspace_mgmt.py  # Workspace & Repository CRUD (Phase 6C);
+│   │                       #   WorkspaceEntry(name, path, server, repo) frozen dataclass (in _models.py);
+│   │                       #   RepoEntry(name, server) frozen dataclass (in _models.py);
+│   │                       #   parse_workspaces, list_workspaces, create_workspace, delete_workspace;
+│   │                       #   parse_repos, list_repos, create_repo, delete_repo
+│   ├── _triggers.py        # Server trigger management (Phase 6C);
+│   │                       #   Trigger(trigger_id, name, event, filter_, command) frozen dataclass (in _models.py);
+│   │                       #   parse_triggers(output) → list[Trigger];
+│   │                       #   list_triggers(cwd), create_trigger(name, event, filter_, command, cwd),
+│   │                       #   delete_trigger(trigger_id, cwd)
+│   ├── _git_sync.py        # Git sync bridge (Phase 6C);
+│   │                       #   sync_git(url, cwd) → str — cm git sync;
+│   │                       #   git_sync_status(cwd) → str — show current git sync config
+│   └── _window.py          # PlasticWindow(QMainWindow) — 12-page sidebar + 1 hidden diff page:
+│                           #   Page 0: Pending Changes (UX overhaul):
+│                           #     QSplitter(Vertical): file tree above + InlineDiffPanel below;
+│                           #     toolbar buttons grouped with QFrame(VLine) separators;
+│                           #     directory nodes show relative paths (relative_to(wk_path));
+│                           #     human-readable status labels via STATUS_LABELS dict;
+│                           #     file sizes via _fmt_size(); StatusIconDelegate colored letters;
+│                           #     200ms debounce on selection → _emit_pending_diff()
+│                           #     (_diff_debounce QTimer, setSingleShot); _inline_diff_pending
+│                           #     flag routes diff to InlineDiffPanel vs. hidden diff page;
+│                           #     "Group by Status" toggle; changelist grouping (Phase 4.6);
+│                           #     QHeaderView sizing: col 0 Stretch, col 1 Fixed 100, col 2 Fixed 80,
+│                           #       col 3 Fixed 140, setStretchLastSection(False) (Batch F);
+│                           #   Page 1: Changesets (UX overhaul):
+│                           #     QSplitter(Vertical): CS list above + CSDetailWidget below;
+│                           #     cs_selected Signal(int) → presenter.on_cs_selected();
+│                           #     CSDetailWidget.load_cs() / load_files() wired in set_cs_files();
+│                           #     Rollback/Undo All/Undo Keep/Edit Comment btns retained;
+│                           #     QHeaderView sizing: col 0 Fixed 60, col 1 Fixed 130, col 2 Fixed 120,
+│                           #       col 3 Stretch, col 4 Fixed 100, setStretchLastSection(False) (Batch F);
+│                           #   Page 2: Branches (UX overhaul):
+│                           #     BranchTreeModel + QTreeView (replaces flat table);
+│                           #     recursive QSortFilterProxyModel filtering;
+│                           #     _selected_branch() helper navigates proxy→source to get Branch;
+│                           #     parent branch shown in details panel;
+│                           #     "View in DAG" context menu item (_on_view_branch_in_dag);
+│                           #     Switch/Merge/Delete/Rename btns retained;
+│                           #     QHeaderView sizing: col 0 Stretch, col 1 Fixed 130, col 2 Fixed 150,
+│                           #       setStretchLastSection(False) (Batch F);
+│                           #   Page 3: Labels — table + Create/Delete/Rename btns;
+│                           #   Page 4: Shelves — ShelveModel table + Apply/Refresh btns + DetailsPanel;
+│                           #   Page 5: Reviews — ReviewModel table + Create/Delete/Status btns;
+│                           #   Page 6: Xlinks — XlinkModel table + Add/Remove btns (Phase 5.4);
+│                           #   Page 7: Admin — tabbed: Users/Groups/Attributes/ACL/Config/Partial/
+│                           #     IgnoreConf/CloakedConf (Phases 5.6-5.8, 6B);
+│                           #   Page 8: Branch DAG — BranchDAGWidget (Phase 5.1);
+│                           #   Page 9: Workspaces & Repos — WorkspaceModel + RepoModel (Phase 6C);
+│                           #   Page 10: Triggers — TriggerModel + Create/Delete (Phase 6C);
+│                           #   Page 11: Git Sync — sync_git/git_sync_status (Phase 6C);
+│                           #   Page 12 (hidden): Diff — QTextEdit + "← Back" button; _diff_page_index=12;
+│                           #   header bar shows WorkspaceInfo (name/branch/cs) from _workspace.py;
+│                           #   Ctrl+F shortcut → FindResultsDialog;
+│                           #   Qt models/helpers imported from _components.py;
+│                           #   _show_context_menu() + RMB menus on all views;
+│                           #   F5/Ctrl+I/Ctrl+D/Escape QShortcuts via _build_shortcuts();
+│                           #   QProgressBar header; red status bar on error
 ```
 
 ## Patterns
@@ -1417,3 +1678,58 @@ top-level sections: Volumes, Bookmarks, Recent, Tags, Smart Folders.
 `SmartFolder` entries come from `SearchTemplateStore`; activating one triggers
 `smart_folder_activated(SearchTemplate)` which the app wires to `SearchCoordinator`.
 `VolumeWatcher` updates the Volumes section on hot-plug events.
+
+### Plastic SCM Plugin
+
+`plastic/` is a first-party plugin loaded via `biome_fm.plugins` entry point.
+It follows the same Presenter/Window split as core modules — no Qt in the presenter.
+
+```
+PlasticPlugin._open_window()
+      │
+      ├─ PlasticPresenter(cwd, ttl=30)   [Qt-free]
+      │       ThreadPoolExecutor(1) + SimpleQueue drain
+      │       drain() called by QTimer every 50ms
+      │
+      └─ PlasticWindow(presenter)   [QMainWindow]
+              60+ signals wired to presenter methods
+              12 sidebar pages + 1 hidden diff page
+```
+
+**Backend modules** (pure Python, `run_cm()` subprocess, no Qt):
+
+| Module | Functions |
+|--------|-----------|
+| `_status.py` | `get_status`, `parse_status` |
+| `_changesets.py` | `get_changesets`, `checkin`, `update`, `undo`, `undo_all`, `undo_keep`, `rollback_changeset`, `edit_comment` |
+| `_branches.py` | `get_branches`, `switch_branch`, `switch_changeset`, `delete_branch`, `rename_branch` |
+| `_labels.py` | `get_labels`, `parse_labels`, `create_label`, `delete_label`, `rename_label` |
+| `_diff.py` | `workspace_diff`, `cs_diff`, `cs_log_files`, `get_server_path`, `is_binary`, `is_image`, `count_diff_lines`, `parse_cs_diff_files`, `cs_range_diff`, `branch_diff`, `label_range_diff`, `shelve_diff`, `get_merge_sides` |
+| `_shelve.py` | `shelve`, `unshelve`, `delete_shelve`, `get_shelves`, `parse_shelves` |
+| `_merge.py` | `merge_branch`, `merge_changeset` |
+| `_lock.py` | `lock`, `unlock`, `get_locks`, `parse_locks` |
+| `_history.py` | `get_file_history`, `parse_history` |
+| `_annotate.py` | `get_blame`, `parse_blame` |
+| `_reviews.py` | `parse_reviews`, `create_review`, `edit_review_status`, `delete_review` |
+| `_changelist.py` | `parse_changelist_status`, `create_changelist`, `delete_changelist`, `add_to_changelist`, `remove_from_changelist` |
+| `_fileops.py` | `add`, `remove`, `move` |
+| `_find.py` | `find_files` |
+| `_workspace.py` | `get_workspace_info` |
+| `_dag.py` | `load_dag_data`, `parse_branch_dag`, `assign_lanes`, `layout_dag`, `build_cs_graph` |
+| `_xlinks.py` | `list_xlinks`, `add_xlink`, `remove_xlink` |
+| `_replication.py` | `replication_push`, `replication_pull`, `package_create`, `package_import` |
+| `_attributes.py` | `list_attributes`, `set_attribute`, `delete_attribute` |
+| `_acl.py` | `get_acl`, `set_acl`, `delete_acl` |
+| `_users.py` | `list_users`, `add_user`, `delete_user`, `list_groups`, `add_group`, `delete_group`, `add_group_member` |
+| `_conf_files.py` | `read_conf`, `write_conf`, `ignore_conf_path`, `cloaked_conf_path` |
+| `_config.py` | `parse_config`, `list_config`, `set_config` |
+| `_partial.py` | `get_partial_status`, `configure_partial`, `add_partial`, `remove_partial` |
+| `_workspace_mgmt.py` | `parse_workspaces`, `list_workspaces`, `create_workspace`, `delete_workspace`, `parse_repos`, `list_repos`, `create_repo`, `delete_repo` |
+| `_triggers.py` | `parse_triggers`, `list_triggers`, `create_trigger`, `delete_trigger` |
+| `_git_sync.py` | `sync_git`, `git_sync_status` |
+
+**Models** (frozen dataclasses in `_models.py`): `PlasticItem`, `Changeset`, `Branch`, `Label`, `Shelve`, `Lock`, `Revision`, `BlameLine`, `Review`, `ChangelistInfo`, `WorkspaceInfo`, `Xlink`, `Attribute`, `AclEntry`, `UserInfo`, `GroupInfo`, `ConfigEntry`, `WorkspaceEntry`, `RepoEntry`, `Trigger`.
+
+**Qt components** (in `_components.py`): `_BaseModel`, `ChangesetModel` (6-col with graph), `GraphDelegate`, `BranchTreeModel`, `LabelModel`, `ShelveModel`, `CSDiffFileModel`, `ReviewModel`, `StatusModel`, `CSDetailWidget`, `_DetailsPanel`, `CheckinDialog`, `MergeOptionsDialog`, `DiffHighlighter`, `HistoryModel`, `HistoryDialog`, `BlameDialog`, `FindResultsDialog`, `SideBySideDiffDialog`, `LineNumberedDiffEdit`, `_LineNumberArea`, `InlineDiffPanel`, `StatusIconDelegate`, `XlinkModel`, `AttributeModel`, `AttributesDialog`, `AclModel`, `UserModel`, `GroupModel`, `BranchDAGWidget`, `ThreeWayMergeDialog`, `ConfigModel`, `WorkspaceModel`, `RepoModel`, `TriggerModel`, `ConfEditorDialog`; helpers: `_btn`, `_filter_edit`, `_make_proxy`, `_make_table`, `_split_unified_diff`.
+
+**Test count**: ~600+ total. Phase 6 added ~110+ new tests (unit tests for all 6 new backend modules + integration tests for 3 new sidebar pages + presenter tests).

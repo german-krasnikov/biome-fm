@@ -119,6 +119,7 @@ class MainWindow(QMainWindow):
     large_files_requested = Signal()
     task_runner_requested = Signal()
     permissions_requested = Signal()
+    plastic_requested = Signal()
     shortcuts_help_requested = Signal()
     about_requested = Signal()
 
@@ -426,6 +427,10 @@ class MainWindow(QMainWindow):
         tm.addAction(a)
         a = QAction("Permissions Editor\tCtrl+Alt+P", self)
         a.triggered.connect(lambda _: self.permissions_requested.emit())
+        tm.addAction(a)
+        tm.addSeparator()
+        a = QAction("Plastic SCM\tCtrl+Shift+P", self)
+        a.triggered.connect(lambda _: self.plastic_requested.emit())
         tm.addAction(a)
 
         hm = mb.addMenu("&Help")

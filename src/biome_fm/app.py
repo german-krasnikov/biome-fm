@@ -816,6 +816,7 @@ def create_app() -> MainWindow:
             if _sig is not None:
                 _sig.connect(terminal_panel.set_cwd)
                 _sig.connect(_on_project_navigate)
+                _sig.connect(plugins.on_navigate)
     window.detach_preview_requested.connect(lambda: coord.detach("preview"))
     window.detach_ai_requested.connect(lambda: coord.detach("ai"))
 
@@ -1039,6 +1040,11 @@ def create_app() -> MainWindow:
     def _active() -> TabsPresenter:
         return left_tabs if manager.active_pane_id == "left" else right_tabs
 
+    # Give plugins access to the active panel's path
+    for _p in plugins._pm.get_plugins():
+        if hasattr(_p, "_active_path_fn"):
+            _p._active_path_fn = lambda: _active().current_path
+
     def _run_cmd(cmd: str) -> None:
         active = _active()
         other = right_tabs if manager.active_pane_id == "left" else left_tabs
@@ -1155,6 +1161,7 @@ def create_app() -> MainWindow:
             _sig.connect(terminal_panel.set_cwd)
             _sig.connect(_update_git_branch)
             _sig.connect(_on_project_navigate)
+            _sig.connect(plugins.on_navigate)
 
     def _dup_tab() -> None:
         """Duplicate the active tab — opens a new tab at the same path."""
@@ -1561,6 +1568,7 @@ def create_app() -> MainWindow:
             if _pu is not None:
                 _pu.connect(_update_git_branch)
                 _pu.connect(_on_project_navigate)
+                _pu.connect(plugins.on_navigate)
 
     def _bookmark_toggle() -> None:
         path = _active().current_path
@@ -2091,6 +2099,11 @@ def create_app() -> MainWindow:
 
     palette = CommandPalette(registry, parent=window)
     QShortcut(QKeySequence("Ctrl+P"), window).activated.connect(palette.open)
+
+    try:
+        window.plastic_requested.connect(registry.get_entry("plastic.open").callback)
+    except KeyError:
+        pass
 
     # ── OmniBar (Ctrl+Space) ──────────────────────────────────────
     from biome_fm.presenters.omnibar_presenter import OmnibarPresenter

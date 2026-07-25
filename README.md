@@ -236,56 +236,53 @@ Full architecture: [`AI/architecture.md`](AI/architecture.md)
 ## Recent Changes
 
 <details>
-<summary><strong>v0.33.0</strong> — 2026-07-24 — Issues 5–12: UX polish, highlight presets, Help menu</summary>
+<summary><strong>v0.33.0</strong> — 2026-07-25 — Plastic SCM plugin (full feature set)</summary>
 
-- F4 now opens the built-in editor; Shift+F4 opens external editor; Alt+F4 action bar button replaced by F10 AI
-- Workspaces moved to View → Workspaces submenu; F10 / action bar button toggles AI chat panel
-- Highlight presets (Default / Dark / Light) in HighlightRulesDialog; comma-separated patterns supported
-- Help menu added (Keyboard Shortcuts F1, About); 24 missing menu entries across File/Edit/Navigate/View/Tools
-- AI chat Clear Session button; EditorDialog unsaved-changes guard (Save/Discard/Cancel on close)
-
-</details>
-
-<details>
-<summary><strong>v0.32.0</strong> — 2026-07-24 — 60-item architecture audit: security, performance, features</summary>
-
-- Security: shell injection hardened in `BatchExecCmd`/`ScriptVFS`/proxy; Zip Slip protection; API keys migrated to keyring; FISH VFS SSH `RejectPolicy`
-- Performance: AI calls off main thread; flat view async; chunked dir loading; bounded thread pool; global hotkey + `FileIndexer` thread safety
-- New: Smart Folders sidebar, frecency jump, recent projects, workspace switcher, tab lock + link, verify after copy, per-file git decorations, branch switcher, worktree manager
-- New: Smart Preview AI button, clickable terminal errors, presigned URL dialog, NL Ops JSON-structured output, folder size bar chart, volume/device sidebar
-- Quality: ~2900 LOC removed; atomic writes on all stores; session auto-save debounced; chat history cap; `create_app()` decomposed; preview dark mode tokens
+- `PlasticPlugin` — `Ctrl+Shift+P` opens `PlasticWindow`; `on_navigate` detects `.plastic/` workspace; context-menu Diff/Undo/Checkin actions
+- 12-page sidebar: Pending Changes, Changesets, Branches, Labels, Shelves, Reviews, Xlinks, Admin, Branch DAG, Workspaces & Repos, Triggers, Git Sync
+- All cm ops run off main thread via `ThreadPoolExecutor` + `SimpleQueue` drain
+- Commit graph column with `GraphDelegate`; inline diff panel; branch tree with prefix grouping; CS master-detail with `CSDetailWidget`
+- `cs_log_files()` for cloud/Unity Plastic compatibility; three-way merge viewer; side-by-side diff
+- ~750 unit tests + ~100 integration tests in `tests/unit/plastic/` and `tests/integration/`
 
 </details>
 
 <details>
-<summary><strong>v0.31.1</strong> — 2026-07-23 — Architectural audit: 34 fixes</summary>
+<summary><strong>v0.32.0</strong> — 2026-07-24 — Security, performance, and 34 architectural fixes</summary>
 
-- VFS Protocol split: `ReadableVFS` + `WritableVFS`; `VFSReadOnlyError` raised by router on write to archive
-- New shared utils: `atomic_write`, `format_size`, `_store_base` helpers, `ls_parser`, `git/run`
-- Plugin hook isolation: `on_navigate` / `on_file_operation` wrapped in try/except; crashing plugins log and skip
-- `Config.__post_init__` validates all fields; `save_config` debounced 300 ms
-- `PanePresenter.cleanup()` disconnects tracked signals on tab close; `EventBus.publish_from_thread` + `drain_threaded`
-
-</details>
-
-<details>
-<summary><strong>v0.31.0</strong> — 2026-07-21 — Sprint 10: 8 features</summary>
-
-- Session view mode persistence (`PaneSideState.view_mode`), Clipboard History Ring (`ClipboardEntry`, `deque(maxlen=20)`)
-- Keyboard Macro Recorder (`MacroRecorder` + `MacroPlayer`, `MacroStore`)
-- REST API for Remote Control (`ipc/rest_server.py`, Bearer token, EventBus dispatch)
-- Directory Comparison View (`ComparePanel`), Custom Toolbar Builder (`CustomToolBar`, `ToolbarBuilderDialog`)
+- Shell injection hardened; Zip Slip protection; API keys moved to `CredentialStore`
+- Chunked async dir loading; AI calls off main thread; bounded thread pool
+- VFS Protocol split into `ReadableVFS` + `WritableVFS`; `atomic_write_json` for all stores
+- Dead code purge (~2900 LOC); `run_git()` centralized; session auto-save
 
 </details>
 
 <details>
-<summary><strong>v0.30.0</strong> — 2026-07-21 — Sprint 9: 10 features</summary>
+<summary><strong>v0.31.0</strong> — 2026-07-21 — Session, clipboard history, macros, REST API</summary>
 
-- Thumbnail Gallery View (`GalleryView` + `ThumbnailLoader`), Unified Omnibar (`OmniBar`, `OmnibarPresenter`)
-- Operation Dry-Run Preview (`DryRunDialog`, `Command.preview()`), Full-screen Subshell Toggle (Ctrl+O)
-- Batch Execute on Selection (`BatchExecCmd`), Folder Watch Rules (`WatchRuleEngine`)
-- Advanced Filter Bar (`parse_filter` / `FilterSpec`), Multi-Rename Metadata Fields (`[META:key]`, `metadata_reader.py`)
-- Smart Space Reclaimer (`SpaceReclaimerPresenter`), External IPC Interface (`ipc/server.py` + `ipc/client.py`)
+- Session Save/Restore: `view_mode` field persists gallery/list mode per pane
+- Clipboard History Ring (20-entry `deque`); Keyboard Macro Recorder (`MacroStore`)
+- REST API for Remote Control (`ipc/rest_server.py`, Bearer token auth)
+- Directory Comparison View; Custom Toolbar Builder
+
+</details>
+
+<details>
+<summary><strong>v0.30.0</strong> — 2026-07-21 — Gallery view, Omnibar, dry-run preview, fullscreen shell</summary>
+
+- Thumbnail Gallery View — async 128×128 thumbnails, 500-entry LRU cache
+- Unified Omnibar — Spotlight-style overlay for path nav, commands, and search
+- Operation Dry-Run Preview — `cmd.preview()` shown before execute
+- Full-screen Subshell Toggle (`Ctrl+O`)
+
+</details>
+
+<details>
+<summary><strong>v0.29.0</strong> — 2026-07-21 — Remote VFS: FISH, Script, ISO, DMG, Docker, rsync</summary>
+
+- SSH jump host / proxy command support; cross-VFS streaming resume
+- FISH VFS; extfs Script VFS; ISO 9660; macOS DMG; Docker container FS; rsync
+- Plugin-defined custom columns (`column_value` hookspec)
 
 </details>
 
