@@ -82,7 +82,7 @@ changelog = pathlib.Path("CHANGELOG.md").read_text(encoding="utf-8")
 if not re.search(rf"^## \[v?{re.escape(ver)}\]", changelog, re.MULTILINE):
     raise SystemExit(
         f"ERROR: CHANGELOG.md has no entry for version {ver}.\n"
-        "Add a '## [v{ver}] — YYYY-MM-DD' section before releasing."
+        f"Add a '## [v{ver}] — YYYY-MM-DD' section before releasing."
     )
 
 print(f"  CHANGELOG entry for v{ver}: OK")
