@@ -137,7 +137,7 @@ jobs:
   ci-pass:
     name: CI Pass
     if: always()
-    needs: [lint, unit, integration]
+    needs: [lint, unit]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -145,13 +145,9 @@ jobs:
         run: |
           lint="${{ needs.lint.result }}"
           unit="${{ needs.unit.result }}"
-          integration="${{ needs.integration.result }}"
-          echo "lint=$lint  unit=$unit  integration=$integration"
+          echo "lint=$lint  unit=$unit"
           if [[ "$lint" != "success" || "$unit" != "success" ]]; then
             echo "::error::CI failed — lint=$lint unit=$unit"
             exit 1
-          fi
-          if [[ "$integration" != "success" ]]; then
-            echo "::warning::Integration tests did not pass ($integration) — non-blocking"
           fi
           echo "All required checks passed."
