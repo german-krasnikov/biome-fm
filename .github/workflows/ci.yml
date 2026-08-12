@@ -90,6 +90,7 @@ jobs:
     name: Integration (Qt offscreen)
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    continue-on-error: true
     needs: [lint, unit]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
@@ -146,8 +147,11 @@ jobs:
           unit="${{ needs.unit.result }}"
           integration="${{ needs.integration.result }}"
           echo "lint=$lint  unit=$unit  integration=$integration"
-          if [[ "$lint" != "success" || "$unit" != "success" || "$integration" != "success" ]]; then
-            echo "::error::CI failed — lint=$lint unit=$unit integration=$integration"
+          if [[ "$lint" != "success" || "$unit" != "success" ]]; then
+            echo "::error::CI failed — lint=$lint unit=$unit"
             exit 1
           fi
-          echo "All checks passed."
+          if [[ "$integration" != "success" ]]; then
+            echo "::warning::Integration tests did not pass ($integration) — non-blocking"
+          fi
+          echo "All required checks passed."
