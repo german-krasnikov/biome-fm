@@ -5,10 +5,10 @@ import base64
 import queue
 import re
 import threading
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from collections.abc import Callable
 from typing import Literal, Protocol
 
 _SHELL_BLOCK_RE = re.compile(r"```(?:bash|sh)\n(.*?)```", re.DOTALL)

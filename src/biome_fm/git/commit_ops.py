@@ -1,8 +1,8 @@
 """Pure-Python git commit operations — no Qt."""
 from __future__ import annotations
 
-from subprocess import CalledProcessError
 from pathlib import Path
+from subprocess import CalledProcessError
 
 from biome_fm.git.run import run_git
 

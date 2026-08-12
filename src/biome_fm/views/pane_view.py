@@ -12,10 +12,10 @@ from biome_fm.models.directory_model import (
     COL_MODIFIED,
     COL_NAME,
     COL_SIZE,
-    DirectoryModel,
-    DirSortFilterProxy,
     GIT_STATUS_ROLE,
     SIZE_BAR_ROLE,
+    DirectoryModel,
+    DirSortFilterProxy,
 )
 from biome_fm.models.file_item import FileItem
 from biome_fm.models.finder_tags import finder_tag_color, get_finder_tags

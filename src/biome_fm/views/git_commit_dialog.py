@@ -7,8 +7,12 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
 from PySide6.QtWidgets import (
-    QDialog, QDialogButtonBox, QLabel, QPlainTextEdit,
-    QPushButton, QVBoxLayout,
+    QDialog,
+    QDialogButtonBox,
+    QLabel,
+    QPlainTextEdit,
+    QPushButton,
+    QVBoxLayout,
 )
 
 from biome_fm.git.commit_ops import commit, staged_diff, staged_files

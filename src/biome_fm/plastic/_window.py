@@ -6,15 +6,15 @@ from collections import defaultdict
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Protocol
 
 from PySide6.QtCore import (
     QAbstractItemModel,
     QModelIndex,
     QPoint,
     QSortFilterProxyModel,
-    QTimer,
     Qt,
+    QTimer,
     Signal,
 )
 from PySide6.QtGui import (
@@ -48,21 +48,51 @@ from PySide6.QtWidgets import (
 )
 
 from ._components import (
-    _BaseModel, ChangesetModel, BranchTreeModel, LabelModel, ReviewModel, ShelveModel,
-    StatusModel, _DetailsPanel, CheckinDialog, DiffHighlighter,
-    HistoryDialog, BlameDialog, XlinkModel, SideBySideDiffDialog,
-    AclModel, UserModel, GroupModel, AttributesDialog,
-    BranchDAGWidget, ThreeWayMergeDialog, ConfigModel, ConfEditorDialog,
-    WorkspaceModel, RepoModel, TriggerModel,
-    InlineDiffPanel, StatusIconDelegate, GraphDelegate,
-    CSDiffFileModel, CSDetailWidget,
-    _btn, _filter_edit, _make_proxy, _DT_FMT,
+    _DT_FMT,
+    AclModel,
+    AttributesDialog,
+    BlameDialog,
+    BranchDAGWidget,
+    BranchTreeModel,
+    ChangesetModel,
+    ConfEditorDialog,
+    ConfigModel,
+    CSDetailWidget,
+    DiffHighlighter,
+    GraphDelegate,
+    GroupModel,
+    HistoryDialog,
+    InlineDiffPanel,
+    LabelModel,
+    RepoModel,
+    ReviewModel,
+    ShelveModel,
+    SideBySideDiffDialog,
+    StatusIconDelegate,
+    ThreeWayMergeDialog,
+    TriggerModel,
+    UserModel,
+    WorkspaceModel,
+    XlinkModel,
+    _btn,
+    _DetailsPanel,
+    _filter_edit,
+    _make_proxy,
 )
-from ._conf_files import ignore_conf_path, cloaked_conf_path, write_conf
+from ._conf_files import cloaked_conf_path, ignore_conf_path, write_conf
 from ._models import (
-    BlameLine, Branch, Changeset, ConfigEntry, CSDiffFile, GroupInfo, Label, PlasticItem,
-    RepoEntry, Review, Revision, Shelve, Trigger, UserInfo, WorkspaceEntry,
-    WorkspaceInfo, STATUS_LABELS, _fmt_size,
+    STATUS_LABELS,
+    BlameLine,
+    Branch,
+    Changeset,
+    CSDiffFile,
+    Label,
+    PlasticItem,
+    Review,
+    Revision,
+    Shelve,
+    WorkspaceInfo,
+    _fmt_size,
 )
 from ._reviews import REVIEW_STATUSES
 

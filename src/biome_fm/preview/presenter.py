@@ -13,7 +13,7 @@ _CACHE_TTL = 60.0
 from collections.abc import Callable
 
 from biome_fm.models.file_item import FileItem
-from biome_fm.plugins.types import ThemeTokens, _DARK_FALLBACK
+from biome_fm.plugins.types import _DARK_FALLBACK, ThemeTokens
 from biome_fm.preview.provider import ContentKind, PreviewMode, PreviewRequest, PreviewResult
 from biome_fm.preview.registry import PreviewRegistry
 

@@ -53,7 +53,7 @@ class BiomeFMSpec:
         """Return a VFS for the given path prefix, or None to pass through."""
 
     @hookspec
-    def provide_preview_providers(self) -> list["PreviewProvider"]:
+    def provide_preview_providers(self) -> list[PreviewProvider]:
         """Return list of PreviewProvider instances this plugin contributes.
 
         THREADING: render() is called on a background ThreadPoolExecutor thread.

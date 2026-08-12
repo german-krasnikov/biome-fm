@@ -6,7 +6,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import QFrame, QLineEdit, QListWidget, QListWidgetItem, QVBoxLayout
 
-from biome_fm.presenters.omnibar_presenter import OmniMode, OmnibarPresenter
+from biome_fm.presenters.omnibar_presenter import OmnibarPresenter, OmniMode
 
 
 class OmniBar(QFrame):

@@ -479,7 +479,7 @@ class PanePresenter:
                         pass
             self._flat_queue.put(None if cancel[0] else items)
 
-        from biome_fm.utils.dir_size import _POOL  # noqa: PLC0415
+        from biome_fm.utils.dir_size import _POOL
         _POOL.submit(_walk)
 
     def drain_flat(self) -> None:
@@ -543,7 +543,7 @@ class PanePresenter:
                 if not cancel[0]:
                     self._nav_queue.put((path, exc, initial_cursor, same_dir))
 
-        from biome_fm.utils.dir_size import _POOL  # noqa: PLC0415
+        from biome_fm.utils.dir_size import _POOL
         self._nav_future = _POOL.submit(_load)
         return True
 

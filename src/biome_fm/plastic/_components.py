@@ -3,15 +3,20 @@ from __future__ import annotations
 
 import html
 from collections.abc import Callable
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QAbstractItemModel, QAbstractTableModel, QModelIndex, QSize, QSortFilterProxyModel, Qt
+from PySide6.QtCore import (
+    QAbstractItemModel,
+    QAbstractTableModel,
+    QModelIndex,
+    QSize,
+    QSortFilterProxyModel,
+    Qt,
+)
 from PySide6.QtGui import (
     QBrush,
     QColor,
-    QFont,
     QFontDatabase,
     QPainter,
     QPalette,
@@ -49,9 +54,24 @@ from PySide6.QtWidgets import (
 )
 
 from ._models import (
-    AclEntry, Attribute, BlameLine, Branch, Changeset, ConfigEntry, CSDiffFile,
-    GroupInfo, Label, PlasticItem, RepoEntry, Review, Revision, Shelve, Trigger,
-    UserInfo, WorkspaceEntry, Xlink,
+    AclEntry,
+    Attribute,
+    BlameLine,
+    Branch,
+    Changeset,
+    ConfigEntry,
+    CSDiffFile,
+    GroupInfo,
+    Label,
+    PlasticItem,
+    RepoEntry,
+    Review,
+    Revision,
+    Shelve,
+    Trigger,
+    UserInfo,
+    WorkspaceEntry,
+    Xlink,
 )
 
 _DT_FMT = "%Y-%m-%d %H:%M"
@@ -749,7 +769,7 @@ class SideBySideDiffDialog(QDialog):
 # ── 5.3.1 Line-numbered diff editor ───────────────────────────────────────────
 
 class _LineNumberArea(QWidget):
-    def __init__(self, editor: "LineNumberedDiffEdit") -> None:
+    def __init__(self, editor: LineNumberedDiffEdit) -> None:
         super().__init__(editor)
         self._editor = editor
 
@@ -777,7 +797,7 @@ class LineNumberedDiffEdit(QPlainTextEdit):
     def _update_line_number_width(self, _: int = 0) -> None:
         self.setViewportMargins(self._line_number_width(), 0, 0, 0)
 
-    def _update_line_number_area(self, rect: "QRect", dy: int) -> None:
+    def _update_line_number_area(self, rect: QRect, dy: int) -> None:
         if dy:
             self._line_area.scroll(0, dy)
         else:

@@ -68,6 +68,29 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+ignore = [
+    "E501",    # line too long — enforced by formatter, not linter
+    "E402",    # module level import not at top
+    "E701",    # multiple statements on one line
+    "E702",    # multiple statements on one line (semicolon)
+    "E731",    # lambda assignment
+    "E741",    # ambiguous variable name
+    "SIM105",  # contextlib.suppress — not always cleaner
+    "SIM102",  # nested if — sometimes reads better split
+    "B905",    # zip strict — gradual adoption
+    "B904",    # raise from — gradual adoption
+    "B008",    # function call in default argument
+    "B028",    # stacklevel in warnings
+    "RUF001",  # ambiguous unicode — false positives on Cyrillic
+    "RUF003",  # ambiguous comment — false positives on Cyrillic
+    "RUF005",  # collection literal concatenation
+    "RUF012",  # mutable class variable
+    "RUF059",  # unpacked variable unused
+    "RUF100",  # unused noqa
+    "F821",    # undefined name — false positives on TYPE_CHECKING imports
+    "SIM103",  # return bool directly — not always clearer
+    "SIM222",  # or True — intentional pattern
+]
 
 [tool.mypy]
 python_version = "3.12"

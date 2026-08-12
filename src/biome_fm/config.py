@@ -91,7 +91,7 @@ class Config:
 _AI_KEY_ACCOUNTS = {"ai_claude_key": "claude", "ai_openai_key": "openai"}
 
 
-def migrate_keys_to_keyring(cfg: "Config", path: Path) -> "Config":
+def migrate_keys_to_keyring(cfg: Config, path: Path) -> Config:
     """One-time migration: move plaintext keys from config into keyring, then clear."""
     from biome_fm.models.credential_store import CRED_SERVICE, get_credential, set_credential
     changed = False
