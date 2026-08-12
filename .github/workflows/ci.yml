@@ -1,0 +1,155 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "feat/**", "fix/**", "chore/**", "release/**"]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/ci.yml"
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ── 1. Lint ──────────────────────────────────────────────────────────────
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - uses: astral-sh/setup-uv@f0ec1fc3b38f5e7cd731bb6ce540c5af426746bb  # v6
+        with:
+          enable-cache: true
+
+      - name: Install dev deps
+        run: uv sync --extra dev
+
+      - name: ruff
+        run: uv run ruff check src/ --output-format=github
+
+      - name: mypy
+        run: uv run mypy src/
+
+  # ── 2. Unit tests (pure Python, no Qt) ───────────────────────────────────
+  unit:
+    name: Unit (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - uses: astral-sh/setup-uv@f0ec1fc3b38f5e7cd731bb6ce540c5af426746bb  # v6
+        with:
+          enable-cache: true
+
+      - name: Install dev deps
+        run: uv sync --extra dev
+
+      - name: Run unit tests
+        if: matrix.os != 'ubuntu-latest'
+        run: >
+          uv run pytest tests/unit tests/property
+          -m "not slow"
+          -q --tb=short --timeout=30
+
+      - name: Run unit tests (with coverage)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          mkdir -p reports
+          uv run pytest tests/unit tests/property \
+            -m "not slow" \
+            -q --tb=short --timeout=30 \
+            --cov=biome_fm --cov-report=xml:coverage.xml \
+            --junitxml=reports/unit-junit.xml
+
+      - name: Upload coverage
+        if: matrix.os == 'ubuntu-latest'
+        uses: codecov/codecov-action@04b047e8bb82a0c002c8312c1c880fbc6a999d45  # v5
+        with:
+          files: coverage.xml
+          flags: unit
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  # ── 3. Integration tests (Qt offscreen, ubuntu only) ─────────────────────
+  integration:
+    name: Integration (Qt offscreen)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: [lint, unit]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - uses: astral-sh/setup-uv@f0ec1fc3b38f5e7cd731bb6ce540c5af426746bb  # v6
+        with:
+          enable-cache: true
+
+      - name: Install dev deps
+        run: uv sync --extra dev
+
+      - name: Install Qt system libs
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends \
+            libglib2.0-0 libgl1 libegl1 libdbus-1-3 \
+            libxcb-cursor0 libxcb-icccm4 libxcb-image0 \
+            libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 \
+            libxcb-xinerama0 libxcb-xkb1 libxkbcommon-x11-0
+
+      - name: Run integration tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          mkdir -p reports
+          uv run pytest tests/integration tests/snapshot \
+            -m "not slow" \
+            -q --tb=short --timeout=60 \
+            --cov=biome_fm --cov-report=xml:coverage-integration.xml \
+            --junitxml=reports/integration-junit.xml
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@04b047e8bb82a0c002c8312c1c880fbc6a999d45  # v5
+        with:
+          files: coverage-integration.xml
+          flags: integration
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  # ── 4. Gate ───────────────────────────────────────────────────────────────
+  # Collapses the matrix + job graph into a single required-status-check.
+  # Set branch protection to require "CI Pass" — then the matrix can grow
+  # or shrink without touching protection rules.
+  ci-pass:
+    name: CI Pass
+    if: always()
+    needs: [lint, unit, integration]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Evaluate results
+        run: |
+          lint="${{ needs.lint.result }}"
+          unit="${{ needs.unit.result }}"
+          integration="${{ needs.integration.result }}"
+          echo "lint=$lint  unit=$unit  integration=$integration"
+          if [[ "$lint" != "success" || "$unit" != "success" || "$integration" != "success" ]]; then
+            echo "::error::CI failed — lint=$lint unit=$unit integration=$integration"
+            exit 1
+          fi
+          echo "All checks passed."

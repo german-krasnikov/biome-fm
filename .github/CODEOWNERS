@@ -1,0 +1,35 @@
+# Default — all files
+* @german-krasnikov
+
+# Core source
+src/biome_fm/ @german-krasnikov
+
+# Security-critical — explicit review required
+# AI: external API calls, prompt injection surface
+src/biome_fm/ai/ @german-krasnikov
+# Plugin loader: arbitrary code entry point
+src/biome_fm/plugins/ @german-krasnikov
+# File operations: destructive mutations, data loss risk
+src/biome_fm/operations/ @german-krasnikov
+
+# VFS + data layer (correctness-critical)
+src/biome_fm/models/ @german-krasnikov
+src/biome_fm/commands/ @german-krasnikov
+
+# Qt views (should stay logic-free)
+src/biome_fm/views/ @german-krasnikov
+src/biome_fm/themes/ @german-krasnikov
+
+# Plugin integrations
+src/biome_fm/git/ @german-krasnikov
+src/biome_fm/plastic/ @german-krasnikov
+src/biome_fm/preview/ @german-krasnikov
+
+# Tests
+tests/ @german-krasnikov
+
+# Infrastructure
+.github/ @german-krasnikov
+pyproject.toml @german-krasnikov
+uv.lock @german-krasnikov
+CHANGELOG.md @german-krasnikov

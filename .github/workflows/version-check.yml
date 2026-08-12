@@ -1,0 +1,30 @@
+name: Version check
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "pyproject.toml"
+      - "uv.lock"
+      - "CHANGELOG.md"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Version sync
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - uses: astral-sh/setup-uv@f0ec1fc3b38f5e7cd731bb6ce540c5af426746bb  # v6
+        with:
+          enable-cache: true
+
+      - name: Install dev deps
+        run: uv sync --extra dev
+
+      - name: Check version artifacts in sync
+        run: uv run python scripts/check_version.py

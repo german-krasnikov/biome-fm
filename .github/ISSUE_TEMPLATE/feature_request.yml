@@ -1,0 +1,48 @@
+name: Feature Request
+description: Propose a new feature or behavior
+labels: ["enhancement", "status: triage"]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Pane / navigation
+        - VFS backend (new archive format, cloud, SFTP…)
+        - Preview panel (new file type)
+        - AI panel / chat
+        - Plugin API
+        - Keybindings / Commands
+        - Themes / appearance
+        - Performance
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem it solves
+      placeholder: |
+        I need to … but currently biome-fm doesn't …
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      placeholder: |
+        Describe the feature, how it would look/work, and which component would own it
+        (e.g. new Command subclass, new PreviewProvider, new VFS backend…)
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      placeholder: Other approaches you've tried or thought about
+    validations:
+      required: false
