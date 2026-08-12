@@ -1733,3 +1733,40 @@ PlasticPlugin._open_window()
 **Qt components** (in `_components.py`): `_BaseModel`, `ChangesetModel` (6-col with graph), `GraphDelegate`, `BranchTreeModel`, `LabelModel`, `ShelveModel`, `CSDiffFileModel`, `ReviewModel`, `StatusModel`, `CSDetailWidget`, `_DetailsPanel`, `CheckinDialog`, `MergeOptionsDialog`, `DiffHighlighter`, `HistoryModel`, `HistoryDialog`, `BlameDialog`, `FindResultsDialog`, `SideBySideDiffDialog`, `LineNumberedDiffEdit`, `_LineNumberArea`, `InlineDiffPanel`, `StatusIconDelegate`, `XlinkModel`, `AttributeModel`, `AttributesDialog`, `AclModel`, `UserModel`, `GroupModel`, `BranchDAGWidget`, `ThreeWayMergeDialog`, `ConfigModel`, `WorkspaceModel`, `RepoModel`, `TriggerModel`, `ConfEditorDialog`; helpers: `_btn`, `_filter_edit`, `_make_proxy`, `_make_table`, `_split_unified_diff`.
 
 **Test count**: ~600+ total. Phase 6 added ~110+ new tests (unit tests for all 6 new backend modules + integration tests for 3 new sidebar pages + presenter tests).
+
+---
+
+## CI/CD Infrastructure
+
+### GitHub Actions Workflows (`.github/workflows/`)
+
+| File | Trigger | Purpose |
+|------|---------|---------|
+| `ci.yml` | push, pull_request, workflow_dispatch | Lint (ruff + mypy), unit tests on matrix (macOS/Linux/Windows), integration tests (Qt offscreen), coverage upload to Codecov |
+| `release.yml` | push tag `v*` | Preflight checks → version sync check → GitHub Release with changelog section extracted from CHANGELOG.md |
+| `nightly.yml` | cron schedule | Full regression suite including slow tests across all OS matrix |
+| `version-check.yml` | push to `__init__.py` | Runs `check_version.py` to guard against version drift |
+| `codeql.yml` | push, schedule | GitHub CodeQL static analysis |
+| `auto-label.yml` | pull_request | Auto-labels PRs via `.github/labeler.yml` rules |
+
+Other `.github/` files: `CODEOWNERS`, `dependabot.yml` (weekly pip + actions updates), PR template, bug report + feature request issue templates.
+
+### Release Helper Scripts (`scripts/`)
+
+| Script | Purpose |
+|--------|---------|
+| `check_version.py` | Verifies pyproject.toml, `__init__.py`, and CHANGELOG.md all agree on the same semver; exits non-zero on mismatch; used as CI gate in `version-check.yml` and `release.yml` preflight |
+| `sync_versions.py` | Three modes: bump canonical + sync (`0.35.0`), sync `__init__.py` from pyproject.toml (`--sync`), or verify without writing (`--check`); pyproject.toml is the single source of truth |
+| `release.sh` | Interactive release driver: bumps version via `sync_versions.py`, updates CHANGELOG.md date stub, commits, tags, pushes; runs `check_version.py` as final guard before push |
+
+**Version source of truth**: `pyproject.toml`. `__init__.py` must match exactly (hardcoded string literal, not computed). CHANGELOG.md must have a `## [vX.Y.Z]` header for the current version.
+
+**Tests**: `tests/unit/test_check_version.py`, `test_sync_versions.py`, `test_release_sh.py` — 50 unit tests covering all script behaviour including failure paths.
+
+### Pre-commit (`.pre-commit-config.yaml`)
+
+Hooks run on every commit: ruff (lint + format), basic file hygiene (trailing whitespace, end-of-file newline, large file guard). Pre-push hook runs `sync_versions.py --check` to prevent pushing with a version drift.
+
+### Coverage (`codecov.yml`)
+
+`ci.yml` uploads unit and integration coverage reports to Codecov. `codecov.yml` sets thresholds: project coverage must not drop more than 1% per PR; patch coverage threshold 80%.
