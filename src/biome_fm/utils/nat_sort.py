@@ -1,5 +1,6 @@
 """Natural-sort key — Qt-free, shared by directory_model and pane_presenter."""
 import re
+
 from biome_fm.utils.encoding import normalize_filename
 
 

@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 
 from ._cm import run_cm
-from ._models import PlasticItem, STATUS_LABELS
+from ._models import STATUS_LABELS, PlasticItem
 
 _CODES = frozenset(STATUS_LABELS)
 

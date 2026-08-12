@@ -1,5 +1,9 @@
 """Unit tests for glass module."""
+import pytest
 from unittest.mock import MagicMock, patch
+
+# Skip entire module when pyqt_liquidglass is not installed
+pytest.importorskip("pyqt_liquidglass", reason="pyqt_liquidglass not installed")
 
 
 def test_glass_lib_available():

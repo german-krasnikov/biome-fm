@@ -3,7 +3,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from biome_fm.qt import QMenu, QStorageInfo, QTreeWidget, QTreeWidgetItem, Qt, QVBoxLayout, QWidget, Signal
+from biome_fm.qt import (
+    QMenu,
+    QStorageInfo,
+    Qt,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
+    Signal,
+)
 
 
 class SidebarPanel(QWidget):

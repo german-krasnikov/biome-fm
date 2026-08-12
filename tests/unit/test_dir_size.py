@@ -42,11 +42,15 @@ def test_permission_error_skipped(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     real_stat = ds.os.stat
 
     def bad_stat(path, **kw):  # type: ignore[no-untyped-def]
-        raise OSError("Permission denied")
+        # Only raise for the specific file; let directory stat calls succeed
+        # so Path.is_dir() / os.walk() work correctly on all platforms.
+        if "secret.txt" in str(path):
+            raise OSError("Permission denied")
+        return real_stat(path, **kw)
 
     monkeypatch.setattr(ds.os, "stat", bad_stat)
     result = ds.calc_tree_size([tmp_path], [False])
-    assert result == 0  # skipped, no crash
+    assert result == 0  # secret.txt skipped, no crash
 
 
 def test_presenter_sets_dir_size_result(tmp_path: Path) -> None:

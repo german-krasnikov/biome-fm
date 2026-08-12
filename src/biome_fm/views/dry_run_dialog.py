@@ -2,7 +2,11 @@
 from __future__ import annotations
 
 from PySide6.QtWidgets import (
-    QDialog, QDialogButtonBox, QLabel, QListWidget, QVBoxLayout,
+    QDialog,
+    QDialogButtonBox,
+    QLabel,
+    QListWidget,
+    QVBoxLayout,
 )
 
 from biome_fm.commands.base import Command, CommandHistory

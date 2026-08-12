@@ -191,7 +191,7 @@ class SFTPVfs:
 
         return self._with_reconnect(_do, path)
 
-    def stat(self, path: PurePosixPath) -> "FileItem":
+    def stat(self, path: PurePosixPath) -> FileItem:
         from biome_fm.models.file_item import FileItem
 
         def _do(sftp, p):

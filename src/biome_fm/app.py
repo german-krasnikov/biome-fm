@@ -30,7 +30,11 @@ from biome_fm.event_bus import (
 )
 from biome_fm.git.branch_ops import (
     current_branch as _git_current_branch,
+)
+from biome_fm.git.branch_ops import (
     list_branches as _git_list_branches,
+)
+from biome_fm.git.branch_ops import (
     switch_branch as _git_switch_branch,
 )
 from biome_fm.git.status_cache import GitStatusCache, RepoStatus
@@ -195,7 +199,7 @@ def _build_tray(window: object) -> object:
 
 # ── Module-level build functions (construction only, no signal wiring) ────────
 
-def _apply_zoom(app: object, cfg: object, cfg_path: "Path", system_pt: int, delta: int) -> None:
+def _apply_zoom(app: object, cfg: object, cfg_path: Path, system_pt: int, delta: int) -> None:
     """F408 — Adjust app font size by delta pts; delta=0 resets to system default."""
     if delta == 0:
         pt = system_pt
@@ -1444,6 +1448,7 @@ def create_app() -> MainWindow:
 
         def _on_ai_rename_requested() -> None:
             import queue as _q
+
             from biome_fm.presenters.ai_rename_presenter import suggest_renames
             from biome_fm.views.ai_rename_dialog import AIRenameDialog
 
@@ -2072,8 +2077,8 @@ def create_app() -> MainWindow:
         CommandEntry("Duplicate Tab",  "Ctrl+Alt+T",   _dup_tab),
         CommandEntry("Add to Collection",  "Ctrl+Alt+C", _collect_add),
         CommandEntry("Show Collection",    "Ctrl+Alt+V", _collect_show),
-        CommandEntry("Close Tab",      "Ctrl+W",       lambda: _active().close_tab(_active().active_idx)),  # noqa: E501
-        CommandEntry("Toggle AI",      "Ctrl+I",       lambda: coord.toggle("ai", manager.active_pane_id)),  # noqa: E501
+        CommandEntry("Close Tab",      "Ctrl+W",       lambda: _active().close_tab(_active().active_idx)),
+        CommandEntry("Toggle AI",      "Ctrl+I",       lambda: coord.toggle("ai", manager.active_pane_id)),
         CommandEntry("Refresh",        "Ctrl+R",       lambda: _active().refresh()),
         CommandEntry("Copy Path",       "Ctrl+Shift+C", _copy_path),
         CommandEntry("Copy File Names", "Alt+Shift+N",  _copy_names),

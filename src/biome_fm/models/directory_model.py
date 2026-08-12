@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 
 from biome_fm.models.file_item import FileItem
-from biome_fm.utils.nat_sort import nat_key as _nat_key
 from biome_fm.models.highlight_rules import HighlightRule, match_highlight
 from biome_fm.qt import (
     QAbstractTableModel,
@@ -20,6 +19,7 @@ from biome_fm.qt import (
     Qt,
     QWidget,
 )
+from biome_fm.utils.nat_sort import nat_key as _nat_key
 
 COL_NAME, COL_SIZE, COL_MODIFIED, COL_EXT, COL_ATIME, COL_OWNER = range(6)
 HEADERS = ("Name", "Size", "Modified", "Ext", "Accessed", "Owner")

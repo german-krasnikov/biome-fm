@@ -1,5 +1,6 @@
 """Encoding detection — chardet if available, UTF-8 fallback."""
 from __future__ import annotations
+
 import unicodedata
 
 

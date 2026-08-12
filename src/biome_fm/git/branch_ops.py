@@ -1,8 +1,8 @@
 """Pure-Python git branch operations — no Qt."""
 from __future__ import annotations
 
-from subprocess import CalledProcessError, TimeoutExpired
 from pathlib import Path
+from subprocess import CalledProcessError, TimeoutExpired
 
 from biome_fm.git.run import run_git
 

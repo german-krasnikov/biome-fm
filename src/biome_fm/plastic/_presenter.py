@@ -12,7 +12,13 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
+from ._acl import delete_acl as _del_acl
+from ._acl import get_acl as _get_acl
+from ._acl import set_acl as _set_acl
 from ._annotate import get_blame
+from ._attributes import delete_attribute as _del_attr
+from ._attributes import list_attributes as _list_attrs
+from ._attributes import set_attribute as _set_attr
 from ._branches import delete_branch as _delete_branch
 from ._branches import parse_branches
 from ._branches import rename_branch as _rename_branch
@@ -34,7 +40,9 @@ from ._changesets import undo_all as _undo_all
 from ._changesets import undo_keep as _undo_keep
 from ._changesets import update as _update
 from ._cm import run_cm
-from ._dag import load_dag_data, layout_dag
+from ._config import list_config as _list_config
+from ._config import set_config as _set_config
+from ._dag import layout_dag, load_dag_data
 from ._diff import (
     branch_diff as _branch_diff,
 )
@@ -53,6 +61,8 @@ from ._diff import (
 from ._fileops import add as _add
 from ._fileops import move as _move
 from ._fileops import remove as _remove
+from ._git_sync import git_sync_status as _git_sync_status
+from ._git_sync import sync_git as _sync_git
 from ._history import get_file_history
 from ._labels import create_label as _create_label
 from ._labels import delete_label as _delete_label
@@ -62,6 +72,22 @@ from ._lock import lock as _lock
 from ._lock import unlock as _unlock
 from ._merge import merge_branch as _merge_branch
 from ._models import PlasticItem
+from ._partial import (
+    add_partial as _add_partial,
+)
+from ._partial import (
+    configure_partial as _configure_partial,
+)
+from ._partial import (
+    get_partial_status as _get_partial_status,
+)
+from ._partial import (
+    remove_partial as _remove_partial,
+)
+from ._replication import package_create as _pkg_create
+from ._replication import package_import as _pkg_import
+from ._replication import replication_pull as _repl_pull
+from ._replication import replication_push as _repl_push
 from ._reviews import (
     create_review as _create_review,
 )
@@ -75,38 +101,47 @@ from ._reviews import (
     parse_reviews,
 )
 from ._shelve import parse_shelves
-from ._xlinks import list_xlinks as _list_xlinks, add_xlink as _add_xlink, remove_xlink as _remove_xlink
-from ._replication import replication_push as _repl_push, replication_pull as _repl_pull
-from ._replication import package_create as _pkg_create, package_import as _pkg_import
-from ._attributes import list_attributes as _list_attrs, set_attribute as _set_attr, delete_attribute as _del_attr
-from ._acl import get_acl as _get_acl, set_acl as _set_acl, delete_acl as _del_acl
-from ._users import list_users as _list_users, add_user as _add_user, delete_user as _del_user
-from ._users import list_groups as _list_groups, add_group as _add_group, delete_group as _del_group, add_group_member as _add_member
 from ._shelve import shelve as _shelve
 from ._shelve import unshelve as _unshelve
 from ._status import parse_status
-from ._config import list_config as _list_config, set_config as _set_config
-from ._partial import (
-    get_partial_status as _get_partial_status,
-    configure_partial as _configure_partial,
-    add_partial as _add_partial,
-    remove_partial as _remove_partial,
+from ._triggers import (
+    create_trigger as _create_trigger,
 )
-from ._workspace_mgmt import (
-    list_workspaces as _list_workspaces,
-    create_workspace as _create_workspace,
-    delete_workspace as _delete_workspace,
-    list_repos as _list_repos,
-    create_repo as _create_repo,
-    delete_repo as _delete_repo,
+from ._triggers import (
+    delete_trigger as _delete_trigger,
 )
 from ._triggers import (
     list_triggers as _list_triggers,
-    create_trigger as _create_trigger,
-    delete_trigger as _delete_trigger,
 )
-from ._git_sync import sync_git as _sync_git, git_sync_status as _git_sync_status
+from ._users import add_group as _add_group
+from ._users import add_group_member as _add_member
+from ._users import add_user as _add_user
+from ._users import delete_group as _del_group
+from ._users import delete_user as _del_user
+from ._users import list_groups as _list_groups
+from ._users import list_users as _list_users
 from ._window import PlasticViewProtocol
+from ._workspace_mgmt import (
+    create_repo as _create_repo,
+)
+from ._workspace_mgmt import (
+    create_workspace as _create_workspace,
+)
+from ._workspace_mgmt import (
+    delete_repo as _delete_repo,
+)
+from ._workspace_mgmt import (
+    delete_workspace as _delete_workspace,
+)
+from ._workspace_mgmt import (
+    list_repos as _list_repos,
+)
+from ._workspace_mgmt import (
+    list_workspaces as _list_workspaces,
+)
+from ._xlinks import add_xlink as _add_xlink
+from ._xlinks import list_xlinks as _list_xlinks
+from ._xlinks import remove_xlink as _remove_xlink
 
 # Format strings mirrored from sub-modules so run_cm calls stay in this namespace
 # (enables patching biome_fm.plastic._presenter.run_cm in tests)

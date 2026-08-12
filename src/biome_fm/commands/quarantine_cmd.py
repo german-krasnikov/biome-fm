@@ -14,7 +14,7 @@ class RemoveQuarantineCmd(Command):
         self._removed: list[tuple[Path, bytes]] = []
 
     def execute(self) -> None:
-        from biome_fm.models.finder_tags import _getxattr, _QUARANTINE_ATTR, remove_quarantine_flag
+        from biome_fm.models.finder_tags import _QUARANTINE_ATTR, _getxattr, remove_quarantine_flag
         attr = _QUARANTINE_ATTR.decode()
         self._removed = []
         for p in self._paths:
@@ -26,7 +26,7 @@ class RemoveQuarantineCmd(Command):
                 pass
 
     def undo(self) -> None:
-        from biome_fm.models.finder_tags import _setxattr, _QUARANTINE_ATTR
+        from biome_fm.models.finder_tags import _QUARANTINE_ATTR, _setxattr
         attr = _QUARANTINE_ATTR.decode()
         for p, val in self._removed:
             try:

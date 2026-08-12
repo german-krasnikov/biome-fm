@@ -1,0 +1,92 @@
+'area:vfs':
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'src/biome_fm/models/vfs.py'
+          - 'src/biome_fm/models/vfs_router.py'
+          - 'src/biome_fm/models/archive_vfs.py'
+          - 'src/biome_fm/models/dmg_vfs.py'
+          - 'src/biome_fm/models/docker_vfs.py'
+          - 'src/biome_fm/models/fish_vfs.py'
+          - 'src/biome_fm/models/fsspec_vfs.py'
+          - 'src/biome_fm/models/rclone_vfs.py'
+          - 'src/biome_fm/models/script_vfs.py'
+          - 'tests/**/test_*vfs*.py'
+          - 'tests/**/test_vfs*.py'
+
+'area:ui':
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'src/biome_fm/views/**'
+          - 'src/biome_fm/themes/**'
+          - 'src/biome_fm/presenters/**'
+          - 'tests/**/test_*view*.py'
+          - 'tests/**/test_*dialog*.py'
+          - 'tests/**/test_*panel*.py'
+          - 'tests/**/test_*presenter*.py'
+
+'area:ai':
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'src/biome_fm/ai/**'
+          - 'src/biome_fm/presenters/ai_*.py'
+          - 'src/biome_fm/presenters/nl_ops_presenter.py'
+          - 'src/biome_fm/views/ai_*.py'
+          - 'src/biome_fm/views/nl_ops_dialog.py'
+          - 'tests/**/test_ai*.py'
+          - 'tests/**/test_nl_ops*.py'
+
+'area:commands':
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'src/biome_fm/commands/**'
+          - 'tests/**/test_*cmd*.py'
+          - 'tests/**/test_*command*.py'
+
+'area:plugins':
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'src/biome_fm/plugins/**'
+          - 'tests/**/test_plugin*.py'
+
+'area:git':
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'src/biome_fm/git/**'
+          - 'src/biome_fm/commands/git_stage.py'
+          - 'src/biome_fm/views/git_*.py'
+          - 'tests/**/test_git*.py'
+
+'area:plastic':
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'src/biome_fm/plastic/**'
+          - 'tests/**/test_plastic*.py'
+
+'area:preview':
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'src/biome_fm/preview/**'
+          - 'tests/**/test_preview*.py'
+
+'area:tests':
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'tests/**'
+          - 'conftest.py'
+          - 'pyproject.toml'
+
+'area:ci':
+  - changed-files:
+      - any-glob-to-any-file:
+          - '.github/**'
+          - 'scripts/**'
+          - 'pyproject.toml'
+
+'area:docs':
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'docs/**'
+          - 'AI/**'
+          - '*.md'
+          - 'CHANGELOG.md'
+          - 'README.md'

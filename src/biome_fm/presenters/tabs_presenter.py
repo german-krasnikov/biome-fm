@@ -42,7 +42,7 @@ class TabsPresenter:
         self._views: list[PaneViewProtocol] = []
         self._active_idx: int = 0
         self._locked: set[int] = set()
-        self._links: dict[int, tuple["TabsPresenter", int]] = {}
+        self._links: dict[int, tuple[TabsPresenter, int]] = {}
         self._pending: dict[int, Path] = {}  # deferred tab paths
 
     # ── tab management ────────────────────────────────────────────────────────
@@ -84,7 +84,7 @@ class TabsPresenter:
     def is_locked(self, idx: int) -> bool:
         return idx in self._locked
 
-    def link_tab(self, local_idx: int, other: "TabsPresenter", other_idx: int) -> None:
+    def link_tab(self, local_idx: int, other: TabsPresenter, other_idx: int) -> None:
         self._links[local_idx] = (other, other_idx)
         other._links[other_idx] = (self, local_idx)
 

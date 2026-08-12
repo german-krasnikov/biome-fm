@@ -6,7 +6,7 @@ import re
 
 from PySide6.QtGui import QTextBlockFormat
 
-from biome_fm.plugins.types import ThemeTokens, _DARK_FALLBACK
+from biome_fm.plugins.types import _DARK_FALLBACK, ThemeTokens
 from biome_fm.qt import (
     QDesktopServices,
     QTextBrowser,

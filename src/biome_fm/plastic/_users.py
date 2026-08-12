@@ -1,7 +1,9 @@
 from __future__ import annotations
+
 from pathlib import Path
+
 from ._cm import run_cm
-from ._models import UserInfo, GroupInfo
+from ._models import GroupInfo, UserInfo
 
 
 def parse_users(output: str) -> list[UserInfo]:

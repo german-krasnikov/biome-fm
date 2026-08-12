@@ -3,6 +3,36 @@
 All notable changes to Biome FM are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v0.35.0] — 2026-08-12
+
+### Added
+
+**CI/CD Pipeline** — complete GitHub Actions infrastructure from scratch.
+
+- **ci.yml** — lint (ruff + mypy) + unit tests (Ubuntu/macOS/Windows) + integration tests (Qt offscreen) + `CI Pass` gate job for branch protection
+- **release.yml** — automated GitHub Release on `v*` tag push with preflight validation and CHANGELOG extraction; per-job permissions (least privilege)
+- **nightly.yml** — daily full regression on all 3 OS with `--all-extras`; JUnit XML artifact upload
+- **codeql.yml** — weekly Python security analysis via CodeQL
+- **version-check.yml** — PR-level validation of pyproject.toml / `__init__.py` / CHANGELOG.md consistency
+- **auto-label.yml** — automatic PR area labels (vfs, ui, ai, commands, plugins, git, plastic, preview, tests, ci, docs)
+- **Dependabot** — weekly pip + GitHub Actions updates; PySide6 major version pinned
+- **Codecov** — coverage flags (unit/integration), carryforward, 80% patch target
+- **Pre-commit** — ruff lint+format, file hygiene, pre-push version sync guard
+- **PR/Issue templates** — structured bug reports, feature requests, PR checklist
+
+**Release helper scripts:**
+
+- `scripts/check_version.py` — validates pyproject.toml, `__init__.py`, CHANGELOG.md consistency (used by version-check.yml)
+- `scripts/sync_versions.py` — atomic version bump with rollback (pyproject.toml → `__init__.py`); supports `--check`, `--sync`, and explicit version modes
+- `scripts/release.sh` — read-only preflight validator (version sync, CHANGELOG entry, ruff, git clean)
+
+**50 unit tests** for all three release scripts covering readers, updaters, validation, atomic writes, rollback, and arg-parsing guards.
+
+### Changed
+
+- Added `pytest-timeout>=2.3` to dev dependencies (CI workflows use `--timeout` flags)
+- Updated `create-release` and `finish-task` skills to reference new CI pipeline, `sync_versions.py`, and `release.sh --preflight`
+
 ## [v0.34.0] — 2026-07-25
 
 ### Added

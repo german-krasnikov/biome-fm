@@ -2,7 +2,17 @@
 
 from __future__ import annotations
 
-from biome_fm.qt import QComboBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, Qt, QTimer, QWidget, Signal
+from biome_fm.qt import (
+    QComboBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    Qt,
+    QTimer,
+    QWidget,
+    Signal,
+)
 
 FILTER_PRESETS: list[tuple[str, str]] = [
     ("Images Only", "ext:png"),

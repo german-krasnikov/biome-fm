@@ -5,8 +5,13 @@ from pathlib import Path
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
-    QDialog, QHBoxLayout, QLabel, QPushButton,
-    QTableWidget, QTableWidgetItem, QVBoxLayout,
+    QDialog,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
 )
 
 

@@ -1,0 +1,79 @@
+name: Bug Report
+description: Something isn't working
+labels: ["bug", "status: triage"]
+body:
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Dual-pane navigation / cursor
+        - VFS / local filesystem
+        - Archive support (zip, tar, 7z…)
+        - Preview panel
+        - AI panel / chat
+        - Plugin system
+        - Tabs
+        - Keybindings / Commands
+        - Themes / appearance
+        - Install / setup
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      multiple: true
+      options:
+        - macOS
+        - Windows
+        - Linux
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to Reproduce
+      placeholder: |
+        1. Open biome-fm
+        2. Navigate to an archive…
+        3. Press Enter on a file…
+        4. Observe crash / wrong behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs Actual
+      placeholder: |
+        Expected: file opens in preview panel
+        Actual: app freezes / crashes / shows nothing
+    validations:
+      required: true
+
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      placeholder: |
+        OS: macOS 15.x / Windows 11 / Ubuntu 24.04
+        Python: 3.12.x
+        PySide6: 6.x.x
+        biome-fm: v0.34.0
+        Installed via: pip / uv / release binary
+      description: Run `uv run biome-fm --version` for the version string
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error Output / Traceback
+      description: Paste the terminal output or the full traceback
+      render: text
+    validations:
+      required: false

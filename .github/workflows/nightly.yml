@@ -1,0 +1,72 @@
+name: Nightly Full Regression
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # 02:00 UTC daily
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  full:
+    name: Full suite (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+
+      - uses: astral-sh/setup-uv@f0ec1fc3b38f5e7cd731bb6ce540c5af426746bb  # v6
+        with:
+          enable-cache: true
+
+      - name: Install dev deps
+        run: uv sync --all-extras
+
+      - name: Install Qt system libs (Linux only)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends \
+            libglib2.0-0 libgl1 libegl1 libdbus-1-3 \
+            libxcb-cursor0 libxcb-icccm4 libxcb-image0 \
+            libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 \
+            libxcb-xinerama0 libxcb-xkb1 libxkbcommon-x11-0
+
+      - name: Unit tests (all including slow)
+        run: >
+          uv run pytest tests/unit tests/property
+          -q --tb=short --timeout=120
+          --junitxml=junit-unit-${{ matrix.os }}.xml
+
+      - name: Upload unit test results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: junit-unit-${{ matrix.os }}
+          path: junit-unit-${{ matrix.os }}.xml
+          retention-days: 14
+
+      - name: Integration tests (all including slow)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: >
+          uv run pytest tests/integration tests/snapshot
+          -q --tb=short --timeout=120
+          --junitxml=junit-integration-${{ matrix.os }}.xml
+
+      - name: Upload integration test results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: junit-integration-${{ matrix.os }}
+          path: junit-integration-${{ matrix.os }}.xml
+          retention-days: 14

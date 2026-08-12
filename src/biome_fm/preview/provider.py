@@ -6,7 +6,7 @@ from enum import Enum, auto
 from pathlib import Path
 from typing import Protocol
 
-from biome_fm.plugins.types import ThemeTokens, _DARK_FALLBACK
+from biome_fm.plugins.types import _DARK_FALLBACK, ThemeTokens
 
 
 class ContentKind(Enum):
