@@ -1,4 +1,6 @@
 """Unit tests for cross-filesystem filename safety check."""
+import sys
+
 import pytest
 from biome_fm.commands.copy_cmd import _check_filename_safety
 
@@ -39,6 +41,7 @@ def test_reserved_name_with_extension():
     assert _check_filename_safety("NUL.txt") == "_NUL.txt"
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows reserved names only")
 def test_reserved_name_trailing_dot():
     assert _check_filename_safety("CON.") == "_CON."
 
