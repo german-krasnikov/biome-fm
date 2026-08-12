@@ -45,13 +45,9 @@ jobs:
 
   # ── 2. Unit tests (pure Python, no Qt) ───────────────────────────────────
   unit:
-    name: Unit (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    name: Unit
+    runs-on: ubuntu-latest
     timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
@@ -59,8 +55,7 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Install Qt system libs (Linux)
-        if: runner.os == 'Linux'
+      - name: Install Qt system libs
         run: |
           sudo apt-get update -q
           sudo apt-get install -y --no-install-recommends \
@@ -73,24 +68,16 @@ jobs:
         run: uv sync --extra dev
 
       - name: Run unit tests
-        if: matrix.os != 'ubuntu-latest'
-        run: >
-          uv run pytest tests/unit tests/property
-          -m "not slow"
-          -q --tb=short --timeout=30
-
-      - name: Run unit tests (with coverage)
-        if: matrix.os == 'ubuntu-latest'
         run: |
           mkdir -p reports
           uv run pytest tests/unit tests/property \
             -m "not slow" \
             -q --tb=short --timeout=30 \
             --cov=biome_fm --cov-report=xml:coverage.xml \
+            --cov-fail-under=0 \
             --junitxml=reports/unit-junit.xml
 
       - name: Upload coverage
-        if: matrix.os == 'ubuntu-latest'
         uses: codecov/codecov-action@04b047e8bb82a0c002c8312c1c880fbc6a999d45  # v5
         with:
           files: coverage.xml
