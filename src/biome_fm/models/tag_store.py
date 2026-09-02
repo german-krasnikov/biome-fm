@@ -1,12 +1,12 @@
 """TOML-backed file tag store. No Qt dependencies."""
 from __future__ import annotations
 
-import os
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from biome_fm.models._store_base import toml_escape as _esc
+from biome_fm.utils.atomic_write import atomic_write
 
 
 @dataclass
@@ -19,8 +19,11 @@ class TagStore:
     def load(cls, path: Path) -> TagStore:
         if not path.exists():
             return cls(_path=path)
-        with open(path, "rb") as f:
-            data = tomllib.load(f)
+        try:
+            with open(path, "rb") as f:
+                data = tomllib.load(f)
+        except (OSError, ValueError, tomllib.TOMLDecodeError):
+            return cls(_path=path)
         return cls(
             _path=path,
             _tags=dict(data.get("tags", {})),
@@ -30,14 +33,12 @@ class TagStore:
     def save(self) -> None:
         lines: list[str] = ["[tags]\n"]
         for p, tags in self._tags.items():
-            tag_list = ", ".join(f'"{t}"' for t in tags)
+            tag_list = ", ".join(f'"{_esc(t)}"' for t in tags)
             lines.append(f'"{_esc(p)}" = [{tag_list}]\n')
         lines.append("\n[colors]\n")
         for tag, color in self._colors.items():
-            lines.append(f'{tag} = "{color}"\n')
-        tmp = self._path.with_suffix(".tmp")
-        tmp.write_text("".join(lines), encoding="utf-8")
-        os.replace(tmp, self._path)
+            lines.append(f'"{_esc(tag)}" = "{color}"\n')
+        atomic_write(self._path, "".join(lines))
 
     def get_tags(self, path: Path) -> list[str]:
         return list(self._tags.get(str(path), []))

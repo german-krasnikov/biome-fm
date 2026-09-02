@@ -59,3 +59,22 @@ def test_toml_roundtrip(tmp_path):
     s2 = TagStore.load(path)
     assert s2.get_tags(f) == ["alpha", "beta"]
     assert s2.tag_color("alpha") == "#AABBCC"
+
+
+def test_roundtrip_special_chars(tmp_path):
+    path = tmp_path / "tags.toml"
+    s = TagStore.load(path)
+    p = tmp_path / "f.txt"
+    s.set_tags(p, ['say "hi"', 'back\\slash'])
+    s.set_tag_color('to do', '#f00')
+    s.save()
+    s2 = TagStore.load(path)
+    assert s2.get_tags(p) == ['say "hi"', 'back\\slash']
+    assert s2.tag_color('to do') == '#f00'
+
+
+def test_load_corrupt_returns_empty(tmp_path):
+    path = tmp_path / "tags.toml"
+    path.write_bytes(b'\xff[[corrupt')
+    store = TagStore.load(path)
+    assert store.all_tags() == []
