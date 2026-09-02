@@ -313,3 +313,30 @@ def test_shutdown_cancels_background_work() -> None:
 
     assert m1.cleaned
     assert m2.cleaned
+
+
+# ── deferred tab safety (C06, C21, C30) ──────────────────────────────────────
+
+def test_paths_with_deferred_tabs(root: Path, vfs: LocalVFS) -> None:
+    """paths() must not raise for deferred (not-yet-navigated) tabs."""
+    home = root / "dir1"
+    other = root / "dir2"
+    tp, _ = make_presenter(vfs)
+    tp.new_tab(home)
+    tp.new_tab(other, deferred=True)
+    tp.switch_tab(0)
+    # deferred tab should not cause RuntimeError
+    result = tp.paths()
+    assert result == [home, other]
+
+
+def test_duplicate_deferred_tab_does_not_raise(root: Path, vfs: LocalVFS) -> None:
+    """duplicate_tab() on a deferred tab must not raise RuntimeError."""
+    home = root / "dir1"
+    other = root / "dir2"
+    tp, _ = make_presenter(vfs)
+    tp.new_tab(home)
+    tp.new_tab(other, deferred=True)
+    tp.switch_tab(0)
+    tp.duplicate_tab(1)
+    assert len(tp.paths()) == 3

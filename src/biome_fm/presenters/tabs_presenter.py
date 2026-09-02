@@ -123,7 +123,7 @@ class TabsPresenter:
 
     def duplicate_tab(self, idx: int) -> PanePresenter:
         """Open a new tab at the same path as tab[idx]."""
-        return self.new_tab(self._tabs[idx].current_path)
+        return self.new_tab(self._safe_path(idx))
 
     def switch_tab(self, idx: int) -> None:
         if 0 <= idx < self.tab_count:
@@ -133,7 +133,16 @@ class TabsPresenter:
                 self._tabs[idx].navigate_to(self._pending.pop(idx))
 
     def paths(self) -> list[Path]:
-        return [t.current_path for t in self._tabs]
+        return [self._safe_path(i) for i in range(len(self._tabs))]
+
+    def _safe_path(self, idx: int) -> Path:
+        """Return path for tab idx without raising for deferred/error tabs."""
+        if idx in self._pending:
+            return self._pending[idx]
+        try:
+            return self._tabs[idx].current_path
+        except RuntimeError:
+            return Path.home()
 
     def view_at(self, idx: int) -> PaneViewProtocol:
         return self._views[idx]
