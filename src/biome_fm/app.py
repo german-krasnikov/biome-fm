@@ -563,29 +563,15 @@ def create_app() -> MainWindow:
     git_worker.status_ready.connect(_on_git_status)
 
     def _restore(tabs: TabsPresenter, state: PaneSideState) -> None:
-        for ts in state.tabs:
-            p = tabs.new_tab(Path(ts.path), deferred=True)  # lazy — load on first switch
-            v = tabs.view_at(tabs.tab_count - 1)
-            _wire_pane(v, p)
-            _wire_preview(v)
-            _wire_breadcrumb_completer(v)
-        tabs.switch_tab(state.active_idx)  # triggers load of active tab
+        tabs.replace_all([Path(ts.path) for ts in state.tabs], state.active_idx)
 
     home = Path.home()
     if session:
         _restore(left_tabs, session.left)
         _restore(right_tabs, session.right)
     else:
-        lp = left_tabs.new_tab(home)
-        v0 = left_tabs.view_at(0)
-        _wire_pane(v0, lp)
-        _wire_preview(v0)
-        _wire_breadcrumb_completer(v0)
-        rp = right_tabs.new_tab(home)
-        v1 = right_tabs.view_at(0)
-        _wire_pane(v1, rp)
-        _wire_preview(v1)
-        _wire_breadcrumb_completer(v1)
+        left_tabs.new_tab(home)
+        right_tabs.new_tab(home)
 
     # ── Manager ───────────────────────────────────────────────────
     _confirm_parent: list[object] = [None]  # late-bound after window creation
@@ -813,14 +799,6 @@ def create_app() -> MainWindow:
 
     terminal_panel.file_navigated.connect(_on_terminal_navigate)
 
-    # Sync terminal cwd + project context when any pane navigates
-    for _side_tabs in [left_tabs, right_tabs]:
-        for _i in range(_side_tabs.tab_count):
-            _sig = getattr(_side_tabs.view_at(_i), "path_updated", None)
-            if _sig is not None:
-                _sig.connect(terminal_panel.set_cwd)
-                _sig.connect(_on_project_navigate)
-                _sig.connect(plugins.on_navigate)
     window.detach_preview_requested.connect(lambda: coord.detach("preview"))
     window.detach_ai_requested.connect(lambda: coord.detach("ai"))
 
@@ -1136,12 +1114,7 @@ def create_app() -> MainWindow:
     sc._on_idle = search_timer.stop
 
     # ── New tab ───────────────────────────────────────────────────
-    def _new_tab(tabs=None) -> None:
-        tabs = tabs or _active()
-        pid = "left" if tabs is left_tabs else "right"
-        watcher = left_watcher if tabs is left_tabs else right_watcher
-        p = tabs.new_tab(tabs.current_path)
-        v = tabs.view_at(tabs.tab_count - 1)
+    def _wire_all(v, p, tabs, pid, watcher) -> None:  # noqa: ANN001
         _wire_pane(v, p)
         _wire_preview(v)
         _wire_ctx(v)
@@ -1166,6 +1139,13 @@ def create_app() -> MainWindow:
             _sig.connect(_update_git_branch)
             _sig.connect(_on_project_navigate)
             _sig.connect(plugins.on_navigate)
+
+    left_tabs.on_tab_created = lambda v, p: _wire_all(v, p, left_tabs, "left", left_watcher)
+    right_tabs.on_tab_created = lambda v, p: _wire_all(v, p, right_tabs, "right", right_watcher)
+
+    def _new_tab(tabs=None) -> None:
+        tabs = tabs or _active()
+        tabs.new_tab(tabs.current_path)  # on_tab_created fires automatically
 
     def _dup_tab() -> None:
         """Duplicate the active tab — opens a new tab at the same path."""
@@ -1547,33 +1527,13 @@ def create_app() -> MainWindow:
             lambda i=_i: _load_workspace_n(i)
         )
 
-    # ── Single post-restore wire loop (DnD + new-tab + ctx + bm + git) ───────
+    # ── Single post-restore wire loop (all helpers via _wire_all) ────────────
     for _pid_w, _tabs_w, _watcher_w in [
         ("left", left_tabs, left_watcher),
         ("right", right_tabs, right_watcher),
     ]:
         for _i_w in range(_tabs_w.tab_count):
-            _v_w = _tabs_w.view_at(_i_w)
-            _wire_dnd(_v_w, _pid_w)
-            _wire_new_tab(_v_w, _tabs_w)
-            _wire_ctx(_v_w)
-            _wire_plugin_ctx(_v_w, _pid_w)
-            _wire_bm(_v_w, _tabs_w)
-            _wire_git(_v_w, _watcher_w)
-            _wire_tags(_v_w)
-            _wire_ai_rename(_v_w)
-            _wire_ai_context(_v_w)
-            _wire_ai_cursor(_v_w, _tabs_w, ai_presenter)
-            _wire_info_cursor(_v_w, info_presenter)
-            _wire_recent_dirs(_v_w, cfg)
-            _wire_new_file(_v_w)
-            _wire_clipboard(_v_w)
-            _wire_trash(_v_w)
-            _pu = getattr(_v_w, "path_updated", None)
-            if _pu is not None:
-                _pu.connect(_update_git_branch)
-                _pu.connect(_on_project_navigate)
-                _pu.connect(plugins.on_navigate)
+            _wire_all(_tabs_w.view_at(_i_w), _tabs_w.presenter_at(_i_w), _tabs_w, _pid_w, _watcher_w)
 
     def _bookmark_toggle() -> None:
         path = _active().current_path

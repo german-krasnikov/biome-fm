@@ -421,3 +421,64 @@ def test_on_tab_created_called_for_every_new_tab(root: Path, vfs: LocalVFS) -> N
     assert len(deferred_created) == 1
     assert deferred_created[0][0] is tp2.view_at(0)
     assert deferred_created[0][1] is tp2.presenter_at(0)
+
+
+# ── replace_all (C31/C46) ─────────────────────────────────────────────────────
+
+def test_replace_all_replaces_existing_tabs(tmp_path: Path, vfs: LocalVFS) -> None:
+    """replace_all([a,b,c], 1) replaces 2 boot tabs with 3 new deferred tabs."""
+    a, b, c, home = (tmp_path / x for x in ("a", "b", "c", "home"))
+    for d in (a, b, c, home):
+        d.mkdir()
+
+    tp, _ = make_presenter(vfs)
+    tp.new_tab(home)
+    tp.new_tab(home)
+    tp.lock_tab(0)
+
+    created: list = []
+    tp.on_tab_created = lambda v, p: created.append(p)
+
+    tp.replace_all([a, b, c], 1)
+
+    assert tp.paths() == [a, b, c]
+    assert tp.active_idx == 1
+    assert tp.presenter_at(1).current_path == b
+    assert 0 in tp._pending
+    assert 2 in tp._pending
+    assert not tp.is_locked(0)
+    assert created == [tp.presenter_at(0), tp.presenter_at(1), tp.presenter_at(2)]
+
+
+def test_replace_all_on_empty_presenter_matches_boot(tmp_path: Path, vfs: LocalVFS) -> None:
+    """replace_all on fresh presenter: like _restore with no prior tabs."""
+    a = tmp_path / "a"
+    b = tmp_path / "b"
+    a.mkdir()
+    b.mkdir()
+
+    tp, _ = make_presenter(vfs)
+    tp.replace_all([a, b], 0)
+
+    assert tp.paths() == [a, b]
+    assert tp.active_idx == 0
+    assert 0 not in tp._pending   # active tab was loaded by switch_tab
+    assert 1 in tp._pending
+
+
+def test_replace_all_with_no_paths_keeps_existing_tabs(tmp_path: Path, vfs: LocalVFS) -> None:
+    """replace_all([], 0) is a no-op."""
+    d1 = tmp_path / "d1"
+    d2 = tmp_path / "d2"
+    d1.mkdir()
+    d2.mkdir()
+
+    tp, _ = make_presenter(vfs)
+    tp.new_tab(d1)
+    tp.new_tab(d2)
+    original_paths = tp.paths()
+
+    tp.replace_all([], 0)
+
+    assert tp.tab_count == 2
+    assert tp.paths() == original_paths

@@ -126,6 +126,18 @@ class TabsPresenter:
         if self._active_idx in self._pending:
             self._tabs[self._active_idx].navigate_to(self._pending.pop(self._active_idx))
 
+    def replace_all(self, paths: list[Path], active_idx: int) -> None:
+        """Replace every tab with deferred tabs at *paths*; *active_idx* indexes *paths*."""
+        old = self.tab_count if paths else 0
+        for p in paths:
+            self.new_tab(p, deferred=True)      # on_tab_created fires per tab
+        self.switch_tab(active_idx + old)       # load target before old tabs go
+        for i in range(old):
+            self.unlock_tab(i)
+            self.unlink_tab(i)
+        for _ in range(old):
+            self.close_tab(0)
+
     def duplicate_tab(self, idx: int) -> PanePresenter:
         """Open a new tab at the same path as tab[idx]."""
         return self.new_tab(self._safe_path(idx))
