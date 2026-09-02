@@ -14,12 +14,12 @@ def _current_branch(cwd: Path) -> str:
 def lock(path: Path, cwd: Path) -> None:
     """Acquire exclusive lock on *path*. Raises CMError on failure."""
     branch = _current_branch(cwd)
-    run_cm(["lock", "create", f"br:{branch}", str(path)], cwd=cwd)
+    run_cm(["lock", "create", f"br:{branch}", str(path)], cwd=cwd, timeout=None)
 
 
 def unlock(path: Path, cwd: Path) -> None:
     """Release lock on *path*. Raises CMError on failure."""
-    run_cm(["lock", "unlock", str(path)], cwd=cwd)
+    run_cm(["lock", "unlock", str(path)], cwd=cwd, timeout=None)
 
 
 def get_locks(cwd: Path) -> list[Lock]:

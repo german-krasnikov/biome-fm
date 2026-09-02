@@ -43,7 +43,8 @@ def test_sync_button_emits(qtbot, entries):
     qtbot.addWidget(dlg)
     with qtbot.waitSignal(dlg.sync_requested, timeout=1000) as blocker:
         dlg._btn_ltr.click()
-    checked_entries, direction = blocker.args
+    checked_entries, direction, mirror = blocker.args
     assert direction == "left_to_right"
+    assert mirror is False
     # only non-EQUAL rows are pre-checked
     assert all(e.status != CompareStatus.EQUAL for e in checked_entries)

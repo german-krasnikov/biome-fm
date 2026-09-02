@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pluggy
 
-from biome_fm.commands.base import Command, CommandHistory
+from biome_fm.commands.base import Command
 from biome_fm.event_bus import EventBus
 from biome_fm.plugins.manager import PluginManager
 from biome_fm.presenters.manager_presenter import ManagerPresenter, _OpSpec
@@ -29,16 +29,11 @@ class _FakePane:
 
 
 class _TrackCmd(Command):
-    undoable = False
-
     def __init__(self) -> None:
         self.executed = False
 
     def execute(self) -> None:
         self.executed = True
-
-    def undo(self) -> None:
-        pass
 
 
 class _VetoPlugin:
@@ -61,7 +56,6 @@ def _make_manager(plugins: PluginManager) -> ManagerPresenter:
         left=_FakePane(),
         right=_FakePane(),
         vfs=_FakeVFS(),
-        history=CommandHistory(),
         bus=EventBus(),
         plugins=plugins,
     )

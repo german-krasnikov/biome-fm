@@ -96,10 +96,9 @@ class SettingsPresenter:
         self._config.file_type_colors = self._view.get_file_type_colors()
         self._config.ai_default_provider = self._view.get_ai_provider()
         claude, openai = self._view.get_ai_keys()
-        set_credential(CRED_SERVICE, "claude", claude)
-        set_credential(CRED_SERVICE, "openai", openai)
-        self._config.ai_claude_key = ""   # keep plaintext field empty after save
-        self._config.ai_openai_key = ""
+        # plaintext cleared only once the keyring holds the key
+        self._config.ai_claude_key = "" if set_credential(CRED_SERVICE, "claude", claude) else claude
+        self._config.ai_openai_key = "" if set_credential(CRED_SERVICE, "openai", openai) else openai
         url, model = self._view.get_ollama()
         self._config.ai_ollama_url = url
         self._config.ai_ollama_model = model

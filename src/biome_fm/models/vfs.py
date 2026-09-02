@@ -91,14 +91,15 @@ class LocalVFS:
         if src.is_dir():
             shutil.copytree(src, dst)
         else:
-            try:
-                with open(src, "rb") as fin, open(dst, "wb") as fout:
-                    os.sendfile(fout.fileno(), fin.fileno(), 0, src.stat().st_size)
-                shutil.copystat(src, dst)
-            except (AttributeError, OSError):
-                shutil.copy2(src, dst)
+            shutil.copy2(src, dst)
 
-    def move(self, src: Path, dst: Path) -> None:
+    def move(self, src: Path, dst: Path, *, overwrite: bool = False) -> None:
+        if not overwrite and dst.exists():
+            try:
+                if not os.path.samefile(src, dst):
+                    raise FileExistsError(f"'{dst.name}' already exists")
+            except FileNotFoundError:
+                pass  # dst disappeared between exists() and samefile() — proceed
         shutil.move(str(src), str(dst))
 
     def delete(self, path: Path) -> None:

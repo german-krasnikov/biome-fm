@@ -20,9 +20,6 @@ class _FailCmd:
         if self.attempts <= self.n_fails:
             raise RuntimeError(f"fail #{self.attempts}")
 
-    def undo(self) -> None:
-        pass
-
 
 def _wait_for_failed(q, task_id: int, timeout: float = 2.0) -> bool:
     """Poll until task_id appears in q._failed or timeout."""

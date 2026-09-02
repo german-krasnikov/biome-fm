@@ -1058,3 +1058,92 @@ def test_workspace_info_delivered_before_status(cwd):
     assert "workspace_info" in call_order
     assert "status" in call_order
     assert call_order.index("workspace_info") < call_order.index("status")
+
+
+# ── C48: poll() / drain() contract ───────────────────────────────────────────
+
+def test_poll_does_not_block(view, monkeypatch):
+    """poll() returns in <50 ms while run_cm blocks on a threading.Event."""
+    import threading
+
+    barrier = threading.Event()
+
+    def slow_cm(args, **kw):
+        barrier.wait()
+        return ""
+
+    monkeypatch.setattr("biome_fm.plastic._presenter.run_cm", slow_cm)
+    p = PlasticPresenter(view=view, cwd=Path("/w"))
+    p.refresh()
+    try:
+        t0 = time.perf_counter()
+        p.poll()  # AttributeError today: poll() does not exist
+        assert time.perf_counter() - t0 < 0.05
+    finally:
+        barrier.set()  # always release so background thread exits
+    p.drain()  # blocking — waits for slow_cm to finish
+    assert view.busy  # at least one set_busy call received (True then False)
+
+
+def test_drain_still_blocks_for_tests(view, monkeypatch):
+    """drain() returns only after the background job finishes."""
+    import threading
+
+    done = threading.Event()
+
+    def slow_cm(args, **kw):
+        time.sleep(0.05)
+        done.set()
+        return _all_returns()(args, **kw)
+
+    monkeypatch.setattr("biome_fm.plastic._presenter.run_cm", slow_cm)
+    p = PlasticPresenter(view=view, cwd=Path("/w"))
+    p.refresh()
+    p.drain()  # must block until slow_cm finishes
+    assert done.is_set()
+    assert len(view.status_items) >= 0  # ensure no crash
+
+
+# ── C50: status timeout → explicit error on queue ────────────────────────────
+
+def test_status_timeout_puts_error_on_queue(view, monkeypatch):
+    """TimeoutExpired on status call must surface as an error, not be silently swallowed."""
+    import subprocess
+
+    class _FakeResult:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_subprocess_run(cmd, **kw):
+        if len(cmd) > 1 and cmd[1] == "status":
+            raise subprocess.TimeoutExpired(cmd, kw.get("timeout", 120))
+        return _FakeResult()
+
+    # Patch subprocess.run, NOT run_cm — patching run_cm wholesale bypasses safe=True
+    # and makes the test green today (except Exception catches the raise directly).
+    # Patching subprocess.run lets run_cm's safe=True path run, which today silently
+    # returns "" (test stays red). After the fix, safe=True is removed from the status
+    # call, TimeoutExpired propagates, and the explicit handler puts the error on queue.
+    monkeypatch.setattr("subprocess.run", fake_subprocess_run)
+    p = PlasticPresenter(view=view, cwd=Path("/w"))
+    p.refresh()
+    p.drain()
+    assert any("timed out" in e for e in view.errors)
+
+
+# ── C50: timeout=None for inline run_cm in switch_label ─────────────────────
+
+def test_switch_label_uses_no_timeout(view, monkeypatch):
+    calls = []
+
+    def fake_cm(args, **kw):
+        calls.append((args, kw))
+        return ""
+
+    monkeypatch.setattr("biome_fm.plastic._presenter.run_cm", fake_cm)
+    p = PlasticPresenter(view=view, cwd=Path("/w"))
+    p.switch_label("v2.0")
+    p.drain()
+    switch_calls = [kw for args, kw in calls if args and args[0] == "switch"]
+    assert switch_calls and "timeout" in switch_calls[0] and switch_calls[0]["timeout"] is None

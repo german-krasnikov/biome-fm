@@ -1,6 +1,10 @@
 """Tests for LocalVFS — no Qt dependency."""
 
+import shutil
+import sys
 from pathlib import Path
+
+import pytest
 
 from biome_fm.models.vfs import LocalVFS
 
@@ -76,3 +80,27 @@ class TestLocalVFS:
         assert not vfs.exists(f)
         f.touch()
         assert vfs.exists(f)
+
+    def test_local_copy_same_file_raises_not_truncates(self, tmp_path: Path) -> None:
+        f = tmp_path / "data.txt"
+        f.write_text("important")
+        with pytest.raises(shutil.SameFileError):
+            LocalVFS().copy(f, f)
+        assert f.read_text() == "important"
+
+    def test_move_onto_existing_raises(self, tmp_path: Path) -> None:
+        a = tmp_path / "a.txt"
+        a.write_text("A")
+        b = tmp_path / "b.txt"
+        b.write_text("B")
+        with pytest.raises(FileExistsError):
+            LocalVFS().move(a, b)
+        assert a.read_text() == "A"
+        assert b.read_text() == "B"
+
+    @pytest.mark.skipif(sys.platform != "darwin", reason="case-insensitive FS only on macOS APFS")
+    def test_move_case_rename_allowed(self, tmp_path: Path) -> None:
+        a = tmp_path / "file.txt"
+        a.write_text("x")
+        LocalVFS().move(a, tmp_path / "File.txt")
+        assert (tmp_path / "File.txt").exists()

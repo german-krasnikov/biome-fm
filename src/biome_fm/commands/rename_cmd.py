@@ -1,4 +1,4 @@
-"""Rename command — rename in place (undoable)."""
+"""Rename command — rename in place."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -16,10 +16,9 @@ class RenameCmd(Command):
         self._vfs = vfs
 
     def execute(self) -> None:
+        if self._vfs.exists(self._dst):
+            raise FileExistsError(f"'{self._dst.name}' already exists")
         self._vfs.move(self._src, self._dst)
-
-    def undo(self) -> None:
-        self._vfs.move(self._dst, self._src)
 
     @property
     def description(self) -> str:

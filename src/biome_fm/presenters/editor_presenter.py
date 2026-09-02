@@ -1,6 +1,7 @@
 """EditorPresenter — logic for the built-in text editor (Feature #18)."""
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
 from typing import Protocol
 
@@ -18,7 +19,17 @@ class EditorPresenter:
 
     def save(self) -> None:
         text = self._view.toPlainText()
-        self._path.write_text(text)
+        with tempfile.NamedTemporaryFile(
+            "w", dir=self._path.parent, delete=False,
+            encoding="utf-8", suffix=".tmp",
+        ) as fh:
+            fh.write(text)
+            tmp = Path(fh.name)
+        try:
+            tmp.replace(self._path)
+        except OSError:
+            tmp.unlink(missing_ok=True)
+            raise
         self._saved_text = text
 
     def is_modified(self) -> bool:

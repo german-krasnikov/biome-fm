@@ -5,11 +5,9 @@ import io
 import threading
 from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
-from unittest.mock import MagicMock, patch
-
+from unittest.mock import MagicMock
 
 from biome_fm.commands.copy_cmd import ProgressCopyCmd
-from biome_fm.models.sftp_vfs import SFTPSession, SFTPVfs
 
 
 def _cmd(src_vfs, tmp_path, src: Path | None = None):
@@ -95,12 +93,19 @@ def test_cross_vfs_fallback_no_open_read(tmp_path):
 # test 4 — SFTPVfs.open_read calls seek(offset) on the file handle
 # ---------------------------------------------------------------------------
 def test_sftp_open_read_seeks():
-    vfs = SFTPVfs(SFTPSession(host="localhost"))
-    fh = MagicMock()
+    from tests.unit.test_sftp_connection_pool import _make_sftp_vfs
 
-    with patch.object(vfs, "_with_reconnect", return_value=fh):
+    vfs, _orig, _mod = _make_sftp_vfs(max_channels=1)
+    try:
+        fh = MagicMock(name="fh")
+        fake_ch = MagicMock(name="sftp_ch")
+        fake_ch.open.return_value = fh
+        vfs._channels = [fake_ch]
+
         with vfs.open_read(PurePosixPath("/remote/file.bin"), offset=100) as f:
             assert f is fh
 
-    fh.seek.assert_called_once_with(100)
-    fh.close.assert_called_once()
+        fh.seek.assert_called_once_with(100)
+        fh.close.assert_called_once()
+    finally:
+        _mod._HAS_PARAMIKO, _mod._paramiko = _orig

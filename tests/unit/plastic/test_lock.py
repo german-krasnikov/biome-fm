@@ -96,14 +96,13 @@ def test_unlock_calls_cm_with_correct_args(tmp_path):
     target = tmp_path / "file.cs"
     with patch("biome_fm.plastic._lock.run_cm") as m:
         unlock(target, tmp_path)
-    m.assert_called_once_with(["lock", "unlock", str(target)], cwd=tmp_path)
+    m.assert_called_once_with(["lock", "unlock", str(target)], cwd=tmp_path, timeout=None)
 
 
 def test_lock_propagates_cm_error(tmp_path):
     from biome_fm.plastic._cm import CMError
-    with patch("biome_fm.plastic._lock.run_cm", side_effect=CMError("fail")):
-        with pytest.raises(CMError):
-            lock(tmp_path / "f.cs", tmp_path)
+    with patch("biome_fm.plastic._lock.run_cm", side_effect=CMError("fail")), pytest.raises(CMError):
+        lock(tmp_path / "f.cs", tmp_path)
 
 
 # ── get_locks ──────────────────────────────────────────────────────────────────
@@ -138,3 +137,15 @@ def test_lock_status_field():
 def test_lock_status_defaults_to_locked():
     lk = Lock(path=Path("/a.cs"), owner="alice", branch="/main")
     assert lk.status == "Locked"
+
+
+# ── C50: mutating wrappers must pass timeout=None ─────────────────────────────
+
+def test_lock_uses_no_timeout(tmp_path):
+    target = tmp_path / "file.cs"
+    with patch("biome_fm.plastic._lock.run_cm", side_effect=["/main\n", None]) as m:
+        lock(target, tmp_path)
+    # calls[0] = wi (read-only), calls[1] = lock create (mutating)
+    kwargs = m.call_args_list[1].kwargs
+    assert "timeout" in kwargs, "timeout kwarg must be explicitly passed"
+    assert kwargs["timeout"] is None

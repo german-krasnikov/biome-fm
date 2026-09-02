@@ -63,10 +63,6 @@ SHORTCUTS: dict[str, dict[str, str]] = {
         "Ctrl+Shift+C": "Copy path",
         "Alt+Shift+N": "Copy file names",
     },
-    "Undo / Redo": {
-        "Ctrl+Z": "Undo",
-        "Ctrl+Shift+Z": "Redo",
-    },
     "Bookmarks and Sessions": {
         "Ctrl+D": "Toggle bookmark",
         "Ctrl+Shift+S": "Save named session",

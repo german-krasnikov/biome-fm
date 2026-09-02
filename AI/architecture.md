@@ -12,6 +12,16 @@ src/biome_fm/
 │                       #   _AI_MODEL_FIELDS dict maps 6 provider keys → config field names;
 │                       #   Sub-initializers extracted: _build_plugins(cfg), _build_panes(vfs),
 │                       #     _build_preview(cfg) — construction only, no signal wiring;
+│                       #   _build_stores(cfg, cfg_dir) → 10-element tuple:
+│                       #     clipboard, store, tag_store, user_actions_store, ws_store,
+│                       #     named_session_store, op_queue, dir_state_store, frecency_store,
+│                       #     file_collector; user_actions_store.load() guarded against corrupt JSON;
+│                       #   _wire_all(v, p, tabs, pid, watcher): single wiring point per tab slot;
+│                       #     tabs.on_tab_created = lambda … _wire_all(…) so new tabs auto-wire;
+│                       #   nav_timer: 50ms QTimer drains pane navigation futures on main thread;
+│                       #     shutdown order: nav_timer.stop() before presenter shutdown in _on_close;
+│                       #   glass: configure_glass(window, cfg.glass) → _glass_active bool;
+│                       #     if glass fails, is_available() fallback show still shows the window;
 │                       #   SearchCoordinator wired to Ctrl+Shift+F, owns dialog/thread/queue/drain;
 │                       #   nav/DnD/context-menu signal wiring; focus tracking → active pane bus;
 │                       #   _op_items(): marked items → cursor item fallback (TC behavior);
@@ -19,12 +29,11 @@ src/biome_fm/
 │                       #   skipped while _progress_dialogs active;
 │                       #   _copy_path: exports marked paths to clipboard (newline-joined); falls back to cursor item;
 │                       #   _quick_look/_reveal_in_finder closures;
-│                       #   Ctrl+Z/Ctrl+Shift+Z/F3/Ctrl+I/Ctrl+R/Ctrl+W/Ctrl+Shift+C/Ctrl+Shift+L shortcuts;
+│                       #   F3/Ctrl+I/Ctrl+R/Ctrl+W/Ctrl+Shift+C/Ctrl+Shift+L shortcuts;
 │                       #   F4 → built-in EditorDialog (exec); Shift+F4 → external editor (editor_cmd);
 │                       #   F10 / action bar ai_requested → coord.toggle("ai", active_pane_id);
 │                       #   expand_rules() used instead of HighlightRule constructor to handle comma patterns;
 │                       #   shortcut fixes: Ctrl+Shift+T→flat-view only; Ctrl+Alt+M→treemap; Ctrl+Alt+G→large-files;
-│                       #   _wire_pane() / _wire_ctx() / _new_tab(side=None) helpers;
 │                       #   ClipboardService wired to Ctrl+X/C/V; cut_paths pushed to DirectoryModel;
 │                       #   TrashCmd wired to Delete key; FrecencyStore records on pane navigate;
 │                       #   DirStateStore save/restore per-dir sort+filter state;
@@ -42,7 +51,9 @@ src/biome_fm/
 │                       #   ui_font_size (int, 0=system), reduce_motion (bool), high_contrast (bool);
 │                       #   global_hotkey (str), serial_ops (bool);
 │                       #   __post_init__ validates + clamps all fields (coercion on load, no corrupt state);
-│                       #   save_config debounced (300ms) to avoid thundering-herd writes on rapid changes
+│                       #   save_config debounced (300ms) to avoid thundering-herd writes on rapid changes;
+│                       #   _toml_val: dict values use _toml_esc(k) for each key to prevent TOML injection;
+│                       #   load_config except clause widened to catch UnicodeDecodeError + TOMLDecodeError
 ├── session.py          # SessionState / PaneSideState / TabState / PanelSession → JSON persistence;
 │                       #   PanelSession.overlay_side persists which pane the panel occupies;
 │                       #   PaneSideState.view_mode persists gallery/list view mode per pane (F456)
@@ -68,9 +79,14 @@ src/biome_fm/
 │   │                       #   symlink_target: str | None field; is_broken_link: bool field
 │   ├── vfs.py              # ReadableVFS + WritableVFS (@runtime_checkable Protocols, split from VFSProtocol);
 │   │                       #   VFSReadOnlyError raised by WritableVFS ops on read-only backends;
-│   │                       #   LocalVFS implements both; LocalVFS.stat() populates symlink_target + is_broken_link
+│   │                       #   LocalVFS implements both; LocalVFS.stat() populates symlink_target + is_broken_link;
+│   │                       #   LocalVFS.move(src, dst, *, overwrite=False): existence guard + os.path.samefile
+│   │                       #     check prevents silent self-overwrite; raises FileExistsError on dst conflict
 │   ├── vfs_router.py       # VFSRouter: path ancestry walk → archive root detection;
-│   │                       #   dispatches local/archive; caches ArchiveVFS per archive file
+│   │                       #   dispatches local/archive; caches ArchiveVFS per archive file;
+│   │                       #   listdir: rebases remote items onto URI path via dataclasses.replace;
+│   │                       #   copy(src, dst)/move(src, dst): resolve() both paths before passing to
+│   │                       #     backend VFS so relative or symlinked paths don't escape the root
 │   ├── archive_vfs.py      # ZIP/TAR VFS (stdlib zipfile + tarfile, no fsspec);
 │   │                       #   _child_of(raw, prefix, *, skip_dot) free fn — shared by ZIP
 │   │                       #   and TAR listing; returns (child_name, is_nested) | None
@@ -106,15 +122,20 @@ src/biome_fm/
 │   │                       #   migration: old paths/names arrays → tree nodes on first load
 │   ├── icon_provider.py    # icon_for_extension(ext) — @lru_cache(256), QFileIconProvider;
 │   │                       #   icon_for_dir() — SP_DirIcon; fallback to SP_FileIcon
-│   ├── sftp_vfs.py         # SFTPVfs (paramiko, optional dep); parse_sftp_uri() → SFTPSession;
-│   │                        #   SFTPSession frozen dataclass (host, port, user, remote_path, proxy_command);
+│   ├── sftp_utils.py       # SFTPSession frozen dataclass (host, port, user, remote_path, auto_add_host_key,
+│   │                        #   proxy_command); parse_sftp_uri(uri) → SFTPSession | None;
+│   │                        #   make_jump_proxy_command(jump_host, jump_port, jump_user, target_host, target_port) → str
+│   ├── sftp_vfs.py         # SFTPVfs (paramiko, optional dep); imports SFTPSession + helpers from sftp_utils;
+│   │                        #   _get_channel(): semaphore acquired first; released on open_sftp() failure
+│   │                        #   to prevent deadlock; _with_reconnect guards only SSH exceptions (not all);
+│   │                        #   open_read(path, offset=0): holds channel for full generator lifetime via
+│   │                        #   contextlib.closing on the channel returned from _get_channel;
+│   │                        #   exists(path) → bool; copy(src, dst) via shutil; move(src, dst);
 │   │                        #   connect/list_dir/read_file/stat/disconnect; SFTPVfs.available() guard;
 │   │                        #   mtime stored as float (nanosecond-safe); delete() method (was remove());
 │   │                        #   utime(path, mtime) preserves remote file timestamp after upload;
-│   │                        #   open_read(path, offset=0) → streaming read from byte offset (resume);
 │   │                        #   exec_find(remote_dir, name_pattern) → list[str] via SSH exec + shlex.quote;
-│   │                        #   connect() accepts proxy_command → paramiko.ProxyCommand (jump host / tunnel);
-│   │                        #   make_jump_proxy_command(jump_host, jump_port, jump_user, target_host, target_port) → str
+│   │                        #   connect() accepts proxy_command → paramiko.ProxyCommand (jump host / tunnel)
 │   ├── view_state.py       # ViewState dataclass (sort_col, sort_asc, filter) — per-dir UI state
 │   ├── conflict_resolver.py # ConflictAction enum (OVERWRITE/OVERWRITE_ALL/SKIP/SKIP_ALL/RENAME/CANCEL);
 │   │                        #   auto_rename(dst) → unique path (foo.txt → foo_1.txt);
@@ -182,7 +203,9 @@ src/biome_fm/
 │   │                        #   load_user_menu(cwd, global_config) → list[UserMenuItem];
 │   │                        #   walks up from cwd for .biome-menu.toml; falls back to global config
 │   ├── credential_store.py # get_credential/set_credential/delete_credential — keyring when
-│   │                        #   available, in-process dict fallback; logs warning once if keyring absent
+│   │                        #   available, in-process dict fallback; logs warning once if keyring absent;
+│   │                        #   set_credential → bool: True if durably persisted via keyring,
+│   │                        #     False if only in-process fallback; migrate() clears plaintext only on True
 │   ├── finder_tags.py      # macOS Finder tags + quarantine xattr helpers;
 │   │                        #   get_tags(path)/set_tags(path, tags) via com.apple.metadata:_kMDItemUserTags;
 │   │                        #   remove_quarantine_flag(path) removes com.apple.quarantine xattr;
@@ -206,6 +229,9 @@ src/biome_fm/
 │   │                        #   directory listings; get/set/invalidate; key = str(path)
 │   ├── rclone_vfs.py       # RcloneVFS — VFS backed by `rclone lsjson` subprocess;
 │   │                        #   listdir/stat/copy/move/delete/mkdir via JSON API;
+│   │                        #   exists(path) → bool via stat() + CalledProcessError trap;
+│   │                        #   stat(path) → FileItem via `rclone lsjson --stat`; handles list-vs-object response;
+│   │                        #   move(src, dst): existence guard then `rclone moveto`;
 │   │                        #   _parse_modtime handles nanosecond suffixes in rclone timestamps;
 │   │                        #   ponytail: subprocess-per-call — replace with rclone serve for throughput
 │   ├── preview_file_cache.py # PreviewFileCache — SHA1-keyed local temp files for remote preview;
@@ -255,6 +281,8 @@ src/biome_fm/
 │   │                        #   list() / delete(name); path: ~/.config/biome-fm/macros.json (F457)
 │   ├── tag_store.py        # TagStore — TOML-backed file→tags mapping with per-tag colors;
 │   │                        #   tags(path)/add_tag(path,tag)/remove_tag(path,tag)/save;
+│   │                        #   save() uses atomic_write + TOML-escapes tag names and values (_esc);
+│   │                        #   load() catches OSError/TOMLDecodeError and returns empty store;
 │   │                        #   colors dict[tag→"#hex"]; path: ~/.config/biome-fm/tags.toml
 │   └── workspace_store.py  # WorkspaceStore — JSON-backed named workspace presets;
 │                            #   save(name, left_paths, right_paths)/load(name) → dict | None;
@@ -262,6 +290,10 @@ src/biome_fm/
 │
 ├── presenters/
 │   ├── pane_presenter.py     # Drives one pane (cd, select, sort, current_item);
+│   │                         #   module-level _NAV_POOL: ThreadPoolExecutor(max_workers=2,
+│   │                         #     thread_name_prefix="nav") — navigation isolated from dir-size walks;
+│   │                         #   _nav_future = _NAV_POOL.submit(_load); result drained by nav_timer;
+│   │                         #   breadcrumb restored from _prev_cwd after failed navigation;
 │   │                         #   PaneViewProtocol: set_items/set_path/show_error/set_status/
 │   │                         #   set_marked/current_cursor_item/advance_cursor/retreat_cursor/
 │   │                         #   set_filter_visible/select_item;
@@ -287,7 +319,17 @@ src/biome_fm/
 │   │                         #   for ManagerPresenter; TabsViewProtocol requires set_tab_tooltip;
 │   │                         #   tabs display abbreviated path (~/... or …/name if >30 chars);
 │   │                         #   tooltip = full str(path); opener param passed to each PanePresenter;
-│   │                         #   deferred tab loading: session paths restored lazily on first tab activate
+│   │                         #   deferred tab loading: session paths restored lazily on first tab activate;
+│   │                         #   on_tab_created: Callable[[PaneViewProtocol, PanePresenter], None] | None
+│   │                         #     — fires per new tab; wired in app.py to _wire_all;
+│   │                         #   new_tab(path, deferred=False) fires on_tab_created after wiring;
+│   │                         #   close_tab: shifts lock/link indices BEFORE remove_tab; eagerly loads
+│   │                         #     deferred active tab to avoid empty-pane state;
+│   │                         #   replace_all(paths, active_idx): adds deferred tabs, loads active,
+│   │                         #     then closes old tabs — used for session restore;
+│   │                         #   _safe_path(idx): returns pending path or current_path without raising
+│   │                         #     RuntimeError for deferred/error tabs; paths() uses _safe_path;
+│   │                         #   duplicate_tab() guarded against deferred-tab RuntimeError via _safe_path
 │   ├── manager_presenter.py  # Inter-pane ops (copy, move, delete, mkdir, rename);
 │   │                         #   drop_files(paths, target_pane_id, move, target_folder) — DnD;
 │   │                         #   async path: ProgressCopyCmd/ProgressMoveCmd submitted to OpQueue,
@@ -297,12 +339,12 @@ src/biome_fm/
 │   │                         #   for all sync + async file ops;
 │   │                         #   toggle_mirror() / navigate_active() for Sync Browsing;
 │   │                         #   toggle_hidden() — flips Config.show_hidden, publishes ShowHiddenToggled;
-│   │                         #   undo/redo via CommandHistory → refresh_both();
 │   │                         #   swap_panes() exchanges left/right pane paths + histories;
 │   │                         #   move_tab_to_other_pane(tab_idx) moves active tab to opposite side
 │   ├── ai_presenter.py       # AI chat bridge (AIProvider ↔ AIChatViewProtocol);
 │   │                         #   clear_session() resets _epoch, _history, attachments, stream buffer,
 │   │                         #   terminates in-flight request, calls view.clear_session();
+│   │                         #   shutdown() non-blocking: calls provider.terminate() without join;
 │   │                         #   AIChatViewProtocol now requires clear_session() method
 │   ├── compare_presenter.py  # Directory diff (left vs right pane);
 │   │                         #   content_diff(left_item, right_item) → unified diff string;
@@ -388,11 +430,15 @@ src/biome_fm/
 │   │                     #   _build_menubar; QToolBar removed — Refresh/Preview/AI actions
 │   │                     #   moved to menubar (File, View); macOS zero-height drag toolbar
 │   │                     #   kept via setUnifiedTitleAndToolBarOnMac(True);
+│   │                     #   _remote_ev = Signal(object): cross-thread bridge for RemoteConnected/
+│   │                     #     RemoteDisconnected/RemoteSyncing bus events; subscribed via
+│   │                     #     QueuedConnection so worker-thread emit is safe on Qt GUI thread;
+│   │                     #   _on_close order: nav_timer.stop() before presenter shutdown;
 │   │                     #   command line visible by default; _on_cmd executes shell command
 │   │                     #   with cwd=active pane path, emits command_submitted signal;
 │   │                     #   _HistoryLineEdit (30-item dedup history, Up/Down nav) +
 │   │                     #   case-insensitive QCompleter (dropdown history);
-│   │                     #   signals: back/forward/up/home + undo/redo/refresh/new_tab _requested,
+│   │                     #   signals: back/forward/up/home + refresh/new_tab _requested,
 │   │                     #   close_tab_requested (File → Close Tab, Ctrl+W),
 │   │                     #   command_submitted, about_to_close; tab_shortcut (Tab key QShortcut);
 │   │                     #   workspaces_requested removed; Workspaces is now a QMenu submenu
@@ -409,7 +455,7 @@ src/biome_fm/
 │   │                     #   _show_ratio_menu(global_pos) → 25/75, 50/50, 75/25 via _set_pane_ratio();
 │   │                     #   eventFilter catches QEvent.Type.ContextMenu + MiddleButton on handle
 │   ├── pane_side_view.py # _PathTabBar (Ctrl+click / middle-click copies full path from tooltip);
-│   │                     #   tabs movable; _sync_tab_bar() — tab bar hidden when single tab,
+│   │                     #   tabs NOT movable (setMovable(False)); _sync_tab_bar() — tab bar hidden when single tab,
 │   │                     #   shown with close buttons when 2+ tabs; new_tab_requested = Signal();
 │   │                     #   set_tab_title() sets abbreviated display + full tooltip;
 │   │                     #   set_tab_tooltip(); set_active() toggles QSS dynamic property
@@ -524,6 +570,8 @@ src/biome_fm/
 │   ├── progress_dialog.py # Modeless QDialog for async file ops; shows file label,
 │   │                      #   bytes QProgressBar, overall label, files QProgressBar, Cancel button;
 │   │                      #   update(files_done, files_total, bytes_done, bytes_total, name);
+│   │                      #   bytes bar: setRange(0, 1000) + setValue(bytes_done * 1000 // bytes_total)
+│   │                      #     — permille prevents int32 overflow on large (>2 GB) transfers;
 │   │                      #   Cancel button sets threading.Event; auto-closes on OpDone/OpCancelled
 │   ├── _zoomable_image.py  # ZoomableImageWidget (QScrollArea) — zoom/pan/rotate for image preview;
 │   │                       #   Ctrl+= zoom in (×1.25), Ctrl+- zoom out, Ctrl+0 reset; R key rotates 90°;
@@ -554,7 +602,9 @@ src/biome_fm/
 │   │                        #   QProgressBar while scanning; delete_selected button
 │   ├── editor_dialog.py    # EditorDialog — built-in QPlainTextEdit editor (QDialog);
 │   │                        #   Ctrl+S saves via EditorPresenter; saved Signal(Path);
-│   │                        #   closeEvent: if is_modified() → QMessageBox Save/Discard/Cancel;
+│   │                        #   _confirm_discard() → bool: QMessageBox Save/Discard/Cancel guard;
+│   │                        #   reject() and closeEvent both call _confirm_discard before closing;
+│   │                        #   save: NamedTemporaryFile + Path.replace for atomic write;
 │   │                        #   find/replace toolbar: Ctrl+F → show; QTextDocument.find() for next/prev;
 │   │                        #   replace/replace-all via setPlainText; go-to-line: Ctrl+G → line number input
 │   ├── git_commit_dialog.py # GitCommitDialog(repo, ai_call) — staged file list + message QPlainTextEdit;
@@ -615,6 +665,7 @@ src/biome_fm/
 │   │                         #   connect_requested Signal(uri: str)
 │   ├── transfer_queue_panel.py # TransferQueuePanel — live transfer rows with progress bar + cancel;
 │   │                           #   _TransferRow per task_id (description, QProgressBar, Cancel button);
+│   │                           #   progress bar: setRange(0, 1000) + permille — avoids int32 overflow;
 │   │                           #   on_progress(task_id, done, total)/on_complete(task_id)/on_error(task_id)
 │   ├── editor_highlighter.py # PygmentsHighlighter (QSyntaxHighlighter) — Pygments-backed
 │   │                          #   syntax highlighting for EditorDialog; theme-aware; 512 KB guard
@@ -655,6 +706,8 @@ src/biome_fm/
 │   ├── terminal_panel.py   # TerminalPanel (QWidget) — embedded QProcess terminal;
 │   │                        #   start(cwd, *, selected, cursor): injects BIOME_CWD, BIOME_SELECTED
 │   │                        #   (newline-joined), BIOME_CURSOR into QProcessEnvironment before launch;
+│   │                        #   stop(): kills QProcess and stops drain timer for lifecycle cleanup;
+│   │                        #   closeEvent calls stop() before accepting event;
 │   │                        #   OSC7 escape tracking for cwd sync; default_shell() picks $SHELL or /bin/sh
 │   ├── s3_versions_dialog.py # S3VersionsDialog(path, versions, parent) — S3 object versioning browser;
 │   │                          #   QTableWidget (4 cols: Version ID / Last Modified / Size / Latest);
@@ -669,9 +722,9 @@ src/biome_fm/
 │   │                        #   QLineEdit + QListWidget; 150ms debounce QTimer → OmnibarPresenter.query_changed();
 │   │                        #   activate(root) shows popup; navigated/command_chosen/search_chosen Signals;
 │   │                        #   prefix / → navigate, > → command, bare text → search; F411
-│   ├── dry_run_dialog.py   # DryRunDialog(cmd, history) — operation preview before execution;
+│   ├── dry_run_dialog.py   # DryRunDialog(cmd) — operation preview before execution;
 │   │                        #   renders cmd.preview() → list[str] in QListWidget;
-│   │                        #   Ok → CommandHistory.execute(cmd); Cancel dismisses; F442
+│   │                        #   Ok → cmd.execute(); Cancel dismisses; F442
 │   ├── compare_panel.py  # CompareModel(QAbstractTableModel) + ComparePanel(QWidget) — directory comparison view;
 │   │                        #   left/right columns with sync signals; diff_requested Signal(left, right) (F453)
 │   ├── toolbar.py        # CustomToolBar (QToolBar) — user-configurable tool bar;
@@ -694,51 +747,52 @@ src/biome_fm/
 │                          #   surface alpha + 20; $surface_opaque token in QSS keeps QMenu opaque
 │
 ├── commands/
-│   ├── base.py           # Command ABC (execute/undo/undoable/preview) + CommandHistory (50 levels);
+│   ├── base.py           # Command ABC (execute/preview); execute()-only, no history;
 │   │                     #   preview() → list[str]: default returns [description]; subclasses
-│   │                     #   override for per-path action strings used by DryRunDialog (F442);
-│   │                     #   CommandHistory.push(cmd) records already-executed cmd for undo;
-│   │                     #   peek() checks top of stack before pop() — prevents empty-stack TypeError
+│   │                     #   override for per-path action strings used by DryRunDialog (F442)
 │   ├── registry.py       # CommandRegistry + CommandEntry (name, shortcut, callback);
 │   │                     #   record_hit(name) increments hit count; get_entry(name) → CommandEntry;
 │   │                     #   search(query) returns entries sorted by hit count descending
-│   ├── copy_cmd.py       # CopyCmd (shutil.copy2);
+│   ├── copy_cmd.py       # CopyCmd (shutil.copy2); os.path.samefile guard on copy to prevent self-copy;
 │   │                     #   ProgressCopyCmd: 256KB-chunk copy with cancel (threading.Event)
 │   │                     #   + report(files_done, files_total, bytes_done, bytes_total, name);
-│   │                     #   raises Cancelled on cancel.is_set(); undo deletes created files;
+│   │                     #   raises Cancelled on cancel.is_set(); partial file deleted on cancel;
+│   │                     #   force_overwrite threaded through _copy_dir and _copy_cross_vfs;
+│   │                     #   _pre_existed_dirs: tracks which dst dirs existed before execute()
+│   │                     #     so rollback skips rmtree on pre-existing directories;
 │   │                     #   _copy_cross_vfs: streams via vfs.open_read(path, offset) — resumes
 │   │                     #   partial downloads by seeking to existing dst file size;
 │   │                     #   calls vfs.utime(dst, src_mtime) after transfer to preserve timestamp
 │   ├── move_cmd.py       # MoveCmd;
 │   │                     #   ProgressMoveCmd: same cancel + report API, wraps shutil.move
 │   ├── delete_cmd.py     # DeleteCmd (send2trash)
-│   ├── rename_cmd.py     # RenameCmd
+│   ├── rename_cmd.py     # RenameCmd — guards existence before move
 │   ├── mkdir_cmd.py      # MkdirCmd — delegates to vfs.mkdir() (not os.makedirs directly);
 │   ├── multi_rename_cmd.py # MultiRenameCmd (batch with pattern/counter)
 │   ├── editor_rename_cmd.py # EditorRenameCmd — opens $EDITOR with names in tmp file;
-│   │                        #   diffs old vs new names, applies RenameCmd per changed line; undoable
-│   ├── new_file_cmd.py     # NewFileCmd(path, content=b"") — creates file, undo=unlink; undoable
-│   ├── symlink_cmd.py      # SymlinkCmd(target, link) — symlink_to; undo=unlink; undoable;
-│   │                        #   HardlinkCmd(target, link) — os.link; undo=unlink; undoable
-│   ├── trash_cmd.py        # TrashCmd(paths) — send2trash per path; not undoable;
+│   │                        #   diffs old vs new names, applies RenameCmd per changed line;
+│   │                        #   line-count guard + atomic pre-validation; surfaces errors via EventBus
+│   ├── new_file_cmd.py     # NewFileCmd(path, content=b"") — creates file
+│   ├── symlink_cmd.py      # SymlinkCmd(target, link) — symlink_to;
+│   │                        #   HardlinkCmd(target, link) — os.link
+│   ├── trash_cmd.py        # TrashCmd(paths) — send2trash per path;
 │   │                       #   graceful degradation: warns + unlink if send2trash unavailable
-│   ├── chmod_cmd.py        # ChmodCmd(paths, mode, recursive, vfs) — batch os.chmod with undo;
+│   ├── chmod_cmd.py        # ChmodCmd(paths, mode, recursive, vfs) — batch os.chmod;
 │   │                        #   saves previous mode per path; delegates to vfs.chmod if available;
-│   │                        #   POSIX-only; undoable
+│   │                        #   POSIX-only
 │   ├── remote_edit_cmd.py  # RemoteEditCmd(path, vfs, editor_cmd) — download→edit→re-upload;
-│   │                        #   tempfile per suffix; re-uploads only if mtime changed; not undoable
-│   ├── tag_cmd.py          # TagCmd(paths, add_tags, remove_tags, store) — batch tag assignment;
-│   │                        #   saves previous tag list per path for undo; undoable
+│   │                        #   tempfile per suffix; re-uploads only if mtime changed
+│   ├── tag_cmd.py          # TagCmd(paths, add_tags, remove_tags, store) — batch tag assignment
 │   ├── archive_cmd.py      # ArchiveCmd(sources, archive_path, fmt) — create zip/tar.gz/tar.bz2;
 │   │                        #   EncryptedArchiveCmd: calls `7z a -p<password>` subprocess for
-│   │                        #   password-protected .7z creation; requires 7-Zip binary; undoable
+│   │                        #   password-protected .7z creation; requires 7-Zip binary
 │   ├── quarantine_cmd.py   # RemoveQuarantineCmd(paths) — removes com.apple.quarantine xattr;
-│   │                        #   saves old xattr value per path for undo; undoable; macOS-only
-│   ├── checksum_cmd.py     # ChecksumCmd(paths, algorithm) — compute file hashes; not undoable;
+│   │                        #   macOS-only
+│   ├── checksum_cmd.py     # ChecksumCmd(paths, algorithm) — compute file hashes;
 │   │                        #   algorithms: md5/sha1/sha256/sha512/xxhash(optional)/blake3(optional);
 │   │                        #   64 KB chunk read; ChecksumResult(path, algorithm, digest) dataclass
-│   └── git_stage.py        # GitStageCmd(path, repo_root) — `git add`; undoable via `git restore --staged`;
-│                            #   GitUnstageCmd(path, repo_root) — `git restore --staged`; undoable via re-add;
+│   └── git_stage.py        # GitStageCmd(path, repo_root) — `git add`;
+│                            #   GitUnstageCmd(path, repo_root) — `git restore --staged`;
 │                            #   both use run_git() from git/run.py
 │
 ├── git/
@@ -786,6 +840,7 @@ src/biome_fm/
 │   ├── presenter.py      # PreviewPresenter (Qt-free): ThreadPoolExecutor(max_workers=1);
 │   │                     #   64-item LRU cache keyed (path, mtime, dark) with 60s monotonic TTL;
 │   │                     #   cache stores (PreviewResult, timestamp) tuples; stale entries re-fetch;
+│   │                     #   _auto_detect_mode(item: FileItem): bounded read (512 bytes) to classify binary/text;
 │   │                     #   queue.SimpleQueue for thread→main delivery; drain() polled by QTimer;
 │   │                     #   toggle_item(), update_if_visible(), set_dark(), shutdown();
 │   │                     #   set_tail_mode(enabled) — when True, auto-scrolls to end after each render
@@ -799,7 +854,8 @@ src/biome_fm/
 │       │                 #   through to TextPreviewProvider); monokai dark / friendly light;
 │       │                 #   @lru_cache(maxsize=2) HtmlFormatter; 512KB limit; ContentKind.HTML
 │       ├── text.py       # TextPreviewProvider (priority=10); .py/.js/.toml/.json etc; 256KB limit
-│       ├── fallback.py   # FallbackProvider (priority=999); always handles; returns HTML metadata
+│       ├── fallback.py   # FallbackProvider (priority=999); always handles; returns HTML metadata;
+│       │                 #   html.escape() on path name and mime type strings
 │       ├── _git_helpers.py # Shared git helpers: find_repo(path) → Path | None (walks .git);
 │       │                   #   run_git re-exported from git/run.py (single implementation)
 │       ├── git_blame.py  # GitBlamePreviewProvider (priority=2); any file in a git repo;
@@ -810,14 +866,17 @@ src/biome_fm/
 │       │                 #   load_script_providers(dir) reads *.toml to build providers;
 │       │                 #   command uses %f placeholder for file path; 5s timeout
 │       ├── archive.py        # ArchivePreviewProvider (priority=6); .zip/.jar/.whl/.tar/.tgz;
-│                           #   lists archive contents as HTML table (up to 500 entries)
+│                           #   lists archive contents as HTML table (up to 500 entries);
+│                           #   html.escape() on archive name and every member filename
 │       ├── git_diff.py       # GitDiffPreviewProvider (priority=3); any file in a git repo with unstaged changes;
 │                           #   runs `git diff` → Pygments diff syntax highlight; skips binary exts
 │       ├── hex.py            # HexPreviewProvider — hex dump for binary files; 4096 byte limit;
 │                           #   can_handle: binary ext OR any file not in text-ext whitelist;
-│                           #   returns ContentKind.TEXT with aligned address + hex + ASCII columns
+│                           #   returns ContentKind.TEXT with aligned address + hex + ASCII columns;
+│                           #   html.escape() on ASCII column characters
 │       ├── metadata.py       # MetadataPreviewProvider (priority=7); audio files (.mp3/.flac/.ogg etc.);
-│                           #   mutagen optional dep; shows Title/Artist/Album/Duration as HTML
+│                           #   mutagen optional dep; shows Title/Artist/Album/Duration as HTML;
+│                           #   html.escape() on all tag key and value strings
 │       ├── pdf.py            # PDFPreviewProvider (priority=4); .pdf;
 │                           #   tries pymupdf (fitz) first, falls back to pdftotext CLI subprocess;
 │                           #   50k char limit; returns ContentKind.TEXT
@@ -895,8 +954,11 @@ src/biome_fm/
 │   │                     #   protocol now includes terminate() (stop in-flight request) and
 │   │                     #   chat_stream_events() (structured event stream for richer UI feedback);
 │   │                     #   includes make_cli_providers() via ai/cli/backend_def
-│   ├── claude_provider.py # ClaudeProvider (anthropic SDK, chat + chat_stream)
-│   ├── openai_provider.py # OpenAIProvider (openai SDK, chat + chat_stream)
+│   ├── claude_provider.py # ClaudeProvider (anthropic SDK, chat + chat_stream);
+│   │                     #   _stream attr (GIL-safe) holds live MessageStreamManager;
+│   │                     #   terminate() swaps _stream to None and calls s.close() — stops in-flight stream
+│   ├── openai_provider.py # OpenAIProvider (openai SDK, chat + chat_stream);
+│   │                     #   _stream attr holds live Stream; terminate() closes it, same pattern as Claude
 │   ├── ollama_provider.py # OllamaProvider (HTTP API, chat + chat_stream)
 │   ├── types.py          # FileContent, ImageContent dataclasses for attachments
 │   └── cli/              # CLI-tool AI providers (subprocess.Popen, no SDK dependency)
@@ -997,7 +1059,8 @@ src/biome_fm/
 │   │                       #   "True/False NO_MERGES" metadata from path string;
 │   │                       #   both paths accept "CO|/path|False|NO_MERGES" or "CO  /path  False NO_MERGES"
 │   ├── _changesets.py      # get_changesets(cwd) → list[Changeset]; parse_changesets(output);
-│   │                       #   checkin(paths, msg, cwd); update(cwd); undo(paths, cwd);
+│   │                       #   checkin(paths, msg, cwd): uses `-c=<msg>` flag (Plastic SCM syntax);
+│   │                       #   update(cwd); undo(paths, cwd);
 │   │                       #   rollback_changeset(cs_id, cwd) — cm undo --changeset=cs:{cs_id};
 │   │                       #   edit_comment(cs_id, new_comment, cwd) — Phase 4;
 │   │                       #   undo_all(cwd) — revert all pending changes (Phase 6A);
@@ -1086,7 +1149,7 @@ src/biome_fm/
 │   │                       #   cs_range_diff(cs1, cs2, cwd); branch_diff(branch, cwd);
 │   │                       #   label_range_diff(label1, label2, cwd); shelve_diff(shelve_id, cwd)
 │   │                       #   — Phase 4
-│   ├── _shelve.py          # shelve(msg, cwd, paths=None) → None;
+│   ├── _shelve.py          # shelve(msg, cwd, paths=None) → None: uses `-c=<msg>` flag;
 │   │                       #   unshelve(shelve_id, cwd) → None;
 │   │                       #   get_shelves(cwd) → list[Shelve]; parse_shelves(output)
 │   ├── _merge.py           # merge_branch(branch, cwd, *, preview, resolve, semantic) → str;
@@ -1098,7 +1161,12 @@ src/biome_fm/
 │   ├── _lock.py            # lock(path, cwd) → None; unlock(path, cwd) → None;
 │   │                       #   get_locks(cwd) → list[Lock]; parse_locks(output)
 │   ├── _presenter.py       # PlasticPresenter — ThreadPoolExecutor + SimpleQueue drain;
-│   │                       #   drain() called by QTimer (50ms); all ops run off main thread;
+│   │                       #   poll() — non-blocking, production QTimer (100ms) target;
+│   │                       #     skips dispatch if job is in-flight; never blocks;
+│   │                       #   drain() — blocking: waits for in-flight job then dispatches; tests only;
+│   │                       #   mutating cm calls use timeout=None (e.g. switch, branch create)
+│   │                       #     to avoid premature TimeoutExpired on slow VCS operations;
+│   │                       #   all ops run off main thread;
 │   │                       #   _bg_submit/_bg_refresh wrapped in try/finally → ("busy", True/False);
 │   │                       #   _bg_refresh: workspace_info fetched FIRST to set _wk_path before
 │   │                       #   status items are pushed to the view (ordering is load-bearing);
@@ -1233,10 +1301,10 @@ Views emit signals → Presenters react → update Models → push state to View
 Views NEVER import models. Presenters have ZERO Qt imports — testable with plain Python mocks.
 Model is a thin data adapter (QAbstractTableModel wrapping list[FileItem]).
 
-### Command + Undo
-Every file mutation = Command(execute + undo). CommandHistory (50 levels).
+### Command
+Every file mutation = Command(execute()). No history tracking, no rollback.
 CommandRegistry maps string ids to callables for CommandPalette dispatch.
-ManagerPresenter wires undo/redo to CommandHistory + refresh_both().
+DryRunDialog calls cmd.execute() directly after preview confirmation.
 
 ### Store Base (Persistence)
 All JSON/TOML stores share `models/_store_base.py` helpers:
@@ -1525,8 +1593,6 @@ drop_files(paths, target_pane_id, move, target_folder)
 `ProgressCopyCmd.execute()` copies source-by-source; `_copy_file()` reads in 256KB
 chunks, checks `cancel.is_set()` each chunk (partial file deleted on cancel).
 `ProgressMoveCmd` calls `shutil.move` per file (atomic on same FS, copy+delete otherwise).
-Both support undo: `CommandHistory.push(cmd)` records the already-executed command
-after successful completion so Ctrl+Z can reverse it.
 
 ### Settings Window (v0.9.0)
 
@@ -1742,8 +1808,8 @@ PlasticPlugin._open_window()
 
 | File | Trigger | Purpose |
 |------|---------|---------|
-| `ci.yml` | push, pull_request, workflow_dispatch | Lint (ruff + mypy), unit tests on matrix (macOS/Linux/Windows), integration tests (Qt offscreen), coverage upload to Codecov |
-| `release.yml` | push tag `v*` | Preflight checks → version sync check → GitHub Release with changelog section extracted from CHANGELOG.md |
+| `ci.yml` | push, pull_request, workflow_dispatch | Lint (ruff + mypy), unit tests on matrix (macOS/Linux/Windows), integration tests (Qt offscreen, in dedicated job), `CI Pass` gate job for branch protection, coverage upload to Codecov |
+| `release.yml` | push tag `v*` | Preflight checks → verifies CI passed for this exact commit → version sync check → GitHub Release with changelog section extracted from CHANGELOG.md |
 | `nightly.yml` | cron schedule | Full regression suite including slow tests across all OS matrix |
 | `version-check.yml` | push to `__init__.py` | Runs `check_version.py` to guard against version drift |
 | `codeql.yml` | push, schedule | GitHub CodeQL static analysis |

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from pathlib import Path
 from unittest.mock import patch
 
 from biome_fm.plastic._shelve import (
@@ -72,7 +71,7 @@ def test_parse_strips_whitespace():
 def test_shelve_basic(tmp_path):
     with patch("biome_fm.plastic._shelve.run_cm") as m:
         shelve("WIP", tmp_path)
-    m.assert_called_once_with(["shelveset", "create", "-m", "WIP"], cwd=tmp_path)
+    m.assert_called_once_with(["shelveset", "create", "-c=WIP"], cwd=tmp_path, timeout=None)
 
 
 def test_shelve_with_paths(tmp_path):
@@ -80,7 +79,7 @@ def test_shelve_with_paths(tmp_path):
     with patch("biome_fm.plastic._shelve.run_cm") as m:
         shelve("msg", tmp_path, paths=[f1, f2])
     m.assert_called_once_with(
-        ["shelveset", "create", "-m", "msg", str(f1), str(f2)], cwd=tmp_path
+        ["shelveset", "create", "-c=msg", str(f1), str(f2)], cwd=tmp_path, timeout=None
     )
 
 
@@ -89,8 +88,8 @@ def test_shelve_no_paths_arg_omitted(tmp_path):
         shelve("msg", tmp_path, paths=None)
     args = m.call_args.args[0]
     assert "shelveset" in args
-    # no extra path args beyond -m msg
-    assert len(args) == 4
+    # no extra path args beyond -c=msg
+    assert len(args) == 3
 
 
 # ── unshelve ──────────────────────────────────────────────────────────────────
@@ -98,7 +97,7 @@ def test_shelve_no_paths_arg_omitted(tmp_path):
 def test_unshelve_correct_args(tmp_path):
     with patch("biome_fm.plastic._shelve.run_cm") as m:
         unshelve(42, tmp_path)
-    m.assert_called_once_with(["shelveset", "apply", "42"], cwd=tmp_path)
+    m.assert_called_once_with(["shelveset", "apply", "42"], cwd=tmp_path, timeout=None)
 
 
 # ── delete_shelve ─────────────────────────────────────────────────────────────
@@ -106,7 +105,7 @@ def test_unshelve_correct_args(tmp_path):
 def test_delete_shelve_correct_args(tmp_path):
     with patch("biome_fm.plastic._shelve.run_cm") as m:
         delete_shelve(99, tmp_path)
-    m.assert_called_once_with(["shelveset", "delete", "99"], cwd=tmp_path)
+    m.assert_called_once_with(["shelveset", "delete", "99"], cwd=tmp_path, timeout=None)
 
 
 # ── get_shelves ───────────────────────────────────────────────────────────────
@@ -131,3 +130,4 @@ def test_get_shelves_returns_parsed(tmp_path):
 def test_get_shelves_empty_on_cm_error(tmp_path):
     with patch("biome_fm.plastic._shelve.run_cm", return_value=""):
         assert get_shelves(tmp_path) == []
+

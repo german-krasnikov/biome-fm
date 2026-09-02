@@ -23,7 +23,7 @@ class TestQuarantineDarwin:
             assert has_quarantine_flag(Path("/fake/file.app")) is False
 
     def test_remove_quarantine_flag_calls_removexattr(self):
-        from biome_fm.models.finder_tags import remove_quarantine_flag, _QUARANTINE_ATTR
+        from biome_fm.models.finder_tags import _QUARANTINE_ATTR, remove_quarantine_flag
 
         mock_libc = MagicMock()
         mock_libc.removexattr.return_value = 0
@@ -36,9 +36,8 @@ class TestQuarantineDarwin:
 
         mock_libc = MagicMock()
         mock_libc.removexattr.return_value = -1
-        with patch("biome_fm.models.finder_tags._libc", mock_libc):
-            with pytest.raises(OSError):
-                remove_quarantine_flag(Path("/fake/file.app"))
+        with patch("biome_fm.models.finder_tags._libc", mock_libc), pytest.raises(OSError):
+            remove_quarantine_flag(Path("/fake/file.app"))
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="macOS only")
@@ -55,7 +54,6 @@ class TestRemoveQuarantineCmd:
             cmd.execute()
         mock_get.assert_called_once_with(str(p), "com.apple.quarantine")
         mock_rm.assert_called_once_with(p)
-        assert cmd._removed == [(p, b"0001;xyz")]
 
     def test_execute_skips_files_without_quarantine(self):
         from biome_fm.commands.quarantine_cmd import RemoveQuarantineCmd
@@ -68,17 +66,6 @@ class TestRemoveQuarantineCmd:
             cmd = RemoveQuarantineCmd([p])
             cmd.execute()
         mock_rm.assert_not_called()
-        assert cmd._removed == []
-
-    def test_undo_restores_xattr(self):
-        from biome_fm.commands.quarantine_cmd import RemoveQuarantineCmd
-
-        p = Path("/fake/file.app")
-        cmd = RemoveQuarantineCmd([p])
-        cmd._removed = [(p, b"0001;xyz")]
-        with patch("biome_fm.models.finder_tags._setxattr") as mock_set:
-            cmd.undo()
-        mock_set.assert_called_once_with(str(p), "com.apple.quarantine", b"0001;xyz")
 
 
 @pytest.mark.skipif(sys.platform == "darwin", reason="non-macOS stubs only")

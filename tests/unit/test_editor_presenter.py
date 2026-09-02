@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
+
+import pytest
 
 from biome_fm.presenters.editor_presenter import EditorPresenter
 
@@ -34,3 +37,14 @@ def test_is_modified(tmp_path: Path) -> None:
     assert not presenter.is_modified()
     view.setPlainText("hello changed")
     assert presenter.is_modified()
+
+
+def test_save_is_atomic(tmp_path: Path) -> None:
+    f = tmp_path / "data.txt"
+    f.write_text("original")
+    view = _MockEditorView("modified")
+    presenter = EditorPresenter(view, f)
+    # Simulate crash on rename — original must survive
+    with patch("pathlib.Path.replace", side_effect=OSError("disk full")), pytest.raises(OSError):
+        presenter.save()
+    assert f.read_text() == "original"

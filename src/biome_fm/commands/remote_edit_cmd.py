@@ -11,9 +11,7 @@ from biome_fm.commands.base import Command
 
 
 class RemoteEditCmd(Command):
-    """Download → editor → re-upload on mtime change. Not undoable."""
-
-    undoable = False
+    """Download → editor → re-upload on mtime change."""
 
     def __init__(self, path: Path, vfs, editor_cmd: str) -> None:
         self._path = path
@@ -35,5 +33,3 @@ class RemoteEditCmd(Command):
         finally:
             Path(tmp).unlink(missing_ok=True)
 
-    def undo(self) -> None:
-        pass  # not undoable

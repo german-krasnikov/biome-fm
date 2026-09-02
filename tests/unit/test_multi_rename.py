@@ -36,33 +36,24 @@ def test_multi_rename_cmd_execute():
     ])
 
 
-def test_multi_rename_cmd_undo():
+def test_multi_rename_cmd_empty_list():
+    v = vfs()
+    cmd = MultiRenameCmd([], v)
+    cmd.execute()
+    v.move.assert_not_called()
+
+
+def test_multi_rename_execute_renames_files():
+    """Regression guard: execute() renames all files after _done tracking removed."""
     v = vfs()
     renames = [
         (Path("/tmp/a.txt"), Path("/tmp/b.txt")),
         (Path("/tmp/c.txt"), Path("/tmp/d.txt")),
     ]
-    cmd = MultiRenameCmd(renames, v)
-    cmd.execute()
-    v.move.reset_mock()
-    cmd.undo()
-    # reversed order
-    v.move.assert_has_calls([
-        call(Path("/tmp/d.txt"), Path("/tmp/c.txt")),
-        call(Path("/tmp/b.txt"), Path("/tmp/a.txt")),
-    ])
-
-
-def test_multi_rename_cmd_empty_list():
-    v = vfs()
-    cmd = MultiRenameCmd([], v)
-    cmd.execute()
-    cmd.undo()
-    v.move.assert_not_called()
-
-
-def test_multi_rename_cmd_is_undoable():
-    assert MultiRenameCmd([], vfs()).undoable is True
+    MultiRenameCmd(renames, v).execute()
+    assert v.move.call_count == 2
+    v.move.assert_any_call(Path("/tmp/a.txt"), Path("/tmp/b.txt"))
+    v.move.assert_any_call(Path("/tmp/c.txt"), Path("/tmp/d.txt"))
 
 
 # ── RenamePresenter: regex ──────────────────────────────────────────────────

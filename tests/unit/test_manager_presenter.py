@@ -187,47 +187,6 @@ def test_rename_in_place(setup):
     assert not f.exists()
 
 
-def test_undo_after_copy_removes_dst(setup):
-    mgr, lp, rp, lv, rv, vfs, bus, left_dir, right_dir = setup
-    f = left_dir / "c.txt"
-    f.write_text("copy me")
-    mgr.copy_selected([_item(f)])
-    assert (right_dir / "c.txt").exists()
-    mgr.undo()
-    assert not (right_dir / "c.txt").exists()
-    assert (left_dir / "c.txt").exists()  # original untouched
-
-
-def test_undo_after_move_restores_src(setup):
-    mgr, lp, rp, lv, rv, vfs, bus, left_dir, right_dir = setup
-    f = left_dir / "m.txt"
-    f.write_text("move me")
-    mgr.move_selected([_item(f)])
-    assert not f.exists()
-    mgr.undo()
-    assert f.exists()
-    assert not (right_dir / "m.txt").exists()
-
-
-def test_redo_after_undo_reapplies(setup):
-    mgr, lp, rp, lv, rv, vfs, bus, left_dir, right_dir = setup
-    f = left_dir / "r.txt"
-    f.write_text("redo me")
-    mgr.copy_selected([_item(f)])
-    mgr.undo()
-    assert not (right_dir / "r.txt").exists()
-    mgr.redo()
-    assert (right_dir / "r.txt").exists()
-
-
-def test_delete_not_in_undo_stack(setup):
-    mgr, lp, rp, lv, rv, vfs, bus, left_dir, right_dir = setup
-    f = left_dir / "gone.txt"
-    f.write_text("bye")
-    mgr.delete_selected([_item(f)])
-    assert not mgr.can_undo
-
-
 def test_operation_refreshes_both_panes(setup):
     mgr, lp, rp, lv, rv, vfs, bus, left_dir, right_dir = setup
     calls_before_l = lv.set_items_calls
@@ -326,3 +285,36 @@ def test_no_bus_does_not_crash(tmp_path):
     f.write_text("x")
     mgr.copy_selected([_item(f)])  # copies right→left; would publish started/finished — no crash
     assert (left_dir / "x.txt").exists()
+
+
+# ── guard tests (REMOVE_UNDO-02) ──────────────────────────────────────────────
+
+def test_manager_has_no_undo_attrs(setup):
+    mgr, *_ = setup
+    assert not hasattr(mgr, "undo")
+    assert not hasattr(mgr, "redo")
+    assert not hasattr(mgr, "can_undo")
+    assert not hasattr(mgr, "can_redo")
+
+
+def test_run_calls_execute_directly(setup):
+    """_run() calls cmd.execute() directly and publishes OperationFinished."""
+    mgr, lp, rp, lv, rv, vfs, bus, left_dir, right_dir = setup
+    executed = []
+
+    class _Cmd:
+        def execute(self) -> None:
+            executed.append(True)
+
+        @property
+        def description(self) -> str:
+            return "test-op"
+
+        def preview(self) -> list:
+            return []
+
+    finished: list[OperationFinished] = []
+    bus.subscribe(OperationFinished, finished.append)
+    mgr._run(_Cmd(), "test-op")
+    assert executed
+    assert finished

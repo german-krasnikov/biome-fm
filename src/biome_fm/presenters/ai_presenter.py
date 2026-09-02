@@ -261,7 +261,7 @@ class AIPresenter:
         self._epoch += 1
         if hasattr(self._provider, "terminate"):
             self._provider.terminate()
-        self._pool.shutdown(wait=True, cancel_futures=True)
+        self._pool.shutdown(wait=False, cancel_futures=True)
 
     def _build_system(self) -> str:
         parts = ["You are a concise file manager assistant."]

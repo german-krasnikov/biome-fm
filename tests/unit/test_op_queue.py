@@ -25,9 +25,6 @@ class FakeCommand(Command):
             raise self._side_effect
         self.executed = True
 
-    def undo(self) -> None:
-        self.executed = False
-
 
 def _drain_until(q: OpQueue, predicate, timeout: float = 2.0) -> list:
     """Drain events until predicate returns True or timeout."""

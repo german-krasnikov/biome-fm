@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import logging as _logging
+import tomllib as _tomllib
 from pathlib import Path
 
 from biome_fm.utils.atomic_write import atomic_write
@@ -20,6 +22,19 @@ def read_json(path: Path, default: object = _MISSING) -> object:
         return json.loads(path.read_text("utf-8"))
     except (FileNotFoundError, json.JSONDecodeError):
         return {} if default is _MISSING else default
+
+
+def safe_load_toml(path: Path, parse, default_factory):
+    """Parse a TOML file with parse(data) → result. Return default_factory() on any error."""
+    _log = _logging.getLogger(__name__)
+    try:
+        with open(path, "rb") as f:
+            data = _tomllib.load(f)
+        return parse(data)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError,
+            _tomllib.TOMLDecodeError) as exc:
+        _log.warning("corrupt store %s (%s) — using defaults", path, exc)
+        return default_factory()
 
 
 def toml_escape(s: str) -> str:

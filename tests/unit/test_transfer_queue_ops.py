@@ -16,16 +16,12 @@ class _FailCmd(Command):
     def execute(self) -> None:
         raise RuntimeError("boom")
 
-    def undo(self) -> None: ...
-
 
 class _OkCmd(Command):
     executed = False
 
     def execute(self) -> None:
         self.executed = True
-
-    def undo(self) -> None: ...
 
 
 def _noop(*_: object) -> None: ...

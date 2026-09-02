@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import html
 import struct
 from pathlib import Path
 
@@ -82,7 +83,7 @@ def _parse_ifd(tiff: bytes) -> dict | None:
 def _exif_html(path: Path, raw: bytes, exif: dict) -> str:
     mime = "image/jpeg" if path.suffix.lower() in {".jpg", ".jpeg"} else "image/png"
     b64 = base64.b64encode(raw).decode()
-    rows = "".join(f"<tr><td>{k}</td><td>{v}</td></tr>" for k, v in exif.items())
+    rows = "".join(f"<tr><td>{html.escape(k)}</td><td>{html.escape(v)}</td></tr>" for k, v in exif.items())
     return (
         f'<img src="data:{mime};base64,{b64}" style="max-width:100%;max-height:60vh">'
         f"<table style='margin-top:8px;font-size:12px'>{rows}</table>"

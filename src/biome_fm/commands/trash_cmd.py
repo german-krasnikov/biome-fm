@@ -1,4 +1,4 @@
-"""TrashCmd — move files to OS trash (non-undoable)."""
+"""TrashCmd — move files to OS trash."""
 from __future__ import annotations
 
 import warnings
@@ -15,17 +15,12 @@ except ImportError:  # pragma: no cover
 
 
 class TrashCmd(Command):
-    undoable = False
-
     def __init__(self, paths: list[Path]) -> None:
         self._paths = paths
 
     def execute(self) -> None:
         for p in self._paths:
             _send2trash(str(p))
-
-    def undo(self) -> None:
-        pass  # trash restore not supported by send2trash API
 
     @property
     def description(self) -> str:

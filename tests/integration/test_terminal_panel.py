@@ -7,7 +7,6 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 
-
 def test_terminal_instantiates(qtbot):
     from biome_fm.views.terminal_panel import TerminalPanel
     tp = TerminalPanel()
@@ -66,4 +65,32 @@ def test_run_command_starts_process_if_not_started(qtbot, tmp_path):
     assert tp._proc is None
     # run_command should start the shell (may not complete in test env, but _proc must be set)
     tp.run_command("echo hello", cwd=tmp_path)
+    assert tp._proc is not None
+
+
+def test_stop_kills_process_and_resets(qtbot):
+    from unittest.mock import MagicMock
+
+    from biome_fm.qt import QProcess
+    from biome_fm.views.terminal_panel import TerminalPanel
+    tp = TerminalPanel()
+    qtbot.addWidget(tp)
+    mock_proc = MagicMock()
+    mock_proc.state.return_value = QProcess.ProcessState.Running
+    mock_proc.waitForFinished.return_value = True
+    tp._proc = mock_proc
+    tp.stop()
+    mock_proc.terminate.assert_called_once()
+    assert tp._proc is None
+
+
+def test_restart_after_stop_creates_new_proc(qtbot, tmp_path):
+    from biome_fm.views.terminal_panel import TerminalPanel
+    tp = TerminalPanel()
+    qtbot.addWidget(tp)
+    tp.stop()           # _proc is None — stop is a no-op
+    tp.start(tmp_path)
+    assert tp._proc is not None
+    tp.stop()
+    tp.start(tmp_path)  # second start after stop must create a new proc
     assert tp._proc is not None

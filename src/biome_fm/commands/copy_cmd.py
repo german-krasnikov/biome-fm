@@ -1,4 +1,4 @@
-"""Copy command — copy to dest dir (undoable via delete)."""
+"""Copy command — copy to dest dir."""
 from __future__ import annotations
 
 import os
@@ -15,7 +15,7 @@ from biome_fm.models.conflict_resolver import (
     PreCopyConflictResolver,
     auto_rename,
 )
-from biome_fm.models.vfs import VFSProtocol, WritableVFS
+from biome_fm.models.vfs import VFSProtocol
 from biome_fm.operations.task import Cancelled
 
 _ILLEGAL = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
@@ -38,19 +38,11 @@ class CopyCmd(Command):
         self._sources = sources
         self._dest_dir = dest_dir
         self._vfs = vfs
-        self._created: list[Path] = []
 
     def execute(self) -> None:
-        self._created.clear()
         for src in self._sources:
             dst = self._dest_dir / src.name
             self._vfs.copy(src, dst)
-            self._created.append(dst)
-
-    def undo(self) -> None:
-        for p in reversed(self._created):
-            self._vfs.delete(p)
-        self._created.clear()
 
     @property
     def description(self) -> str:
@@ -92,8 +84,8 @@ class ProgressCopyCmd(Command):
         self._verify = verify
         self._pause = pause
         self._src_vfs = src_vfs
-        self._created: list[Path] = []
         self._backups: dict[Path, Path] = {}  # dst -> temp backup; only for overwrites
+        self._pre_existed_dirs: dict[Path, bool] = {}  # dst dir -> pre-existed before execute()
 
     def _save_backup(self, dst: Path) -> Path:
         """Copy dst to a sibling temp file on the same filesystem (atomic rename on restore)."""
@@ -107,10 +99,10 @@ class ProgressCopyCmd(Command):
         return Path(tmp)
 
     def execute(self) -> None:
-        self._created.clear()
         for bak in self._backups.values():
             bak.unlink(missing_ok=True)
         self._backups.clear()
+        self._pre_existed_dirs.clear()
         total = len(self._sources)
         for i, src in enumerate(self._sources):
             if self._cancel.is_set():
@@ -127,11 +119,14 @@ class ProgressCopyCmd(Command):
                     dst = auto_rename(dst)
                 elif action in (ConflictAction.OVERWRITE, ConflictAction.OVERWRITE_ALL):
                     force_overwrite = True
+            pre_existed = dst.exists()
+            self._pre_existed_dirs[dst] = pre_existed
             if src.is_dir():
                 try:
-                    self._copy_dir(src, dst)
+                    self._copy_dir(src, dst, force_overwrite)
                 except Exception:
-                    shutil.rmtree(dst, ignore_errors=True)
+                    if not pre_existed:
+                        shutil.rmtree(dst, ignore_errors=True)
                     raise
             elif src.is_file():
                 backup = None
@@ -150,8 +145,7 @@ class ProgressCopyCmd(Command):
                     raise
             elif self._src_vfs is not None:
                 # Cross-VFS: read from src_vfs, write locally
-                # ponytail: loads whole file into memory; stream if >100MB needed
-                self._copy_cross_vfs(src, dst, i, total)
+                self._copy_cross_vfs(src, dst, i, total, force_overwrite)
             elif self._vfs is not None:
                 # Archive path — ask the VFS
                 try:
@@ -167,9 +161,8 @@ class ProgressCopyCmd(Command):
                         raise
                 else:
                     self._copy_archive_file(src, dst, i, total)
-            self._created.append(dst)
 
-    def _copy_dir(self, src: Path, dst: Path) -> None:
+    def _copy_dir(self, src: Path, dst: Path, force_overwrite: bool = False) -> None:
         dst.mkdir(parents=True, exist_ok=True)
         for child in src.iterdir():
             if self._cancel.is_set():
@@ -177,9 +170,12 @@ class ProgressCopyCmd(Command):
             if _check_filename_safety(child.name) is not None:
                 raise ValueError(f"Illegal filename: {child.name}")
             if child.is_dir():
-                self._copy_dir(child, dst / child.name)
+                child_dst = dst / child.name
+                self._pre_existed_dirs.setdefault(child_dst, child_dst.exists())
+                self._copy_dir(child, child_dst, force_overwrite)
             else:
-                self._copy_file(child, dst / child.name)
+                leaf_dst = dst / child.name
+                self._copy_file(child, leaf_dst, force_overwrite=force_overwrite)
         shutil.copystat(src, dst)
 
     def _copy_archive_dir(self, src: Path, dst: Path) -> None:
@@ -192,11 +188,11 @@ class ProgressCopyCmd(Command):
             else:
                 self._copy_archive_file(item.path, dst / item.name)
 
-    def _copy_cross_vfs(self, src: Path, dst: Path, files_done: int = 0, files_total: int = 0) -> None:
+    def _copy_cross_vfs(self, src: Path, dst: Path, files_done: int = 0, files_total: int = 0, force_overwrite: bool = False) -> None:
         import os
         dst.parent.mkdir(parents=True, exist_ok=True)
         offset = 0
-        if dst.exists() and hasattr(self._src_vfs, "open_read") and hasattr(self._src_vfs, "stat"):
+        if not force_overwrite and dst.exists() and hasattr(self._src_vfs, "open_read") and hasattr(self._src_vfs, "stat"):
             try:
                 remote_size = self._src_vfs.stat(src).size
                 local_size = dst.stat().st_size
@@ -248,6 +244,11 @@ class ProgressCopyCmd(Command):
         files_done: int = 0, files_total: int = 0,
         force_overwrite: bool = False,
     ) -> None:
+        try:
+            if dst.exists() and os.path.samefile(src, dst):
+                raise shutil.SameFileError(str(src))
+        except FileNotFoundError:
+            pass
         size = src.stat().st_size
         offset = 0
         mode = "wb"
@@ -296,29 +297,6 @@ class ProgressCopyCmd(Command):
 
         if _hash(src) != _hash(dst):
             raise RuntimeError(f"Checksum mismatch: {src.name}")
-
-    def undo(self) -> None:
-        for p in reversed(self._created):
-            if p in self._backups:
-                backup = self._backups.pop(p)
-                try:
-                    shutil.move(str(backup), str(p))
-                except Exception:
-                    backup.unlink(missing_ok=True)
-            elif isinstance(self._vfs, WritableVFS):
-                try:
-                    self._vfs.delete(p)
-                except Exception:
-                    pass
-            elif p.is_dir():
-                shutil.rmtree(p, ignore_errors=True)
-            else:
-                p.unlink(missing_ok=True)
-        self._created.clear()
-        # clean up any orphaned backups (partial multi-file copy)
-        for bak in self._backups.values():
-            bak.unlink(missing_ok=True)
-        self._backups.clear()
 
     @property
     def description(self) -> str:

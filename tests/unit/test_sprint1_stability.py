@@ -9,7 +9,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Fix #1 — SFTPVfs.listdir: modified must be float
 # ---------------------------------------------------------------------------
@@ -95,17 +94,10 @@ def test_sftp_delete_dir_falls_back_to_rmdir():
 def test_mkdir_cmd_uses_vfs():
     from biome_fm.commands.mkdir_cmd import MkdirCmd
     mock_vfs = MagicMock()
+    mock_vfs.exists.return_value = False  # path does not exist — execute() proceeds
     path = Path("/tmp/newdir")
     MkdirCmd(path, mock_vfs).execute()
     mock_vfs.mkdir.assert_called_once_with(path)
-
-
-def test_mkdir_cmd_undo_uses_vfs():
-    from biome_fm.commands.mkdir_cmd import MkdirCmd
-    mock_vfs = MagicMock()
-    path = Path("/tmp/newdir")
-    MkdirCmd(path, mock_vfs).undo()
-    mock_vfs.delete.assert_called_once_with(path)
 
 
 def test_mkdir_cmd_accepts_valid_path():
@@ -113,76 +105,6 @@ def test_mkdir_cmd_accepts_valid_path():
     # Should not raise — normal valid name
     cmd = MkdirCmd(Path("/tmp/newdir"), MagicMock())
     assert cmd.description == "Create folder 'newdir'"
-
-
-# ---------------------------------------------------------------------------
-# Fix #4 — CommandHistory peek-before-pop
-# ---------------------------------------------------------------------------
-
-def _make_history():
-    from biome_fm.commands.base import Command, CommandHistory
-
-    class OkCmd(Command):
-        executed = False
-        undone = False
-
-        def execute(self):
-            OkCmd.executed = True
-
-        def undo(self):
-            OkCmd.undone = True
-
-    class FailUndoCmd(Command):
-        def execute(self):
-            pass
-
-        def undo(self):
-            raise RuntimeError("undo failed")
-
-    class FailRedoCmd(Command):
-        def __init__(self):
-            self._count = 0
-
-        def execute(self):
-            self._count += 1
-            if self._count > 1:
-                raise RuntimeError("redo failed")
-
-        def undo(self):
-            pass
-
-    return CommandHistory, OkCmd, FailUndoCmd, FailRedoCmd
-
-
-def test_undo_raising_command_stays_on_stack():
-    CommandHistory, OkCmd, FailUndoCmd, _ = _make_history()
-    h = CommandHistory()
-    h.execute(FailUndoCmd())
-    assert h.can_undo
-    with pytest.raises(RuntimeError):
-        h.undo()
-    assert h.can_undo  # command NOT lost
-
-
-def test_redo_raising_command_stays_on_stack():
-    CommandHistory, OkCmd, _, FailRedoCmd = _make_history()
-    h = CommandHistory()
-    cmd = FailRedoCmd()
-    h.execute(cmd)
-    h.undo()  # moves to redo stack
-    assert h.can_redo
-    with pytest.raises(RuntimeError):
-        h.redo()
-    assert h.can_redo  # command NOT lost
-
-
-def test_undo_success_moves_to_redo():
-    CommandHistory, OkCmd, _, _ = _make_history()
-    h = CommandHistory()
-    h.execute(OkCmd())
-    h.undo()
-    assert not h.can_undo
-    assert h.can_redo
 
 
 # ---------------------------------------------------------------------------
@@ -252,9 +174,8 @@ def test_atomic_write_no_corruption_on_exception(tmp_path):
     from biome_fm.utils.atomic_write import atomic_write
     p = tmp_path / "file.txt"
     atomic_write(p, "original")
-    with patch("pathlib.Path.replace", side_effect=OSError("locked")):
-        with pytest.raises(OSError):
-            atomic_write(p, "new")
+    with patch("pathlib.Path.replace", side_effect=OSError("locked")), pytest.raises(OSError):
+        atomic_write(p, "new")
     # Original file unchanged
     assert p.read_text() == "original"
 
@@ -335,6 +256,7 @@ def test_space_reclaimer_cancel_suppresses_callback(tmp_path):
 
 def test_plugin_hook_isolation_on_navigate(caplog):
     import logging
+
     from biome_fm.plugins.manager import PluginManager
 
     pm = PluginManager()
@@ -345,22 +267,21 @@ def test_plugin_hook_isolation_on_navigate(caplog):
             raise RuntimeError("plugin crash")
 
     # Patch the hook to raise
-    with patch.object(pm._pm.hook, "on_navigate", side_effect=RuntimeError("plugin crash")):
-        with caplog.at_level(logging.ERROR):
-            pm.on_navigate(Path("/some/path"))  # must NOT propagate
+    with patch.object(pm._pm.hook, "on_navigate", side_effect=RuntimeError("plugin crash")), caplog.at_level(logging.ERROR):
+        pm.on_navigate(Path("/some/path"))  # must NOT propagate
 
     assert "Plugin hook on_navigate raised" in caplog.text
 
 
 def test_plugin_hook_isolation_preview_providers(caplog):
     import logging
+
     from biome_fm.plugins.manager import PluginManager
 
     pm = PluginManager()
 
-    with patch.object(pm._pm.hook, "provide_preview_providers", side_effect=RuntimeError("crash")):
-        with caplog.at_level(logging.ERROR):
-            result = pm.get_preview_providers()
+    with patch.object(pm._pm.hook, "provide_preview_providers", side_effect=RuntimeError("crash")), caplog.at_level(logging.ERROR):
+        result = pm.get_preview_providers()
 
     assert result == []
     assert "Plugin hook provide_preview_providers raised" in caplog.text

@@ -1,6 +1,7 @@
 """Fallback provider — shows file metadata for any file type."""
 from __future__ import annotations
 
+import html
 import time
 from pathlib import Path
 
@@ -17,12 +18,12 @@ class FallbackProvider:
         try:
             s = req.path.stat()
             mtime = time.strftime("%Y-%m-%d %H:%M", time.localtime(s.st_mtime))
-            html = (
-                f"<p><b>{req.path.name}</b></p>"
+            body = (
+                f"<p><b>{html.escape(req.path.name)}</b></p>"
                 f"<p>Size: {s.st_size:,} bytes<br>"
                 f"Modified: {mtime}<br>"
-                f"Type: {req.path.suffix or 'unknown'}</p>"
+                f"Type: {html.escape(req.path.suffix or 'unknown')}</p>"
             )
-            return PreviewResult(kind=ContentKind.HTML, data=html, title=req.path.name)
+            return PreviewResult(kind=ContentKind.HTML, data=body, title=req.path.name)
         except OSError as e:
             return PreviewResult(kind=ContentKind.ERROR, data=str(e))

@@ -51,8 +51,8 @@ class _TransferRow(QWidget):
 
     def update_progress(self, files_done: int, files_total: int,
                         bytes_done: int, bytes_total: int, current_file: str) -> None:
-        self._bar.setRange(0, max(bytes_total, 1))
-        self._bar.setValue(bytes_done)
+        self._bar.setRange(0, 1000)
+        self._bar.setValue(int(bytes_done * 1000 // max(bytes_total, 1)))
         if files_total:
             self._file_label.setText(f"{current_file}  ({files_done}/{files_total})")
         else:

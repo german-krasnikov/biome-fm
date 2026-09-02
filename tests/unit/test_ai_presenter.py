@@ -426,3 +426,36 @@ def test_remove_attachment_by_index(tmp_path):
     presenter.remove_attachment(0)
     assert len(presenter._pending_attachments) == 1
     assert presenter._pending_attachments[0].path != removed
+
+
+# ---------------------------------------------------------------------------
+# C41 — shutdown() must not block the GUI thread
+# ---------------------------------------------------------------------------
+
+def test_shutdown_does_not_block_on_hung_stream():
+    """shutdown() returns quickly even while a stream worker is blocking."""
+    gate = threading.Event()
+
+    class _BlockingProvider:
+        name = "blocking"
+        models = ["m"]
+        active_model = "m"
+        available = True
+
+        def chat_stream(self, messages, system=""):
+            yield "tok"
+            gate.wait()  # blocks until the event is set
+
+        def set_model(self, model):
+            pass
+
+    view = _MockView()
+    presenter = AIPresenter(view, {"blocking": _BlockingProvider()}, "blocking")
+    try:
+        presenter.send("x")
+        t = time.monotonic()
+        presenter.shutdown()
+        elapsed = time.monotonic() - t
+        assert elapsed < 0.5, f"shutdown() blocked for {elapsed:.2f}s (expected <0.5s)"
+    finally:
+        gate.set()  # unblock the worker so it doesn't leak

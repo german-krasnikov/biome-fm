@@ -24,6 +24,7 @@ class OpenAIProvider:
         self._client = _openai.OpenAI(api_key=api_key)
         self._model = model
         self.active_model = model
+        self._stream: object = None  # live Stream | None (GIL-safe in CPython)
 
     @property
     def available(self) -> bool:
@@ -45,9 +46,13 @@ class OpenAIProvider:
     def chat_stream(self, messages: list[dict], system: str = "") -> Iterator[str]:
         wire = self._build_wire(messages, system)
         stream = self._client.chat.completions.create(model=self._model, messages=wire, stream=True)
-        for chunk in stream:
-            if chunk.choices and chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
+        self._stream = stream
+        try:
+            for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
+        finally:
+            self._stream = None
 
     def _build_wire(self, messages: list[dict], system: str) -> list[dict]:
         wire: list[dict] = []
@@ -77,7 +82,12 @@ class OpenAIProvider:
         return wire
 
     def terminate(self) -> None:
-        pass
+        s, self._stream = self._stream, None
+        if s is not None:
+            try:
+                s.close()  # type: ignore[union-attr]
+            except Exception:
+                pass
 
     def chat_stream_events(
         self, messages: list[dict], system: str = ""

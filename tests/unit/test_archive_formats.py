@@ -5,7 +5,6 @@ import tarfile
 import zipfile
 from pathlib import Path
 
-
 from biome_fm.commands.archive_cmd import ArchiveCmd
 
 
@@ -40,10 +39,3 @@ def test_tar_bz2_created(tmp_path: Path) -> None:
         assert "hello.txt" in tf.getnames()
 
 
-def test_tar_gz_undo_deletes(tmp_path: Path) -> None:
-    src = _make_src(tmp_path)
-    archive = tmp_path / "out.tar.gz"
-    cmd = ArchiveCmd([src], archive, fmt="tar.gz")
-    cmd.execute()
-    cmd.undo()
-    assert not archive.exists()

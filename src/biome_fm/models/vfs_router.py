@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 import threading
+from dataclasses import replace as _dc_replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -131,6 +132,7 @@ class VFSRouter:
         if cached is not None:
             return cached
         items = vfs.listdir(p)
+        items = [_dc_replace(i, path=path / i.name) for i in items]
         self._rcache.set(path, items)
         return items
 
@@ -155,12 +157,13 @@ class VFSRouter:
             raise VFSReadOnlyError(f"VFS for {path} is read-only")
 
     def copy(self, src: Path, dst: Path) -> None:
-        vfs, _ = self._resolve(src)
+        vfs, p = self._resolve(src)
         if isinstance(vfs, ArchiveVFS):
-            self._extract(vfs, src, dst)
+            self._extract(vfs, p, dst)
             return
         self._require_writable(vfs, src)
-        vfs.copy(src, dst)
+        _, q = self._resolve(dst)
+        vfs.copy(p, q)
 
     def _extract(self, vfs: ArchiveVFS, src: Path, dst: Path) -> None:
         try:
@@ -178,9 +181,10 @@ class VFSRouter:
                 dst.write_bytes(f.read())
 
     def move(self, src: Path, dst: Path) -> None:
-        vfs, _ = self._resolve(src)
+        vfs, p = self._resolve(src)
         self._require_writable(vfs, src)
-        vfs.move(src, dst)
+        _, q = self._resolve(dst)
+        vfs.move(p, q)
         if _URI_RE.match(str(src)):
             self._rcache.invalidate(src.parent)
         if _URI_RE.match(str(dst)):

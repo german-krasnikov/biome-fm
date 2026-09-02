@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 from biome_fm.models.file_item import FileItem
 
 
@@ -23,22 +22,6 @@ class TestSymlinkCmd:
         assert link.is_symlink()
         assert link.resolve() == target.resolve()
 
-    def test_undo_removes(self, tmp_path: Path) -> None:
-        from biome_fm.commands.symlink_cmd import SymlinkCmd
-
-        target = _src(tmp_path)
-        link = tmp_path / "link.txt"
-        cmd = SymlinkCmd(target, link)
-        cmd.execute()
-        cmd.undo()
-        assert not link.exists()
-        assert not link.is_symlink()
-
-    def test_is_undoable(self) -> None:
-        from biome_fm.commands.symlink_cmd import SymlinkCmd
-        assert SymlinkCmd(Path("/a"), Path("/b")).undoable is True
-
-
 class TestHardlinkCmd:
     def test_hardlink_creates(self, tmp_path: Path) -> None:
         from biome_fm.commands.symlink_cmd import HardlinkCmd
@@ -48,17 +31,6 @@ class TestHardlinkCmd:
         HardlinkCmd(target, link).execute()
         assert link.exists()
         assert link.stat().st_ino == target.stat().st_ino
-
-    def test_hardlink_undo(self, tmp_path: Path) -> None:
-        from biome_fm.commands.symlink_cmd import HardlinkCmd
-
-        target = _src(tmp_path)
-        link = tmp_path / "hard.txt"
-        cmd = HardlinkCmd(target, link)
-        cmd.execute()
-        cmd.undo()
-        assert not link.exists()
-
 
 class TestFileItemSymlink:
     def test_is_symlink_field(self) -> None:

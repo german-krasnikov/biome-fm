@@ -2,11 +2,13 @@
 
 Usage pattern (matches test contract and Qt production use):
     p.refresh()   — fires background work
-    p.drain()     — waits for completion, pushes results to view (called by QTimer or test)
+    p.poll()      — non-blocking, production timer target (QTimer 100ms)
+    p.drain()     — blocking, for tests only
 """
 from __future__ import annotations
 
 import queue
+import subprocess
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
@@ -193,10 +195,12 @@ class PlasticPresenter:
                 self._queue.put(("error", str(exc)))
 
             try:
-                out = run_cm(["status", "--all", "--machinereadable"], cwd=self._cwd, safe=True)
+                out = run_cm(["status", "--all", "--machinereadable"], cwd=self._cwd, timeout=120)
                 if not out.strip():
-                    out = run_cm(["status", "--all"], cwd=self._cwd, safe=True)
+                    out = run_cm(["status", "--all"], cwd=self._cwd, timeout=120)
                 self._queue.put(("status", parse_status(out, self._cwd)))
+            except subprocess.TimeoutExpired:
+                self._queue.put(("error", "cm status timed out"))
             except Exception as exc:
                 self._queue.put(("error", str(exc)))
 
@@ -225,10 +229,21 @@ class PlasticPresenter:
 
     # ── Drain ─────────────────────────────────────────────────────────────────
 
+    def poll(self) -> None:
+        """Non-blocking drain: push already-queued results to view; skip if job in flight.
+
+        Production timer target (QTimer 100ms). Never blocks.
+        """
+        self._drain_queue()
+
     def drain(self) -> None:
-        """Push queued results to view. Waits for a pending refresh() to finish first."""
+        """Blocking drain: wait for in-flight job, then push. For tests only."""
         if self._future is not None and not self._future.done():
             self._future.result()  # blocks until background refresh completes
+        self._drain_queue()
+
+    def _drain_queue(self) -> None:
+        """Consume all queued (kind, payload) pairs and dispatch to view."""
         try:
             while True:
                 kind, payload = self._queue.get_nowait()
@@ -344,13 +359,13 @@ class PlasticPresenter:
 
     def switch_label(self, name: str) -> None:
         def _run() -> None:
-            run_cm(["switch", f"lb:{name}"], cwd=self._cwd)
+            run_cm(["switch", f"lb:{name}"], cwd=self._cwd, timeout=None)
             self._bg_refresh()
         self._bg_submit(_run)
 
     def create_branch(self, name: str) -> None:
         def _run() -> None:
-            run_cm(["branch", "create", name], cwd=self._cwd)
+            run_cm(["branch", "create", name], cwd=self._cwd, timeout=None)
             out = run_cm(["find", "branches", f"--format={_BR_FMT}"], cwd=self._cwd, safe=True)
             self._queue.put(("branches", parse_branches(out)))
         self._bg_submit(_run)

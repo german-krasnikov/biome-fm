@@ -11,12 +11,12 @@ def add(paths: list[Path], cwd: Path, recursive: bool = False) -> None:
     if recursive:
         args.append("--recursive")
     args.extend(str(p) for p in paths)
-    run_cm(args, cwd=cwd)
+    run_cm(args, cwd=cwd, timeout=None)
 
 
 def remove(path: Path, cwd: Path) -> None:
-    run_cm(["remove", str(path)], cwd=cwd)
+    run_cm(["remove", str(path)], cwd=cwd, timeout=None)
 
 
 def move(src: Path, dst: Path, cwd: Path) -> None:
-    run_cm(["move", str(src), str(dst)], cwd=cwd)
+    run_cm(["move", str(src), str(dst)], cwd=cwd, timeout=None)

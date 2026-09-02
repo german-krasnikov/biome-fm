@@ -15,9 +15,6 @@ class _RecordCmd:
         time.sleep(self.delay)
         self.results.append(self.name)
 
-    def undo(self) -> None:
-        pass
-
 
 class TestSerialOpQueue:
     def test_make_serial_queue_returns_single_worker(self) -> None:

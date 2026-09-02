@@ -32,8 +32,8 @@ class ProgressDialog(QDialog):
     def update_progress(self, event: object) -> None:
         self._file_label.setText(event.current_file)  # type: ignore[attr-defined]
         if event.bytes_total > 0:  # type: ignore[attr-defined]
-            self._bytes_bar.setMaximum(event.bytes_total)  # type: ignore[attr-defined]
-            self._bytes_bar.setValue(event.bytes_done)  # type: ignore[attr-defined]
+            self._bytes_bar.setRange(0, 1000)
+            self._bytes_bar.setValue(int(event.bytes_done * 1000 // event.bytes_total))  # type: ignore[attr-defined]
         self._overall_label.setText(f"{event.files_done} / {event.files_total}")  # type: ignore[attr-defined]
         self._files_bar.setMaximum(max(event.files_total, 1))  # type: ignore[attr-defined]
         self._files_bar.setValue(event.files_done)  # type: ignore[attr-defined]

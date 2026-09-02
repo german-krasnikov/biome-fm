@@ -61,7 +61,7 @@ def test_execute_handles_timeout(mock_which, mock_run, tmp_path):
     with pytest.raises(RuntimeError, match="timed out"):
         Encrypted7zCmd([Path("/tmp/a.txt")], archive, "pw").execute()
 
-    assert not archive.exists()  # undo() called
+    assert not archive.exists()  # unlink called on timeout
 
 
 @patch("biome_fm.commands.archive_cmd.shutil.which", return_value=None)
@@ -70,19 +70,21 @@ def test_execute_raises_when_7z_missing(mock_which):
         Encrypted7zCmd([Path("/tmp/a.txt")], Path("/tmp/out.7z"), "pw").execute()
 
 
-def test_undo_removes_archive(tmp_path):
-    archive = tmp_path / "out.7z"
-    archive.touch()
-
-    Encrypted7zCmd([], archive, "pw").undo()
-
-    assert not archive.exists()
-
-
-def test_undo_missing_archive_is_noop(tmp_path):
-    Encrypted7zCmd([], tmp_path / "ghost.7z", "pw").undo()  # no error
-
-
 def test_description():
     cmd = Encrypted7zCmd([], Path("/tmp/secret.7z"), "pw")
     assert cmd.description == "Encrypted archive secret.7z"
+
+
+@patch("biome_fm.commands.archive_cmd.subprocess.run")
+@patch("biome_fm.commands.archive_cmd.shutil.which", return_value="/usr/bin/7z")
+def test_encrypted7z_timeout_unlinks_archive(mock_which, mock_run, tmp_path):
+    """REGRESSION GUARD: TimeoutExpired causes archive unlink without calling undo()."""
+    archive = tmp_path / "out.7z"
+    archive.touch()
+    mock_run.side_effect = subprocess.TimeoutExpired(cmd="7z", timeout=300)
+
+    cmd = Encrypted7zCmd([Path("/tmp/a.txt")], archive, "pw")
+    with pytest.raises(RuntimeError, match="timed out"):
+        cmd.execute()
+
+    assert not archive.exists()

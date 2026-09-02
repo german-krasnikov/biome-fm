@@ -175,11 +175,15 @@ def test_on_checkin_emits_with_comment(win, qtbot):
 
 
 def test_on_undo_emits_checked(win, qtbot):
+    from unittest.mock import patch
+    from PySide6.QtWidgets import QMessageBox
     win.set_status_items([PlasticItem(status="CO", path=Path("/w/f.py"))])
     win._drain()
     received = []
     win.undo_requested.connect(lambda items: received.append(items))
-    win._on_undo()
+    with patch("biome_fm.plastic._window.QMessageBox.question",
+               return_value=QMessageBox.StandardButton.Yes):
+        win._on_undo()
     assert len(received) == 1
     assert len(received[0]) == 1
 
@@ -969,6 +973,8 @@ def test_undo_all_signal_exists(win):
 
 
 def test_undo_keep_signal_emits(win, qtbot):
+    from unittest.mock import patch
+    from PySide6.QtWidgets import QMessageBox
     items = [PlasticItem(status="CO", path=Path("/a.py"))]
     win.set_status_items(items)
     win._drain()
@@ -979,8 +985,10 @@ def test_undo_keep_signal_emits(win, qtbot):
         if child.rowCount() > 0:
             win._status_tree.setCurrentIndex(child.child(0).index())
             child.child(0).setCheckState(Qt.CheckState.Checked)
-    with qtbot.waitSignal(win.undo_keep_requested, timeout=500) as sig:
-        win._on_undo_keep()
+    with patch("biome_fm.plastic._window.QMessageBox.question",
+               return_value=QMessageBox.StandardButton.Yes):
+        with qtbot.waitSignal(win.undo_keep_requested, timeout=500) as sig:
+            win._on_undo_keep()
     assert len(sig.args[0]) > 0
 
 
@@ -1217,3 +1225,83 @@ def test_fmt_size_in_file_row(win, tmp_path):
     row = win._make_file_row(plastic)
     assert row[2].text() != "—"
     assert "B" in row[2].text()
+
+
+# ── C51 — selection-first actions + confirmation + PR unchecked ───────────────
+
+def test_undo_uses_selection_not_all_checked(qtbot, tmp_path):
+    """Selection overrides checked: only selected row emitted, not all 3 checked rows."""
+    from unittest.mock import patch
+    from PySide6.QtCore import QItemSelectionModel
+    from PySide6.QtWidgets import QMessageBox
+
+    win = PlasticWindow()
+    qtbot.addWidget(win)
+    items = [PlasticItem(status="CO", path=tmp_path / f) for f in ["a.cs", "b.cs", "c.cs"]]
+    win.set_status_items(items)
+    win._drain()
+    # select b.cs (sorted row 1 under the single dir group)
+    file_item = win._status_model.item(0, 0).child(1)
+    idx = win._status_model.indexFromItem(file_item)
+    win._status_tree.selectionModel().select(idx, QItemSelectionModel.SelectionFlag.Select)
+
+    emitted = []
+    win.undo_requested.connect(emitted.append)
+    with patch("biome_fm.plastic._window.QMessageBox.question",
+               return_value=QMessageBox.StandardButton.Yes):
+        win._on_undo()
+    assert len(emitted) == 1 and len(emitted[0]) == 1
+
+
+def test_undo_cancelled_by_dialog(qtbot):
+    """QMessageBox.question returning No must suppress the undo_requested signal."""
+    from unittest.mock import patch
+    from PySide6.QtWidgets import QMessageBox
+
+    win = PlasticWindow()
+    qtbot.addWidget(win)
+    win.set_status_items([PlasticItem(status="CO", path=Path("/w/a.cs"))])
+    win._drain()
+
+    emitted = []
+    win.undo_requested.connect(emitted.append)
+    with patch("biome_fm.plastic._window.QMessageBox.question",
+               return_value=QMessageBox.StandardButton.No):
+        win._on_undo()
+    assert emitted == []
+
+
+def test_private_rows_unchecked_by_default(qtbot, tmp_path):
+    """PR-status rows must be Unchecked by default; _checked_items() must exclude them."""
+    win = PlasticWindow()
+    qtbot.addWidget(win)
+    pr = PlasticItem(status="PR", path=tmp_path / "untracked.cs")
+    co = PlasticItem(status="CO", path=tmp_path / "modified.cs")
+    win.set_status_items([pr, co])
+    win._drain()
+    checked = win._checked_items()
+    assert all(i.status != "PR" for i in checked)
+
+
+def test_remove_from_vcs_confirm_text_says_remove(qtbot):
+    """Confirm dialog for Remove from VCS must say 'Remove', not 'Revert'."""
+    from unittest.mock import patch
+    from PySide6.QtWidgets import QMessageBox
+
+    win = PlasticWindow()
+    qtbot.addWidget(win)
+    win.set_status_items([PlasticItem(status="CO", path=Path("/w/a.cs"))])
+    win._drain()
+
+    recorded: list[str] = []
+
+    def fake_question(_parent, _title, text, *_args, **_kwargs):
+        recorded.append(text)
+        return QMessageBox.StandardButton.No
+
+    with patch("biome_fm.plastic._window.QMessageBox.question", side_effect=fake_question):
+        win._on_remove_from_vcs()
+
+    assert recorded, "dialog was not shown"
+    assert "Remove" in recorded[0]
+    assert "Revert" not in recorded[0]

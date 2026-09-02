@@ -1,4 +1,4 @@
-"""Move command — move to dest dir (undoable via move back)."""
+"""Move command — move to dest dir."""
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -15,19 +15,11 @@ class MoveCmd(Command):
         self._sources = sources
         self._dest_dir = dest_dir
         self._vfs = vfs
-        self._moves: list[tuple[Path, Path]] = []
 
     def execute(self) -> None:
-        self._moves.clear()
         for src in self._sources:
             dst = self._dest_dir / src.name
             self._vfs.move(src, dst)
-            self._moves.append((src, dst))
-
-    def undo(self) -> None:
-        for orig, dst in reversed(self._moves):
-            self._vfs.move(dst, orig)
-        self._moves.clear()
 
     @property
     def description(self) -> str:
@@ -56,15 +48,14 @@ class ProgressMoveCmd(Command):
         self._cancel = cancel
         self._report = report
         self._resolver = conflict_resolver
-        self._moves: list[tuple[Path, Path]] = []
 
     def execute(self) -> None:
-        self._moves.clear()
         total = len(self._sources)
         for i, src in enumerate(self._sources):
             if self._cancel.is_set():
                 raise Cancelled()
             dst = self._dest_dir / src.name
+            overwrite = False
             if dst.exists() and self._resolver is not None:
                 action = self._resolver.ask(src, dst)
                 if action in (ConflictAction.SKIP, ConflictAction.SKIP_ALL):
@@ -73,15 +64,12 @@ class ProgressMoveCmd(Command):
                     raise Cancelled()
                 if action == ConflictAction.RENAME:
                     dst = auto_rename(dst)
-                # OVERWRITE / OVERWRITE_ALL fall through
+                elif action in (ConflictAction.OVERWRITE, ConflictAction.OVERWRITE_ALL):
+                    overwrite = True
+            if overwrite:
+                self._vfs.delete(dst)
             self._vfs.move(src, dst)
-            self._moves.append((src, dst))
             self._report(i + 1, total, 0, 0, src.name)
-
-    def undo(self) -> None:
-        for orig, dst in reversed(self._moves):
-            self._vfs.move(dst, orig)
-        self._moves.clear()
 
     @property
     def description(self) -> str:

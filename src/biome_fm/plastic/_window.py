@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QMainWindow,
     QMenu,
+    QMessageBox,
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
@@ -1148,7 +1149,8 @@ class PlasticWindow(QMainWindow):
     def _make_file_row(self, plastic: PlasticItem) -> list[QStandardItem]:
         name_item = QStandardItem(plastic.path.name)
         name_item.setCheckable(True)
-        name_item.setCheckState(Qt.CheckState.Checked)
+        state = Qt.CheckState.Unchecked if plastic.status == "PR" else Qt.CheckState.Checked
+        name_item.setCheckState(state)
         name_item.setData(plastic, Qt.ItemDataRole.UserRole)
         size_str = date_str = "—"
         try:
@@ -1240,6 +1242,28 @@ class PlasticWindow(QMainWindow):
                     if plastic := file_item.data(Qt.ItemDataRole.UserRole):
                         result.append(plastic)
         return result
+
+    def _action_items(self) -> list[PlasticItem]:
+        """Selected rows first; fall back to checked items when nothing selected."""
+        selected = []
+        for idx in self._status_tree.selectionModel().selectedIndexes():
+            if idx.column() != 0:
+                continue
+            item = self._status_model.itemFromIndex(idx)
+            if item and (p := item.data(Qt.ItemDataRole.UserRole)):
+                selected.append(p)
+        return selected or self._checked_items()
+
+    def _confirm_destructive(
+        self, n: int, title: str = "Undo Changes", verb: str = "Revert"
+    ) -> bool:
+        reply = QMessageBox.question(
+            self, title,
+            f"{verb} {n} file{'s' if n != 1 else ''}? This cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return reply == QMessageBox.StandardButton.Yes
 
     # ── Drain (100ms QTimer → main thread) ───────────────────────────────────
 
@@ -1491,11 +1515,13 @@ class PlasticWindow(QMainWindow):
         self.checkin_requested.emit(items, comment)
 
     def _on_undo(self) -> None:
-        if items := self._checked_items():
+        items = self._action_items()
+        if items and self._confirm_destructive(len(items)):
             self.undo_requested.emit(items)
 
     def _on_undo_keep(self) -> None:
-        if items := self._checked_items():
+        items = self._action_items()
+        if items and self._confirm_destructive(len(items), "Undo (Keep Local)"):
             self.undo_keep_requested.emit(items)
 
     def _on_undo_changeset(self) -> None:
@@ -1568,11 +1594,11 @@ class PlasticWindow(QMainWindow):
             self.merge_branch_requested.emit(item.name, preview, resolve, semantic)
 
     def _on_lock(self) -> None:
-        if items := self._checked_items():
+        if items := self._action_items():
             self.lock_requested.emit(items)
 
     def _on_unlock(self) -> None:
-        if items := self._checked_items():
+        if items := self._action_items():
             self.unlock_requested.emit(items)
 
     def _on_view_history(self) -> None:
@@ -1678,7 +1704,8 @@ class PlasticWindow(QMainWindow):
             self.add_to_vcs_requested.emit(items)
 
     def _on_remove_from_vcs(self) -> None:
-        if items := self._checked_items():
+        items = self._action_items()
+        if items and self._confirm_destructive(len(items), "Remove from VCS", verb="Remove"):
             self.remove_from_vcs_requested.emit(items)
 
     def _on_move_file(self) -> None:

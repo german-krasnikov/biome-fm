@@ -15,9 +15,6 @@ class TestOpQueue:
             def execute(self) -> None:
                 pass
 
-            def undo(self) -> None:
-                pass
-
         q = OpQueue(max_workers=1)
         q.submit(NoopCmd())
         time.sleep(0.1)

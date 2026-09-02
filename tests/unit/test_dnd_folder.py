@@ -10,15 +10,13 @@ def test_drop_files_uses_target_folder(tmp_path):
     right.current_path = tmp_path / "right"
     right.current_path.mkdir()
     vfs = MagicMock()
-    history = MagicMock()
-    m = ManagerPresenter(left, right, vfs, history=history)
+    m = ManagerPresenter(left, right, vfs)
     target = tmp_path / "right" / "subfolder"
     target.mkdir()
     src = tmp_path / "file.txt"
     src.write_text("data")
     m.drop_files([src], "right", False, target_folder=target)
-    cmd = history.execute.call_args[0][0]
-    assert cmd._dest_dir == target
+    vfs.copy.assert_called_once_with(src.resolve(), target / "file.txt")
 
 
 def test_drop_files_no_folder_uses_pane_path(tmp_path):
@@ -27,13 +25,11 @@ def test_drop_files_no_folder_uses_pane_path(tmp_path):
     right.current_path = tmp_path / "right"
     right.current_path.mkdir()
     vfs = MagicMock()
-    history = MagicMock()
-    m = ManagerPresenter(left, right, vfs, history=history)
+    m = ManagerPresenter(left, right, vfs)
     src = tmp_path / "file.txt"
     src.write_text("data")
     m.drop_files([src], "right", False, target_folder=None)
-    cmd = history.execute.call_args[0][0]
-    assert cmd._dest_dir == tmp_path / "right"
+    vfs.copy.assert_called_once_with(src.resolve(), (tmp_path / "right") / "file.txt")
 
 
 def test_drop_folder_into_itself_blocked(tmp_path):
@@ -43,12 +39,11 @@ def test_drop_folder_into_itself_blocked(tmp_path):
     right.current_path = tmp_path / "right"
     right.current_path.mkdir()
     vfs = MagicMock()
-    history = MagicMock()
-    m = ManagerPresenter(left, right, vfs, history=history)
+    m = ManagerPresenter(left, right, vfs)
     folder = tmp_path / "folder"
     folder.mkdir()
     m.drop_files([folder], "right", False, target_folder=folder)
-    history.execute.assert_not_called()
+    vfs.copy.assert_not_called()
 
 
 def test_drop_folder_into_own_subdir_blocked(tmp_path):
@@ -58,14 +53,13 @@ def test_drop_folder_into_own_subdir_blocked(tmp_path):
     right.current_path = tmp_path / "right"
     right.current_path.mkdir()
     vfs = MagicMock()
-    history = MagicMock()
-    m = ManagerPresenter(left, right, vfs, history=history)
+    m = ManagerPresenter(left, right, vfs)
     parent = tmp_path / "parent"
     parent.mkdir()
     child = parent / "child"
     child.mkdir()
     m.drop_files([parent], "right", False, target_folder=child)
-    history.execute.assert_not_called()
+    vfs.copy.assert_not_called()
 
 
 def test_drop_mixed_ancestor_and_sibling(tmp_path):
@@ -75,8 +69,7 @@ def test_drop_mixed_ancestor_and_sibling(tmp_path):
     right.current_path = tmp_path / "right"
     right.current_path.mkdir()
     vfs = MagicMock()
-    history = MagicMock()
-    m = ManagerPresenter(left, right, vfs, history=history)
+    m = ManagerPresenter(left, right, vfs)
     parent = tmp_path / "parent"
     parent.mkdir()
     child = parent / "child"
@@ -84,7 +77,5 @@ def test_drop_mixed_ancestor_and_sibling(tmp_path):
     safe = tmp_path / "safe.txt"
     safe.write_text("x")
     m.drop_files([parent, safe], "right", False, target_folder=child)
-    history.execute.assert_called_once()
-    cmd = history.execute.call_args[0][0]
-    assert safe.resolve() in cmd._sources
-    assert parent.resolve() not in cmd._sources
+    vfs.copy.assert_called_once()
+    assert vfs.copy.call_args[0][0] == safe.resolve()

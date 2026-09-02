@@ -2,20 +2,16 @@
 from __future__ import annotations
 
 from datetime import datetime
-from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
 from biome_fm.plastic._branches import (
+    delete_branch,
     get_branches,
     parse_branches,
+    rename_branch,
     switch_branch,
     switch_changeset,
-    delete_branch,
-    rename_branch,
 )
-
 
 # ── parse_branches ────────────────────────────────────────────────────────────
 
@@ -78,13 +74,13 @@ def test_get_branches_calls_run_cm(tmp_path):
 def test_switch_branch_adds_br_prefix(tmp_path):
     with patch("biome_fm.plastic._branches.run_cm") as m:
         switch_branch("main", tmp_path)
-    m.assert_called_once_with(["switch", "br:main"], cwd=tmp_path)
+    m.assert_called_once_with(["switch", "br:main"], cwd=tmp_path, timeout=None)
 
 
 def test_switch_branch_passes_through_existing_prefix(tmp_path):
     with patch("biome_fm.plastic._branches.run_cm") as m:
         switch_branch("br:/main/task-1", tmp_path)
-    m.assert_called_once_with(["switch", "br:/main/task-1"], cwd=tmp_path)
+    m.assert_called_once_with(["switch", "br:/main/task-1"], cwd=tmp_path, timeout=None)
 
 
 # ── switch_changeset ──────────────────────────────────────────────────────────
@@ -92,7 +88,7 @@ def test_switch_branch_passes_through_existing_prefix(tmp_path):
 def test_switch_changeset_uses_cs_prefix(tmp_path):
     with patch("biome_fm.plastic._branches.run_cm") as m:
         switch_changeset(99, tmp_path)
-    m.assert_called_once_with(["switch", "cs:99"], cwd=tmp_path)
+    m.assert_called_once_with(["switch", "cs:99"], cwd=tmp_path, timeout=None)
 
 
 # ── delete_branch ─────────────────────────────────────────────────────────────
@@ -100,13 +96,13 @@ def test_switch_changeset_uses_cs_prefix(tmp_path):
 def test_delete_branch_adds_br_prefix(tmp_path):
     with patch("biome_fm.plastic._branches.run_cm") as m:
         delete_branch("/main/task-1", tmp_path)
-    m.assert_called_once_with(["branch", "delete", "br:/main/task-1"], cwd=tmp_path)
+    m.assert_called_once_with(["branch", "delete", "br:/main/task-1"], cwd=tmp_path, timeout=None)
 
 
 def test_delete_branch_preserves_existing_prefix(tmp_path):
     with patch("biome_fm.plastic._branches.run_cm") as m:
         delete_branch("br:/main", tmp_path)
-    m.assert_called_once_with(["branch", "delete", "br:/main"], cwd=tmp_path)
+    m.assert_called_once_with(["branch", "delete", "br:/main"], cwd=tmp_path, timeout=None)
 
 
 # ── rename_branch ─────────────────────────────────────────────────────────────
@@ -114,13 +110,13 @@ def test_delete_branch_preserves_existing_prefix(tmp_path):
 def test_rename_branch_adds_br_prefix(tmp_path):
     with patch("biome_fm.plastic._branches.run_cm") as m:
         rename_branch("/main/old", "new-name", tmp_path)
-    m.assert_called_once_with(["branch", "rename", "br:/main/old", "new-name"], cwd=tmp_path)
+    m.assert_called_once_with(["branch", "rename", "br:/main/old", "new-name"], cwd=tmp_path, timeout=None)
 
 
 def test_rename_branch_preserves_existing_prefix(tmp_path):
     with patch("biome_fm.plastic._branches.run_cm") as m:
         rename_branch("br:/main/old", "new-name", tmp_path)
-    m.assert_called_once_with(["branch", "rename", "br:/main/old", "new-name"], cwd=tmp_path)
+    m.assert_called_once_with(["branch", "rename", "br:/main/old", "new-name"], cwd=tmp_path, timeout=None)
 
 
 # ── parent field ──────────────────────────────────────────────────────────────
@@ -137,3 +133,13 @@ def test_parse_branches_backward_compat_three_fields():
     out = "/main|07/24/2026 12:00:00|alice\n"
     b = parse_branches(out)[0]
     assert b.parent == ""
+
+
+# ── C50: mutating wrappers must pass timeout=None ─────────────────────────────
+
+def test_switch_branch_uses_no_timeout(tmp_path):
+    with patch("biome_fm.plastic._branches.run_cm") as m:
+        switch_branch("main", tmp_path)
+    kwargs = m.call_args_list[0].kwargs
+    assert "timeout" in kwargs, "timeout kwarg must be explicitly passed"
+    assert kwargs["timeout"] is None

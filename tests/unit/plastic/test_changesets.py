@@ -2,8 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from pathlib import Path
-from unittest.mock import call, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -131,7 +130,7 @@ def test_get_changesets_calls_run_cm_with_format(tmp_path):
 def test_checkin_passes_message(tmp_path):
     with patch("biome_fm.plastic._changesets.run_cm") as m:
         checkin("my commit", tmp_path)
-    m.assert_called_once_with(["checkin", "-m", "my commit"], cwd=tmp_path)
+    m.assert_called_once_with(["checkin", "-c=my commit"], cwd=tmp_path, timeout=None)
 
 
 def test_checkin_with_paths_passes_file_args(tmp_path):
@@ -140,27 +139,27 @@ def test_checkin_with_paths_passes_file_args(tmp_path):
     with patch("biome_fm.plastic._changesets.run_cm") as m:
         checkin("msg", tmp_path, paths=[f1, f2])
     m.assert_called_once_with(
-        ["checkin", "-m", "msg", str(f1), str(f2)], cwd=tmp_path
+        ["checkin", "-c=msg", str(f1), str(f2)], cwd=tmp_path, timeout=None
     )
 
 
 def test_update_calls_update(tmp_path):
     with patch("biome_fm.plastic._changesets.run_cm") as m:
         update(tmp_path)
-    m.assert_called_once_with(["update"], cwd=tmp_path)
+    m.assert_called_once_with(["update"], cwd=tmp_path, timeout=None)
 
 
 def test_undo_passes_path(tmp_path):
     target = tmp_path / "src" / "file.py"
     with patch("biome_fm.plastic._changesets.run_cm") as m:
         undo(target, tmp_path)
-    m.assert_called_once_with(["undo", str(target)], cwd=tmp_path)
+    m.assert_called_once_with(["undo", str(target)], cwd=tmp_path, timeout=None)
 
 
 def test_rollback_changeset(tmp_path):
     with patch("biome_fm.plastic._changesets.run_cm") as m:
         rollback_changeset(99, tmp_path)
-    m.assert_called_once_with(["undo", "--changeset=cs:99"], cwd=tmp_path)
+    m.assert_called_once_with(["undo", "--changeset=cs:99"], cwd=tmp_path, timeout=None)
 
 
 def test_rollback_changeset_error(tmp_path):
@@ -175,7 +174,7 @@ def test_edit_comment_calls_cm_changeset_editcomment(tmp_path):
     with patch("biome_fm.plastic._changesets.run_cm") as m:
         edit_comment(42, "new msg", tmp_path)
     m.assert_called_once_with(
-        ["changeset", "editcomment", "cs:42", "new msg"], cwd=tmp_path
+        ["changeset", "editcomment", "cs:42", "new msg"], cwd=tmp_path, timeout=None
     )
 
 
@@ -192,3 +191,15 @@ def test_undo_keep_calls_cm(tmp_path):
     with patch("biome_fm.plastic._changesets.run_cm") as m:
         undo_keep(f, tmp_path)
     assert "--keep" in m.call_args[0][0]
+
+
+# ── C50: timeout=None for mutating calls ─────────────────────────────────────
+
+def test_update_uses_no_timeout(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr("biome_fm.plastic._changesets.run_cm",
+                        lambda a, **kw: calls.append(kw))
+    update(tmp_path)
+    # Key must be PRESENT and None — .get() returns None for absent keys too,
+    # so 'in' check distinguishes "not passed" from "explicitly None"
+    assert "timeout" in calls[0] and calls[0]["timeout"] is None

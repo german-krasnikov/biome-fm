@@ -35,7 +35,7 @@ def test_load_populates_plugins():
 
 
 def test_apply_updates_config():
-    """Keys are stored in keyring; config plaintext fields are cleared."""
+    """Keyring unavailable → fallback only → plaintext fields KEPT in config."""
     cfg = Config(theme="dark")
     v = _fake_view()
     stored: dict = {}
@@ -45,10 +45,36 @@ def test_apply_updates_config():
     assert result.theme == "light"
     assert result.show_hidden is True
     assert result.ai_default_provider == "openai"
-    assert result.ai_claude_key == ""    # cleared from config
-    assert result.ai_openai_key == ""   # cleared from config
+    assert result.ai_claude_key == "key1"   # kept: keyring did not store it
+    assert result.ai_openai_key == "key2"  # kept: keyring did not store it
     assert stored[("biome-fm", "claude")] == "key1"
     assert stored[("biome-fm", "openai")] == "key2"
+
+
+def test_apply_clears_plaintext_when_keyring_stores():
+    """Keyring available and succeeds → plaintext fields cleared from config."""
+    cfg = Config(theme="dark")
+    v = _fake_view()
+    mock_kr = MagicMock()
+    with patch.object(cs, "_keyring", mock_kr):
+        p = SettingsPresenter(cfg, v)
+        result = p.apply()
+    assert result.ai_claude_key == ""
+    assert result.ai_openai_key == ""
+    mock_kr.set_password.assert_any_call("biome-fm", "claude", "key1")
+    mock_kr.set_password.assert_any_call("biome-fm", "openai", "key2")
+
+
+def test_apply_keeps_plaintext_when_keyring_set_fails():
+    """Keyring raises on set_password → fallback used → plaintext fields KEPT."""
+    cfg = Config(theme="dark")
+    v = _fake_view()
+    mock_kr = MagicMock(set_password=MagicMock(side_effect=RuntimeError("locked")))
+    with patch.object(cs, "_keyring", mock_kr), patch.object(cs, "_FALLBACK", {}):
+        p = SettingsPresenter(cfg, v)
+        result = p.apply()
+    assert result.ai_claude_key == "key1"
+    assert result.ai_openai_key == "key2"
 
 
 def test_apply_returns_same_config_object():

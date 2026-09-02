@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-from biome_fm.commands.base import CommandHistory
 from biome_fm.event_bus import EventBus
 from biome_fm.models.file_item import FileItem
 from biome_fm.models.vfs import LocalVFS
@@ -63,7 +62,7 @@ def setup(tmp_path: Path):
     lp.navigate_to(left_dir)
     rp.navigate_to(right_dir)
 
-    mgr = ManagerPresenter(lp, rp, vfs, history=CommandHistory(), bus=EventBus())
+    mgr = ManagerPresenter(lp, rp, vfs, bus=EventBus())
     return mgr, left_dir, right_dir
 
 
@@ -89,45 +88,6 @@ def test_move_between_panes(setup):
 
     assert (right_dir / "b.txt").exists()
     assert not f.exists()
-
-
-def test_undo_copy_removes_from_target(setup):
-    mgr, left_dir, right_dir = setup
-    f = left_dir / "c.txt"
-    f.write_text("copy me")
-    mgr.copy_selected([_item(f)])
-    assert (right_dir / "c.txt").exists()
-
-    mgr.undo()
-
-    assert not (right_dir / "c.txt").exists()
-    assert f.exists()
-
-
-def test_undo_move_restores_source(setup):
-    mgr, left_dir, right_dir = setup
-    f = left_dir / "m.txt"
-    f.write_text("move me")
-    mgr.move_selected([_item(f)])
-    assert not f.exists()
-
-    mgr.undo()
-
-    assert f.exists()
-    assert not (right_dir / "m.txt").exists()
-
-
-def test_redo_after_undo(setup):
-    mgr, left_dir, right_dir = setup
-    f = left_dir / "r.txt"
-    f.write_text("redo me")
-    mgr.copy_selected([_item(f)])
-    mgr.undo()
-    assert not (right_dir / "r.txt").exists()
-
-    mgr.redo()
-
-    assert (right_dir / "r.txt").exists()
 
 
 def test_mkdir_creates_directory(setup):

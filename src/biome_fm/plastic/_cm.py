@@ -12,11 +12,12 @@ class CMError(Exception):
 def run_cm(
     args: list[str],
     cwd: Path | None = None,
-    timeout: int = 10,
+    timeout: int | None = 10,
     safe: bool = False,
 ) -> str:
     """Run `cm <args>` in *cwd*, return stdout as str.
 
+    timeout=None disables the subprocess kill timer (use for long mutating commands).
     safe=True  — any error (not found, timeout, non-zero exit) returns "".
     safe=False — CMError on non-zero exit; OSError/TimeoutExpired propagate.
     """

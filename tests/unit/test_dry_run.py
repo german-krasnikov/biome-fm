@@ -4,19 +4,15 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock
 
-
-from biome_fm.commands.base import Command, CommandHistory
+from biome_fm.commands.base import Command
 from biome_fm.commands.copy_cmd import CopyCmd
 from biome_fm.commands.delete_cmd import DeleteCmd
 from biome_fm.commands.move_cmd import MoveCmd
 
-
 # --- pure-Python tests (no Qt) ---
 
 class _NullCmd(Command):
-    undoable = False
     def execute(self) -> None: pass
-    def undo(self) -> None: pass
 
 
 def test_default_preview():
@@ -52,9 +48,8 @@ def test_dry_run_dialog_shows_lines(qtbot):
     cmd = MagicMock()
     cmd.description = "Test op"
     cmd.preview.return_value = ["line 1", "line 2", "line 3"]
-    history = MagicMock(spec=CommandHistory)
 
-    dlg = DryRunDialog(cmd, history)
+    dlg = DryRunDialog(cmd)
     qtbot.addWidget(dlg)
 
     assert dlg._list.count() == 3
@@ -67,10 +62,9 @@ def test_dry_run_dialog_cancel_no_execute(qtbot):
     cmd = MagicMock()
     cmd.description = "Test op"
     cmd.preview.return_value = ["do something"]
-    history = MagicMock(spec=CommandHistory)
 
-    dlg = DryRunDialog(cmd, history)
+    dlg = DryRunDialog(cmd)
     qtbot.addWidget(dlg)
     dlg.reject()
 
-    history.execute.assert_not_called()
+    cmd.execute.assert_not_called()

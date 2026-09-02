@@ -30,7 +30,7 @@ biome-fm is a keyboard-driven dual-pane file manager built on PySide6. The left 
 ## Why biome-fm?
 
 - **Stop alt-tabbing.** Terminal, diff viewer, hex editor, archive browser, image preview, PDF reader, git-diff — all tabs inside the same window.
-- **AI that operates, not just advises.** The chat panel has write access to the VFS. Ask it to reorganize a folder and it executes the moves with undo support.
+- **AI that operates, not just advises.** The chat panel has write access to the VFS. Ask it to reorganize a folder and it executes the moves.
 - **Extensible by design.** pluggy hooks let you add VFS backends, preview renderers, AI providers, and themes as isolated plugins without touching core.
 - **Cross-platform, no compromise.** One codebase, native look on macOS, Windows, and Linux. TOML theming with glass effects ships out of the box.
 
@@ -102,12 +102,12 @@ Optional extras: `ai` (Anthropic + embeddings), `perf` (Rust bindings for speed)
 - Create/extract archives (zip, tar, encrypted 7z + plugin extensions)
 - Checksum dialog (MD5, SHA-256)
 - Verify after copy (SHA-256 source vs destination; raises `VerifyError` on mismatch)
-- Undo/redo — 50 levels, every mutation is a Command
+- Every mutation is a Command (execute-only, no undo)
 - Dry-run preview before destructive operations
 - Batch execute on selection with template substitution
 - Space reclaimer — find and remove large/duplicate files
 - Clipboard history ring (last 20 entries)
-- `ChownCmd` with full undo support
+- `ChownCmd` for ownership changes
 
 **UI & Navigation**
 - Dual-pane, multi-tab layout with named workspaces; workspace switcher dialog
@@ -213,7 +213,7 @@ src/biome_fm/
 ├── models/        # VFS router, FileItem, DirectoryModel
 ├── presenters/    # Qt-free MVP logic
 ├── views/         # Passive PySide6 widgets (signals only)
-├── commands/      # Command pattern — execute() + undo()
+├── commands/      # Command pattern — execute() only
 ├── operations/    # Async queue (ThreadPool + cancel tokens)
 ├── preview/       # Provider protocol + renderer registry
 ├── plugins/       # pluggy hookspecs + entry_point discovery
@@ -226,7 +226,7 @@ src/biome_fm/
 
 </details>
 
-**Hybrid Supervising Controller (MVP variant).** Views are passive — they emit signals and render what they're given, holding zero business logic. Presenters subscribe to those signals, run all decisions, and push state back through a typed `Protocol` interface. Every file mutation is a `Command` subclass with `execute()` and `undo()`, stored in a 50-level `CommandHistory`. The VFS layer (`VFSRouter`) dispatches transparently across local paths and archives so presenters never branch on location type.
+**Hybrid Supervising Controller (MVP variant).** Views are passive — they emit signals and render what they're given, holding zero business logic. Presenters subscribe to those signals, run all decisions, and push state back through a typed `Protocol` interface. Every file mutation is a `Command` subclass with `execute()`. The VFS layer (`VFSRouter`) dispatches transparently across local paths and archives so presenters never branch on location type.
 
 Full architecture: [`AI/architecture.md`](AI/architecture.md)
 
@@ -236,53 +236,55 @@ Full architecture: [`AI/architecture.md`](AI/architecture.md)
 ## Recent Changes
 
 <details>
-<summary><strong>v0.33.0</strong> — 2026-07-25 — Plastic SCM plugin (full feature set)</summary>
+<summary><strong>v0.36.0</strong> — 2026-09-03 — Architecture audit + undo/redo removed</summary>
 
-- `PlasticPlugin` — `Ctrl+Shift+P` opens `PlasticWindow`; `on_navigate` detects `.plastic/` workspace; context-menu Diff/Undo/Checkin actions
-- 12-page sidebar: Pending Changes, Changesets, Branches, Labels, Shelves, Reviews, Xlinks, Admin, Branch DAG, Workspaces & Repos, Triggers, Git Sync
-- All cm ops run off main thread via `ThreadPoolExecutor` + `SimpleQueue` drain
-- Commit graph column with `GraphDelegate`; inline diff panel; branch tree with prefix grouping; CS master-detail with `CSDetailWidget`
-- `cs_log_files()` for cloud/Unity Plastic compatibility; three-way merge viewer; side-by-side diff
-- ~750 unit tests + ~100 integration tests in `tests/unit/plastic/` and `tests/integration/`
+- **BREAKING:** Undo/Redo removed entirely — keyboard shortcuts, Edit-menu entries, and the presenter undo/redo API are gone; every mutation is `execute()`-only
+- 58 critical findings fixed across 11 batches: SFTP channel lifetime, VFS copy/move path resolution, store atomic writes, tab index shifts, app-lifecycle shutdown order
+- Preview providers now escape HTML-special characters; credential store clears plaintext only after keyring success
+- Plastic SCM: `timeout=None` for mutating ops, `-c=` flag for checkin/shelve, `poll()` added to presenter
+- Editor atomic save, terminal lifecycle cleanup, progress bars normalized to permille
 
 </details>
 
 <details>
-<summary><strong>v0.32.0</strong> — 2026-07-24 — Security, performance, and 34 architectural fixes</summary>
+<summary><strong>v0.35.0</strong> — 2026-08-12 — Complete CI/CD pipeline</summary>
+
+- **ci.yml** — lint (ruff + mypy) + unit tests (Ubuntu/macOS/Windows) + integration tests (Qt offscreen) + `CI Pass` gate for branch protection
+- **release.yml** — automated GitHub Release on `v*` tag; preflight validation and CHANGELOG extraction; blocks release when CI has not passed for the commit
+- **nightly.yml** — daily full regression on 3 OS; CodeQL weekly security analysis; Dependabot for pip + Actions
+- Pre-commit hooks (ruff lint+format, pre-push version sync guard); PR/issue templates; Codecov integration
+- `scripts/sync_versions.py` atomic version bump; `scripts/release.sh` preflight validator
+
+</details>
+
+<details>
+<summary><strong>v0.34.0</strong> — 2026-07-25 — Plastic SCM plugin — full Unity Version Control integration</summary>
+
+- `PlasticPlugin` — `Ctrl+Shift+P` opens `PlasticWindow`; `on_navigate` detects `.plastic/` workspace; context-menu Diff/Undo/Checkin actions
+- `PlasticWindow` — 12-page sidebar: Pending Changes, Changesets, Branches, Labels, Shelves, Reviews, Xlinks, Admin, Branch DAG, Workspaces/Repos, Triggers, Git Sync
+- All cm ops off main thread via `ThreadPoolExecutor(1)` + `SimpleQueue`; `PlasticPresenter` Qt-free
+- Commit graph (`GraphDelegate`), inline diff panel, CS master-detail, branch tree with prefix grouping
+- `cs_log_files()` for cloud/Unity compatibility; three-way merge viewer; side-by-side diff
+
+</details>
+
+<details>
+<summary><strong>v0.33.0</strong> — 2026-07-25 — Editor, menus, highlights, AI, bug fixes</summary>
+
+- F4 opens built-in `EditorDialog`; Shift+F4 opens external editor; unsaved-changes guard on close
+- Highlight rule expansion; `expand_rules()` handles comma-separated patterns
+- `KeyError 'info'` in PanelManager fixed; `PreventContextMenu` stops spurious toolbar RMB popup
+- AI shell command detection; menubar and shortcut cleanups
+
+</details>
+
+<details>
+<summary><strong>v0.32.0</strong> — 2026-07-24 — Security, performance, and architectural fixes</summary>
 
 - Shell injection hardened; Zip Slip protection; API keys moved to `CredentialStore`
 - Chunked async dir loading; AI calls off main thread; bounded thread pool
 - VFS Protocol split into `ReadableVFS` + `WritableVFS`; `atomic_write_json` for all stores
 - Dead code purge (~2900 LOC); `run_git()` centralized; session auto-save
-
-</details>
-
-<details>
-<summary><strong>v0.31.0</strong> — 2026-07-21 — Session, clipboard history, macros, REST API</summary>
-
-- Session Save/Restore: `view_mode` field persists gallery/list mode per pane
-- Clipboard History Ring (20-entry `deque`); Keyboard Macro Recorder (`MacroStore`)
-- REST API for Remote Control (`ipc/rest_server.py`, Bearer token auth)
-- Directory Comparison View; Custom Toolbar Builder
-
-</details>
-
-<details>
-<summary><strong>v0.30.0</strong> — 2026-07-21 — Gallery view, Omnibar, dry-run preview, fullscreen shell</summary>
-
-- Thumbnail Gallery View — async 128×128 thumbnails, 500-entry LRU cache
-- Unified Omnibar — Spotlight-style overlay for path nav, commands, and search
-- Operation Dry-Run Preview — `cmd.preview()` shown before execute
-- Full-screen Subshell Toggle (`Ctrl+O`)
-
-</details>
-
-<details>
-<summary><strong>v0.29.0</strong> — 2026-07-21 — Remote VFS: FISH, Script, ISO, DMG, Docker, rsync</summary>
-
-- SSH jump host / proxy command support; cross-VFS streaming resume
-- FISH VFS; extfs Script VFS; ISO 9660; macOS DMG; Docker container FS; rsync
-- Plugin-defined custom columns (`column_value` hookspec)
 
 </details>
 

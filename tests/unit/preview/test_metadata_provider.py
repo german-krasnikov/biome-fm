@@ -5,6 +5,8 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 
 def _provider():
     from biome_fm.preview.providers.metadata import MetadataPreviewProvider
@@ -53,6 +55,24 @@ def test_render_without_mutagen(tmp_path):
     from biome_fm.preview.provider import ContentKind
     assert result.kind == ContentKind.HTML
     assert "bytes" in result.data or "Size" in result.data
+
+
+def test_metadata_escapes_tag_values(tmp_path, monkeypatch):
+    import types
+    mutagen = pytest.importorskip("mutagen")
+    fake_tags = {"artist": ["<b>Guns &amp; Roses</b>"]}
+    fake_info = types.SimpleNamespace(length=None, bitrate=None, sample_rate=None)
+    fake_file = types.SimpleNamespace(tags=fake_tags, info=fake_info)
+    monkeypatch.setattr(mutagen, "File", lambda path: fake_file)
+
+    f = tmp_path / "test.mp3"
+    f.write_bytes(b"ID3")
+    from biome_fm.preview.provider import ContentKind, PreviewRequest
+    from biome_fm.preview.providers.metadata import MetadataPreviewProvider
+    result = MetadataPreviewProvider().render(PreviewRequest(path=f))
+    assert result.kind == ContentKind.HTML
+    assert "<b>" not in result.data
+    assert "&lt;b&gt;" in result.data
 
 
 def test_render_with_mutagen(tmp_path):

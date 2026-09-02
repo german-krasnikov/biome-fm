@@ -10,15 +10,15 @@ _FMT = "{name}|{changeset}|{date}"
 
 
 def create_label(name: str, cs_id: int, cwd: Path) -> None:
-    run_cm(["label", "create", name, f"cs:{cs_id}"], cwd=cwd)
+    run_cm(["label", "create", name, f"cs:{cs_id}"], cwd=cwd, timeout=None)
 
 
 def delete_label(name: str, cwd: Path) -> None:
-    run_cm(["label", "delete", name], cwd=cwd)
+    run_cm(["label", "delete", name], cwd=cwd, timeout=None)
 
 
 def rename_label(old: str, new: str, cwd: Path) -> None:
-    run_cm(["label", "rename", old, new], cwd=cwd)
+    run_cm(["label", "rename", old, new], cwd=cwd, timeout=None)
 
 
 def get_labels(cwd: Path) -> list[Label]:

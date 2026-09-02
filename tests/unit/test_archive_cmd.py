@@ -4,11 +4,11 @@ from __future__ import annotations
 import tarfile
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
 from biome_fm.commands.archive_cmd import ArchiveCmd, ExtractCmd
-
 
 # ── ArchiveCmd ──────────────────────────────────────────────────────────────
 
@@ -28,23 +28,6 @@ def test_archive_cmd_zip_contains_files(tmp_path: Path) -> None:
     ArchiveCmd([src], archive).execute()
     with zipfile.ZipFile(archive) as zf:
         assert "hello.txt" in zf.namelist()
-
-
-def test_archive_cmd_undo_deletes_archive(tmp_path: Path) -> None:
-    src = tmp_path / "a.txt"
-    src.write_text("x")
-    archive = tmp_path / "out.zip"
-    cmd = ArchiveCmd([src], archive)
-    cmd.execute()
-    assert archive.exists()
-    cmd.undo()
-    assert not archive.exists()
-
-
-def test_archive_cmd_undo_missing_ok(tmp_path: Path) -> None:
-    """undo() on a never-executed cmd should not raise."""
-    archive = tmp_path / "ghost.zip"
-    ArchiveCmd([], archive).undo()  # no error
 
 
 def test_archive_cmd_directory_recursive(tmp_path: Path) -> None:
@@ -67,8 +50,18 @@ def test_archive_cmd_description(tmp_path: Path) -> None:
     assert "2" in cmd.description
 
 
-def test_archive_cmd_is_undoable() -> None:
-    assert ArchiveCmd([], Path("/tmp/x.zip")).undoable is True
+@patch("biome_fm.commands.archive_cmd.zipfile.ZipFile")
+def test_archive_execute_self_cleans_on_failure(mock_zip_cls, tmp_path: Path) -> None:
+    """REGRESSION GUARD: execute() unlinks archive file on failure (self-cleaning inline)."""
+    mock_zip_cls.return_value.__enter__.return_value.write.side_effect = OSError("disk full")
+    archive = tmp_path / "out.zip"
+    archive.touch()  # simulate partial file created before error
+    src = tmp_path / "a.txt"
+    src.write_text("ok")
+    cmd = ArchiveCmd([src], archive)
+    with pytest.raises((RuntimeError, OSError)):
+        cmd.execute()
+    assert not archive.exists()
 
 
 # ── ExtractCmd ──────────────────────────────────────────────────────────────
@@ -93,10 +86,6 @@ def test_extract_cmd_tar_gz(tmp_path: Path) -> None:
     dest.mkdir()
     ExtractCmd(archive, dest).execute()
     assert (dest / "file.txt").exists()
-
-
-def test_extract_cmd_not_undoable() -> None:
-    assert ExtractCmd(Path("/tmp/x.zip"), Path("/tmp/out")).undoable is False
 
 
 # ── Security: Zip Slip prevention ────────────────────────────────────────────

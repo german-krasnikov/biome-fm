@@ -68,12 +68,11 @@ class _HistoryLineEdit(QLineEdit):
 
 class MainWindow(QMainWindow):
     about_to_close = Signal()
+    _remote_ev = Signal(object)  # bridge: worker thread → GUI thread (C03)
     back_requested = Signal()
     forward_requested = Signal()
     up_requested = Signal()
     home_requested = Signal()
-    undo_requested = Signal()
-    redo_requested = Signal()
     refresh_requested = Signal()
     new_tab_requested = Signal()
     close_tab_requested = Signal()
@@ -276,13 +275,6 @@ class MainWindow(QMainWindow):
             a.triggered.connect(sig.emit)
             em.addAction(a)
         em.addSeparator()
-        self._act_undo = QAction("&Undo\tCtrl+Z", self)
-        self._act_undo.triggered.connect(self.undo_requested.emit)
-        em.addAction(self._act_undo)
-        self._act_redo = QAction("&Redo\tCtrl+Shift+Z", self)
-        self._act_redo.triggered.connect(self.redo_requested.emit)
-        em.addAction(self._act_redo)
-        em.addSeparator()
         a = QAction("&Find Files\tCtrl+Shift+F", self)
         a.triggered.connect(lambda _: self.search_requested.emit())
         em.addAction(a)
@@ -453,10 +445,6 @@ class MainWindow(QMainWindow):
             QShortcut(QKeySequence(key), self).activated.connect(signal)
         self.tab_shortcut = QShortcut(Qt.Key.Key_Tab, self)
 
-    def update_undo_redo_labels(self, undo_desc: str | None, redo_desc: str | None) -> None:
-        self._act_undo.setText(f"&Undo {undo_desc}\tCtrl+Z" if undo_desc else "&Undo\tCtrl+Z")
-        self._act_redo.setText(f"&Redo {redo_desc}\tCtrl+Shift+Z" if redo_desc else "&Redo\tCtrl+Shift+Z")
-
     def _show_ratio_menu(self, global_pos: object) -> None:
         menu = QMenu(self)
         for label, ratio in [("25 / 75", 0.25), ("50 / 50", 0.5), ("75 / 25", 0.75)]:
@@ -493,6 +481,11 @@ class MainWindow(QMainWindow):
             if hasattr(event, "ignore"):
                 event.ignore()  # type: ignore[union-attr]
             return
+        from biome_fm.event_bus import RemoteConnected, RemoteDisconnected, RemoteSyncing
+        from biome_fm.event_bus import bus as _bus
+        _bus.unsubscribe(RemoteConnected, self._remote_ev.emit)
+        _bus.unsubscribe(RemoteDisconnected, self._remote_ev.emit)
+        _bus.unsubscribe(RemoteSyncing, self._remote_ev.emit)
         self.about_to_close.emit()
         super().closeEvent(event)  # type: ignore[arg-type]
 
@@ -514,9 +507,19 @@ class MainWindow(QMainWindow):
     def _subscribe_remote_events(self) -> None:
         from biome_fm.event_bus import RemoteConnected, RemoteDisconnected, RemoteSyncing
         from biome_fm.event_bus import bus as _bus
-        _bus.subscribe(RemoteConnected, self._on_remote_connected)
-        _bus.subscribe(RemoteDisconnected, self._on_remote_disconnected)
-        _bus.subscribe(RemoteSyncing, self._on_remote_syncing)
+        self._remote_ev.connect(self._dispatch_remote_ev, Qt.ConnectionType.QueuedConnection)
+        _bus.subscribe(RemoteConnected, self._remote_ev.emit)
+        _bus.subscribe(RemoteDisconnected, self._remote_ev.emit)
+        _bus.subscribe(RemoteSyncing, self._remote_ev.emit)
+
+    def _dispatch_remote_ev(self, ev: object) -> None:
+        from biome_fm.event_bus import RemoteConnected, RemoteDisconnected, RemoteSyncing
+        if isinstance(ev, RemoteConnected):
+            self._on_remote_connected(ev)
+        elif isinstance(ev, RemoteDisconnected):
+            self._on_remote_disconnected(ev)
+        elif isinstance(ev, RemoteSyncing):
+            self._on_remote_syncing(ev)
 
     def _on_remote_connected(self, ev: object) -> None:
         scheme = getattr(ev, "scheme", "")

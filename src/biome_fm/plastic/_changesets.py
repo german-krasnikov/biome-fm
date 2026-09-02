@@ -13,40 +13,40 @@ _FMT = "{changesetid}|{date}|{owner}|{branch}|{comment}"
 # Operations: checkin, update, undo
 def checkin(message: str, cwd: Path, paths: list[Path] | None = None) -> None:
     """Commit selected files (or all if paths is None/empty). Raises CMError on failure."""
-    args = ["checkin", "-m", message]
+    args = ["checkin", f"-c={message}"]
     if paths:
         args.extend(str(p) for p in paths)
-    run_cm(args, cwd=cwd)
+    run_cm(args, cwd=cwd, timeout=None)
 
 
 def update(cwd: Path) -> None:
     """Update workspace to latest. Raises CMError on failure."""
-    run_cm(["update"], cwd=cwd)
+    run_cm(["update"], cwd=cwd, timeout=None)
 
 
 def undo(path: Path, cwd: Path) -> None:
     """Undo local changes to *path*. Raises CMError on failure."""
-    run_cm(["undo", str(path)], cwd=cwd)
+    run_cm(["undo", str(path)], cwd=cwd, timeout=None)
 
 
 def undo_all(cwd: Path) -> None:
     """Undo all local changes. cm undo --all"""
-    run_cm(["undo", "--all"], cwd=cwd)
+    run_cm(["undo", "--all"], cwd=cwd, timeout=None)
 
 
 def undo_keep(path: Path, cwd: Path) -> None:
     """Undo but keep local file on disk. cm undo --keep <path>"""
-    run_cm(["undo", "--keep", str(path)], cwd=cwd)
+    run_cm(["undo", "--keep", str(path)], cwd=cwd, timeout=None)
 
 
 def edit_comment(cs_id: int, comment: str, cwd: Path) -> None:
     """cm changeset editcomment cs:<id> "<comment>" """
-    run_cm(["changeset", "editcomment", f"cs:{cs_id}", comment], cwd=cwd)
+    run_cm(["changeset", "editcomment", f"cs:{cs_id}", comment], cwd=cwd, timeout=None)
 
 
 def rollback_changeset(cs_id: int, cwd: Path) -> None:
     """Rollback workspace to before changeset cs_id. Uses cm undo --changeset."""
-    run_cm(["undo", f"--changeset=cs:{cs_id}"], cwd=cwd)
+    run_cm(["undo", f"--changeset=cs:{cs_id}"], cwd=cwd, timeout=None)
 
 
 def get_changesets(cwd: Path, limit: int = 10) -> list[Changeset]:

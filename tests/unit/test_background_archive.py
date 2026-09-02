@@ -64,16 +64,6 @@ def test_cancel_deletes_partial_archive(src_files: list[Path], tmp_path: Path) -
     assert not dest.exists()
 
 
-def test_progress_archive_undo_deletes_dest(src_files: list[Path], tmp_path: Path) -> None:
-    dest = tmp_path / "out.zip"
-    cancel = threading.Event()
-    cmd = ProgressArchiveCmd(src_files, dest, "zip", cancel, lambda *_: None)
-    cmd.execute()
-    assert dest.exists()
-    cmd.undo()
-    assert not dest.exists()
-
-
 def test_invalid_format_raises(src_files: list[Path], tmp_path: Path) -> None:
     dest = tmp_path / "out.7z"
     cancel = threading.Event()

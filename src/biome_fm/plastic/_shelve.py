@@ -11,20 +11,20 @@ _FMT = "{id}|{date}|{owner}|{comment}"
 
 def shelve(msg: str, cwd: Path, paths: list[Path] | None = None) -> None:
     """Shelve pending changes. Raises CMError on failure."""
-    args = ["shelveset", "create", "-m", msg]
+    args = ["shelveset", "create", f"-c={msg}"]
     if paths:
         args.extend(str(p) for p in paths)
-    run_cm(args, cwd=cwd)
+    run_cm(args, cwd=cwd, timeout=None)
 
 
 def unshelve(shelve_id: int, cwd: Path) -> None:
     """Apply (unshelve) a shelve by id. Raises CMError on failure."""
-    run_cm(["shelveset", "apply", str(shelve_id)], cwd=cwd)
+    run_cm(["shelveset", "apply", str(shelve_id)], cwd=cwd, timeout=None)
 
 
 def delete_shelve(shelve_id: int, cwd: Path) -> None:
     """Delete a shelve by id. Raises CMError on failure."""
-    run_cm(["shelveset", "delete", str(shelve_id)], cwd=cwd)
+    run_cm(["shelveset", "delete", str(shelve_id)], cwd=cwd, timeout=None)
 
 
 def get_shelves(cwd: Path) -> list[Shelve]:

@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QMessageBox
 
 from biome_fm.views.editor_dialog import EditorDialog
 
@@ -37,3 +38,29 @@ def test_ctrl_s_saves(qtbot, tmp_path: Path) -> None:
     qtbot.keyClick(dlg, Qt.Key_S, Qt.ControlModifier)
     assert f.read_text() == "updated content"
     assert saved_paths == [f]
+
+
+def test_escape_prompts_when_modified(qtbot, tmp_path: Path, monkeypatch) -> None:
+    f = tmp_path / "esc.txt"
+    f.write_text("original")
+    dlg = EditorDialog(f)
+    qtbot.addWidget(dlg)
+    dlg.show()
+
+    dlg._editor.setPlainText("modified")
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Cancel)
+    qtbot.keyClick(dlg, Qt.Key.Key_Escape)
+    assert dlg.isVisible()
+    assert f.read_text() == "original"
+
+
+def test_escape_save_writes_file(qtbot, tmp_path: Path, monkeypatch) -> None:
+    f = tmp_path / "esc2.txt"
+    f.write_text("original")
+    dlg = EditorDialog(f)
+    qtbot.addWidget(dlg)
+    dlg.show()
+    dlg._editor.setPlainText("saved via escape")
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Save)
+    qtbot.keyClick(dlg, Qt.Key.Key_Escape)
+    assert f.read_text() == "saved via escape"

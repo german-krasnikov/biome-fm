@@ -86,7 +86,8 @@ class PreviewPresenter:
         if item.is_dir or item.size == 0:
             return "text"
         try:
-            sample = item.path.read_bytes()[:512]
+            with item.path.open("rb") as f:
+                sample = f.read(512)
         except OSError:
             return "text"
         if not sample:

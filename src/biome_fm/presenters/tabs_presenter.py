@@ -44,6 +44,7 @@ class TabsPresenter:
         self._locked: set[int] = set()
         self._links: dict[int, tuple[TabsPresenter, int]] = {}
         self._pending: dict[int, Path] = {}  # deferred tab paths
+        self.on_tab_created: Callable[[PaneViewProtocol, PanePresenter], None] | None = None
 
     # ── tab management ────────────────────────────────────────────────────────
 
@@ -73,6 +74,8 @@ class TabsPresenter:
             self._pending[idx] = path
         else:
             presenter.navigate_to(path)
+        if self.on_tab_created is not None:
+            self.on_tab_created(view, presenter)
         return presenter
 
     def lock_tab(self, idx: int) -> None:
@@ -107,23 +110,37 @@ class TabsPresenter:
         self._tabs[idx].cleanup()
         self._tabs.pop(idx)
         self._views.pop(idx)
-        self._tabs_view.remove_tab(idx)
-        # Shift locked/pending/links indices above idx down by one
+        # Shift indices BEFORE remove_tab so Qt currentChanged fires with correct state
         self._locked = {k - 1 if k > idx else k for k in self._locked}
         self._pending = {(k - 1 if k > idx else k): v for k, v in self._pending.items() if k != idx}
         self._links = {(k - 1 if k > idx else k): v for k, v in self._links.items() if k != idx}
-        # Keep partner back-references in sync with shifted local keys
         for new_k, (other, other_k) in self._links.items():
             other._links[other_k] = (self, new_k)
         if self._active_idx >= self.tab_count:
             self._active_idx = self.tab_count - 1
         elif self._active_idx > idx:
             self._active_idx -= 1
+        self._tabs_view.remove_tab(idx)
         self._tabs_view.set_active_tab(self._active_idx)
+        # Eagerly load new active tab if it was deferred
+        if self._active_idx in self._pending:
+            self._tabs[self._active_idx].navigate_to(self._pending.pop(self._active_idx))
+
+    def replace_all(self, paths: list[Path], active_idx: int) -> None:
+        """Replace every tab with deferred tabs at *paths*; *active_idx* indexes *paths*."""
+        old = self.tab_count if paths else 0
+        for p in paths:
+            self.new_tab(p, deferred=True)      # on_tab_created fires per tab
+        self.switch_tab(active_idx + old)       # load target before old tabs go
+        for i in range(old):
+            self.unlock_tab(i)
+            self.unlink_tab(i)
+        for _ in range(old):
+            self.close_tab(0)
 
     def duplicate_tab(self, idx: int) -> PanePresenter:
         """Open a new tab at the same path as tab[idx]."""
-        return self.new_tab(self._tabs[idx].current_path)
+        return self.new_tab(self._safe_path(idx))
 
     def switch_tab(self, idx: int) -> None:
         if 0 <= idx < self.tab_count:
@@ -133,7 +150,16 @@ class TabsPresenter:
                 self._tabs[idx].navigate_to(self._pending.pop(idx))
 
     def paths(self) -> list[Path]:
-        return [t.current_path for t in self._tabs]
+        return [self._safe_path(i) for i in range(len(self._tabs))]
+
+    def _safe_path(self, idx: int) -> Path:
+        """Return path for tab idx without raising for deferred/error tabs."""
+        if idx in self._pending:
+            return self._pending[idx]
+        try:
+            return self._tabs[idx].current_path
+        except RuntimeError:
+            return Path.home()
 
     def view_at(self, idx: int) -> PaneViewProtocol:
         return self._views[idx]

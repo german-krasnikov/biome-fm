@@ -10,8 +10,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from biome_fm.ai.provider import make_providers
-from biome_fm.commands.base import CommandHistory
-from biome_fm.commands.editor_rename_cmd import EditorRenameCmd
 from biome_fm.commands.git_stage import GitStageCmd, GitUnstageCmd
 from biome_fm.commands.new_file_cmd import NewFileCmd
 from biome_fm.commands.registry import CommandEntry, CommandRegistry
@@ -404,12 +402,15 @@ def _load_config_session():
 
 def _build_stores(cfg, cfg_dir: Path):
     """Construct all persistent stores and the op queue."""
-    history = CommandHistory()
     clipboard = ClipboardService()
     store = BookmarkStore(cfg_dir / "bookmarks.toml")
     tag_store = TagStore.load(cfg_dir / "tags.toml")
     user_actions_store = UserActionsStore(cfg_dir / "actions.json")
-    user_actions_store.load()
+    try:
+        user_actions_store.load()
+    except Exception as exc:  # noqa: BLE001
+        import logging as _lg
+        _lg.getLogger(__name__).warning("actions.json corrupt (%s) — using empty list", exc)
     ws_store = WorkspaceStore(cfg_dir / "workspaces.json")
     named_session_store = SessionStore(cfg_dir / "sessions.json")
     op_queue = make_serial_queue() if cfg.serial_ops else OpQueue(max_workers=2)
@@ -417,7 +418,7 @@ def _build_stores(cfg, cfg_dir: Path):
     frecency_store = FrecencyStore(cfg_dir / "frecency.json")
     from biome_fm.presenters.file_collector import FileCollector
     file_collector = FileCollector()
-    return (history, clipboard, store, tag_store, user_actions_store,
+    return (clipboard, store, tag_store, user_actions_store,
             ws_store, named_session_store, op_queue, dir_state_store,
             frecency_store, file_collector)
 
@@ -466,13 +467,15 @@ def _snapshot_session(coord, left_tabs, right_tabs) -> SessionState:
 
 
 def create_app() -> MainWindow:
+    from biome_fm.views.glass import configure_glass, is_available
+
     # ── Config & Session ──────────────────────────────────────────
     cfg_dir, cfg, session, _system_pt = _load_config_session()
 
     # ── Construction phase ────────────────────────────────────────
     plugins = _build_plugins(cfg)
     vfs = VFSRouter(plugin_manager=plugins)
-    (history, clipboard, store, tag_store, user_actions_store,
+    (clipboard, store, tag_store, user_actions_store,
      ws_store, named_session_store, op_queue, dir_state_store,
      frecency_store, file_collector) = _build_stores(cfg, cfg_dir)
     _project_actions: list = []  # updated on navigate; shared by closure
@@ -530,7 +533,7 @@ def create_app() -> MainWindow:
         repo = git_cache.find_repo(p.parent) if p else None
         if repo is None:
             return
-        history.execute(cmd_cls(p, repo))
+        cmd_cls(p, repo).execute()
         git_cache.invalidate(repo)
         git_worker.request(_active().current_path)
         manager._refresh_both()
@@ -558,35 +561,21 @@ def create_app() -> MainWindow:
     git_worker.status_ready.connect(_on_git_status)
 
     def _restore(tabs: TabsPresenter, state: PaneSideState) -> None:
-        for ts in state.tabs:
-            p = tabs.new_tab(Path(ts.path), deferred=True)  # lazy — load on first switch
-            v = tabs.view_at(tabs.tab_count - 1)
-            _wire_pane(v, p)
-            _wire_preview(v)
-            _wire_breadcrumb_completer(v)
-        tabs.switch_tab(state.active_idx)  # triggers load of active tab
+        tabs.replace_all([Path(ts.path) for ts in state.tabs], state.active_idx)
 
     home = Path.home()
     if session:
         _restore(left_tabs, session.left)
         _restore(right_tabs, session.right)
     else:
-        lp = left_tabs.new_tab(home)
-        v0 = left_tabs.view_at(0)
-        _wire_pane(v0, lp)
-        _wire_preview(v0)
-        _wire_breadcrumb_completer(v0)
-        rp = right_tabs.new_tab(home)
-        v1 = right_tabs.view_at(0)
-        _wire_pane(v1, rp)
-        _wire_preview(v1)
-        _wire_breadcrumb_completer(v1)
+        left_tabs.new_tab(home)
+        right_tabs.new_tab(home)
 
     # ── Manager ───────────────────────────────────────────────────
     _confirm_parent: list[object] = [None]  # late-bound after window creation
     manager = ManagerPresenter(
         left=left_tabs, right=right_tabs, vfs=vfs,  # type: ignore[arg-type]
-        history=history, bus=bus, config=cfg, op_queue=op_queue,
+        bus=bus, config=cfg, op_queue=op_queue,
         plugins=plugins,
         confirm=lambda spec: ConfirmDialog.confirm(
             spec.op, spec.sources, spec.dest, parent=_confirm_parent[0]
@@ -657,8 +646,6 @@ def create_app() -> MainWindow:
     # ── Window ────────────────────────────────────────────────────
     window = MainWindow(left_side, right_side, ai_panel, preview_panel)
     _confirm_parent[0] = window
-    _glass_active = cfg.glass  # actual enable happens in __main__ after show()
-
     # Debounced config save — coalesces rapid changes into one disk write
     _save_timer = QTimer(window)
     _save_timer.setSingleShot(True)
@@ -667,10 +654,7 @@ def create_app() -> MainWindow:
 
     def _schedule_save() -> None:
         _save_timer.start()  # restarts timer if already running
-    window._glass_cfg = cfg.glass
-    if cfg.glass:
-        from biome_fm.views.glass_style import mark_glass
-        mark_glass(window, recursive=True)
+    _glass_active = configure_glass(window, cfg.glass)
     window.splitter.addWidget(search_panel)
     search_panel.hide()
     window.splitter.addWidget(terminal_panel)
@@ -813,14 +797,6 @@ def create_app() -> MainWindow:
 
     terminal_panel.file_navigated.connect(_on_terminal_navigate)
 
-    # Sync terminal cwd + project context when any pane navigates
-    for _side_tabs in [left_tabs, right_tabs]:
-        for _i in range(_side_tabs.tab_count):
-            _sig = getattr(_side_tabs.view_at(_i), "path_updated", None)
-            if _sig is not None:
-                _sig.connect(terminal_panel.set_cwd)
-                _sig.connect(_on_project_navigate)
-                _sig.connect(plugins.on_navigate)
     window.detach_preview_requested.connect(lambda: coord.detach("preview"))
     window.detach_ai_requested.connect(lambda: coord.detach("ai"))
 
@@ -887,9 +863,7 @@ def create_app() -> MainWindow:
                     event.bytes_done, event.bytes_total, event.current_file,
                 )
             elif isinstance(event, OpDone):
-                cmd = manager.pop_pending_cmd(event.task_id)
-                if cmd is not None:
-                    history.push(cmd)
+                manager.pop_pending_cmd(event.task_id)
                 manager.fire_op_done(event.task_id)
                 manager._refresh_both()
                 if dlg:
@@ -1136,12 +1110,7 @@ def create_app() -> MainWindow:
     sc._on_idle = search_timer.stop
 
     # ── New tab ───────────────────────────────────────────────────
-    def _new_tab(tabs=None) -> None:
-        tabs = tabs or _active()
-        pid = "left" if tabs is left_tabs else "right"
-        watcher = left_watcher if tabs is left_tabs else right_watcher
-        p = tabs.new_tab(tabs.current_path)
-        v = tabs.view_at(tabs.tab_count - 1)
+    def _wire_all(v, p, tabs, pid, watcher) -> None:  # noqa: ANN001
         _wire_pane(v, p)
         _wire_preview(v)
         _wire_ctx(v)
@@ -1167,6 +1136,13 @@ def create_app() -> MainWindow:
             _sig.connect(_on_project_navigate)
             _sig.connect(plugins.on_navigate)
 
+    left_tabs.on_tab_created = lambda v, p: _wire_all(v, p, left_tabs, "left", left_watcher)
+    right_tabs.on_tab_created = lambda v, p: _wire_all(v, p, right_tabs, "right", right_watcher)
+
+    def _new_tab(tabs=None) -> None:
+        tabs = tabs or _active()
+        tabs.new_tab(tabs.current_path)  # on_tab_created fires automatically
+
     def _dup_tab() -> None:
         """Duplicate the active tab — opens a new tab at the same path."""
         _new_tab()
@@ -1181,7 +1157,7 @@ def create_app() -> MainWindow:
         name, ok = QInputDialog.getText(window, "New File", "File name:")
         if ok and name.strip():
             path = _active().current_path / name.strip()
-            history.execute(NewFileCmd(path))
+            NewFileCmd(path).execute()
             manager._refresh_both()
 
     def _ask_rename() -> None:
@@ -1257,7 +1233,7 @@ def create_app() -> MainWindow:
             items = _op_items()
             if not items:
                 return
-            history.execute(TrashCmd([i.path for i in items]))
+            TrashCmd([i.path for i in items]).execute()
             manager._refresh_both()
         _sig = getattr(view, "trash_requested", None)
         if _sig is not None:
@@ -1348,11 +1324,11 @@ def create_app() -> MainWindow:
                     result = TagDialog.get_tags(current, tag_store.all_tags(), parent=window)
                     if result is not None:
                         cmd = TagCmd([i.path for i in marked], add_tags=result, remove_tags=[], store=tag_store)
-                        history.execute(cmd)
+                        cmd.execute()
             elif action == "remove_quarantine":
                 from biome_fm.commands.quarantine_cmd import RemoveQuarantineCmd
                 cmd = RemoveQuarantineCmd([i.path for i in _op_items()])
-                history.execute(cmd)
+                cmd.execute()
                 _active().refresh()
             elif action == "preview":
                 preview_presenter.render_item(_active().current_item())
@@ -1547,33 +1523,13 @@ def create_app() -> MainWindow:
             lambda i=_i: _load_workspace_n(i)
         )
 
-    # ── Single post-restore wire loop (DnD + new-tab + ctx + bm + git) ───────
+    # ── Single post-restore wire loop (all helpers via _wire_all) ────────────
     for _pid_w, _tabs_w, _watcher_w in [
         ("left", left_tabs, left_watcher),
         ("right", right_tabs, right_watcher),
     ]:
         for _i_w in range(_tabs_w.tab_count):
-            _v_w = _tabs_w.view_at(_i_w)
-            _wire_dnd(_v_w, _pid_w)
-            _wire_new_tab(_v_w, _tabs_w)
-            _wire_ctx(_v_w)
-            _wire_plugin_ctx(_v_w, _pid_w)
-            _wire_bm(_v_w, _tabs_w)
-            _wire_git(_v_w, _watcher_w)
-            _wire_tags(_v_w)
-            _wire_ai_rename(_v_w)
-            _wire_ai_context(_v_w)
-            _wire_ai_cursor(_v_w, _tabs_w, ai_presenter)
-            _wire_info_cursor(_v_w, info_presenter)
-            _wire_recent_dirs(_v_w, cfg)
-            _wire_new_file(_v_w)
-            _wire_clipboard(_v_w)
-            _wire_trash(_v_w)
-            _pu = getattr(_v_w, "path_updated", None)
-            if _pu is not None:
-                _pu.connect(_update_git_branch)
-                _pu.connect(_on_project_navigate)
-                _pu.connect(plugins.on_navigate)
+            _wire_all(_tabs_w.view_at(_i_w), _tabs_w.presenter_at(_i_w), _tabs_w, _pid_w, _watcher_w)
 
     def _bookmark_toggle() -> None:
         path = _active().current_path
@@ -1615,9 +1571,7 @@ def create_app() -> MainWindow:
         items = [i for i in _op_items() if i.name != ".."]
         if not items:
             return
-        cmd = EditorRenameCmd(items, vfs)
-        history.execute(cmd)
-        manager._refresh_both()
+        manager.bulk_rename(items)
 
     QShortcut(QKeySequence("Ctrl+Shift+R"), window).activated.connect(_bulk_rename_editor)
 
@@ -1887,22 +1841,9 @@ def create_app() -> MainWindow:
 
     QShortcut(QKeySequence("?"),  window).activated.connect(_open_shortcut_help)
     QShortcut(QKeySequence("F1"), window).activated.connect(_open_shortcut_help)
-    QShortcut(QKeySequence("Ctrl+Z"),       window).activated.connect(manager.undo)
-    QShortcut(QKeySequence("Ctrl+Shift+Z"), window).activated.connect(manager.redo)
     QShortcut(QKeySequence("Ctrl+U"),       window).activated.connect(manager.swap_panes)
     QShortcut(QKeySequence("Ctrl+Shift+U"), window).activated.connect(manager.target_equals_source)
     QShortcut(QKeySequence("Ctrl+Shift+L"), window).activated.connect(manager.toggle_mirror)
-
-    # ── Undo/Redo from menu ───────────────────────────────────────
-    window.undo_requested.connect(manager.undo)
-    window.redo_requested.connect(manager.redo)
-
-    def _update_undo_redo_labels() -> None:
-        undo_desc = history._undo_stack[-1].description if history._undo_stack else None
-        redo_desc = history._redo_stack[-1].description if history._redo_stack else None
-        window.update_undo_redo_labels(undo_desc, redo_desc)
-
-    history.on_changed = _update_undo_redo_labels
 
     # ── Menu signals ─────────────────────────────────────────────
     window.refresh_requested.connect(lambda: _active().refresh())
@@ -2037,7 +1978,7 @@ def create_app() -> MainWindow:
             # apply_theme already publishes ThemeChanged(name, tokens) via global bus
             nonlocal _glass_active
             from biome_fm.views.glass import disable_glass, enable_glass, prepare_glass
-            if cfg.glass and not _glass_active:
+            if cfg.glass and is_available() and not _glass_active:
                 from biome_fm.views.glass_style import GlassStyle, mark_glass
                 QApplication.instance().setStyle(GlassStyle())
                 mark_glass(window, recursive=True)
@@ -2069,8 +2010,6 @@ def create_app() -> MainWindow:
         CommandEntry("Make Directory", "F7",           lambda: bar.mkdir_requested.emit()),
         CommandEntry("Delete",         "F8",           lambda: bar.delete_requested.emit()),
         CommandEntry("Rename",         "F9",           lambda: bar.rename_requested.emit()),
-        CommandEntry("Undo",           "Ctrl+Z",       manager.undo),
-        CommandEntry("Redo",           "Ctrl+Shift+Z", manager.redo),
         CommandEntry("Switch Pane",    "Tab",          manager.switch_active_pane),
         CommandEntry("Quit",           "Alt+F4",       window.close),  # type: ignore[arg-type]
         CommandEntry("New Tab",        "Ctrl+T",       _new_tab),
@@ -2315,6 +2254,7 @@ def create_app() -> MainWindow:
             if (_f := _AI_MODEL_FIELDS.get(ai_presenter._active_key)) else None
         ))
         _step("save_config",               lambda: save_config(cfg, cfg_dir / "config.toml"))
+        _step("nav_timer.stop",            nav_timer.stop)
         _step("left_tabs.shutdown",        left_tabs.shutdown)
         _step("right_tabs.shutdown",       right_tabs.shutdown)
         _step("bus.unsubscribe",           lambda: (
@@ -2386,7 +2326,7 @@ def create_app() -> MainWindow:
         op_queue=op_queue,
         plugins=plugins,
         git_worker=git_worker,
-        timers=[drain_timer, preview_timer, size_drain_timer, op_timer, search_timer, refresh_timer, watch_timer],
+        timers=[drain_timer, preview_timer, size_drain_timer, op_timer, search_timer, refresh_timer, watch_timer, nav_timer],
         tray=_tray,
         session_timer=session_timer,
         hotkey_listener=_hotkey_listener,
