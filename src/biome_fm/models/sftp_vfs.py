@@ -1,6 +1,7 @@
 """SFTP VFS. Requires paramiko (optional dep)."""
 from __future__ import annotations
 
+import contextlib
 import logging
 import re
 import shlex
@@ -256,23 +257,33 @@ class SFTPVfs:
 
         self._with_reconnect(_do, path, mtime)
 
+    @contextlib.contextmanager
     def open_read(self, path: PurePosixPath, offset: int = 0):
-        import contextlib
-
-        @contextlib.contextmanager
-        def _cm():
-            def _do(sftp, p):
-                return sftp.open(str(p), "rb")
-
-            fh = self._with_reconnect(_do, path)
-            try:
-                if offset:
-                    fh.seek(offset)
-                yield fh
-            finally:
-                fh.close()
-
-        return _cm()
+        ch = self._get_channel()
+        fh = None
+        _ssh_err = False
+        try:
+            fh = ch.open(str(path), "rb")
+            if offset:
+                fh.seek(offset)
+            yield fh
+        except _SSH_ERRORS:
+            _ssh_err = True
+            raise
+        finally:
+            if fh is not None:
+                try:
+                    fh.close()
+                except Exception:
+                    pass
+            if _ssh_err:
+                try:
+                    ch.close()
+                except Exception:
+                    pass
+                self._semaphore.release()
+            else:
+                self._return_channel(ch)
 
     def exec_find(self, remote_dir: str, name_pattern: str, timeout: int = 30) -> list[str]:
         """Run `find` on server, return list of absolute remote paths."""

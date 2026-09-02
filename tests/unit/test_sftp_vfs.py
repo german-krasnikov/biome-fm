@@ -1,5 +1,8 @@
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+from unittest.mock import MagicMock
+
 import pytest
+
 from biome_fm.models.sftp_vfs import SFTPSession, SFTPVfs, parse_sftp_uri
 
 
@@ -78,3 +81,27 @@ def test_make_jump_proxy_command_normal_case():
     assert "target.host" in result
     assert "-p 22" in result
     assert "-W" in result
+
+
+# ── C13: open_read must hold channel for full lifetime of file handle ─────────
+
+def test_open_read_holds_channel_during_yield():
+    from tests.unit.test_sftp_connection_pool import _make_sftp_vfs
+
+    vfs, _orig, _mod = _make_sftp_vfs(max_channels=1)
+    try:
+        fake_ch = MagicMock(name="sftp_ch")
+        fake_ch.open.return_value = MagicMock(name="fh")
+        vfs._client.open_sftp.return_value = fake_ch
+        vfs._channels = [fake_ch]  # pre-seed pool — semaphore._value already 1
+
+        with vfs.open_read(PurePosixPath("/remote/file.txt")):
+            # Channel must be held (not back in pool) while file handle is live
+            assert vfs._channels == []
+            assert vfs._semaphore._value == 0
+
+        # After context exit: channel returned to pool
+        assert len(vfs._channels) == 1
+        assert vfs._semaphore._value == 1
+    finally:
+        _mod._HAS_PARAMIKO, _mod._paramiko = _orig
