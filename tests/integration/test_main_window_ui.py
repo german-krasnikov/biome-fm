@@ -4,6 +4,8 @@ from PySide6.QtWidgets import QWidget
 
 from biome_fm.views.main_window import MainWindow
 
+pytestmark = pytest.mark.timeout(30)
+
 
 @pytest.fixture
 def win(qtbot):
@@ -90,11 +92,13 @@ def test_pane_ratio_2575(qtbot, win_panes):
     assert s[0] == int(total * 0.25)
 
 
-def test_handle_intercepts_context_menu_via_event_filter(win_panes):
+def test_handle_intercepts_context_menu_via_event_filter(win_panes, monkeypatch):
     from PySide6.QtCore import QPoint
     from PySide6.QtGui import QContextMenuEvent
     handle = win_panes._splitter.handle(1)
     assert handle is not None
+    # Stub out the blocking QMenu.exec so the test doesn't hang
+    monkeypatch.setattr(win_panes, "_show_ratio_menu", lambda *_: None)
     # Context menu handled via eventFilter, not CustomContextMenu policy
     evt = QContextMenuEvent(QContextMenuEvent.Reason.Mouse, QPoint(0, 0))
     assert win_panes.eventFilter(handle, evt) is True

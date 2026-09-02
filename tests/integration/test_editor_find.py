@@ -7,6 +7,8 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+pytestmark = pytest.mark.timeout(30)
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QApplication
@@ -31,6 +33,8 @@ def dialog(qapp, tmp_file):
     d = EditorDialog(tmp_file)
     d.show()
     yield d
+    # Sync saved_text so is_modified() returns False — prevents blocking QMessageBox on close
+    d._presenter._saved_text = d._editor.toPlainText()
     d.close()
 
 
