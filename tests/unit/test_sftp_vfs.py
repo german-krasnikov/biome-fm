@@ -1,5 +1,7 @@
+import shutil
+from io import BytesIO
 from pathlib import Path, PurePosixPath
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -103,5 +105,125 @@ def test_open_read_holds_channel_during_yield():
         # After context exit: channel returned to pool
         assert len(vfs._channels) == 1
         assert vfs._semaphore._value == 1
+    finally:
+        _mod._HAS_PARAMIKO, _mod._paramiko = _orig
+
+
+# ── C54: exists / copy / move satisfy WritableVFS ────────────────────────────
+
+def _setup_vfs_with_channel():
+    """Return (vfs, fake_ch, _orig, _mod)."""
+    from tests.unit.test_sftp_connection_pool import _make_sftp_vfs
+
+    vfs, _orig, _mod = _make_sftp_vfs(max_channels=1)
+    fake_ch = MagicMock(name="sftp_ch")
+    vfs._channels = [fake_ch]
+    return vfs, fake_ch, _orig, _mod
+
+
+def test_sftp_exists_true():
+    vfs, fake_ch, _orig, _mod = _setup_vfs_with_channel()
+    try:
+        fake_ch.stat.return_value = MagicMock()
+        assert vfs.exists(PurePosixPath("/remote/file.txt")) is True
+    finally:
+        _mod._HAS_PARAMIKO, _mod._paramiko = _orig
+
+
+def test_sftp_exists_false():
+    vfs, fake_ch, _orig, _mod = _setup_vfs_with_channel()
+    try:
+        fake_ch.stat.side_effect = FileNotFoundError("/no/such")
+        assert vfs.exists(PurePosixPath("/no/such")) is False
+    finally:
+        _mod._HAS_PARAMIKO, _mod._paramiko = _orig
+
+
+class _NocloseFile:
+    """BytesIO wrapper whose __exit__ does NOT close the buffer."""
+
+    def __init__(self, buf: BytesIO) -> None:
+        self._buf = buf
+
+    def read(self, n: int = -1) -> bytes:
+        return self._buf.read(n)
+
+    def write(self, data: bytes) -> int:
+        return self._buf.write(data)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        pass  # keep the buffer open so getvalue() works after
+
+
+def test_sftp_copy_streams_via_read_write():
+    vfs, fake_ch, _orig, _mod = _setup_vfs_with_channel()
+    try:
+        dst_raw = BytesIO()
+        src_f = _NocloseFile(BytesIO(b"hello"))
+        dst_f = _NocloseFile(dst_raw)
+
+        def fake_open(path, mode):
+            return src_f if "r" in mode else dst_f
+
+        fake_ch.open.side_effect = fake_open
+
+        sem_vals: list[int] = []
+        _real_copyfileobj = shutil.copyfileobj
+
+        def _capture_copy(fi, fo, *args, **kwargs):
+            sem_vals.append(vfs._semaphore._value)
+            _real_copyfileobj(fi, fo, *args, **kwargs)
+
+        with patch("biome_fm.models.sftp_vfs.shutil.copyfileobj", _capture_copy):
+            vfs.copy(PurePosixPath("/src/f.txt"), PurePosixPath("/dst/f.txt"))
+
+        assert dst_raw.getvalue() == b"hello"
+        assert sem_vals == [0]  # exactly one channel held during the copy
+        assert vfs._semaphore._value == 1  # returned after call
+    finally:
+        _mod._HAS_PARAMIKO, _mod._paramiko = _orig
+
+
+def test_sftp_copy_safe_at_max_channels_1():
+    """copy() with max_channels=1 must complete without deadlock."""
+    vfs, fake_ch, _orig, _mod = _setup_vfs_with_channel()
+    try:
+        src_f = _NocloseFile(BytesIO(b"data"))
+        dst_f = _NocloseFile(BytesIO())
+
+        def fake_open(path, mode):
+            return src_f if "r" in mode else dst_f
+
+        fake_ch.open.side_effect = fake_open
+        vfs.copy(PurePosixPath("/a"), PurePosixPath("/b"))
+        assert vfs._semaphore._value == 1
+    finally:
+        _mod._HAS_PARAMIKO, _mod._paramiko = _orig
+
+
+def test_sftp_move_calls_rename():
+    vfs, fake_ch, _orig, _mod = _setup_vfs_with_channel()
+    try:
+        fake_ch.stat.side_effect = FileNotFoundError("/dst")
+        src = PurePosixPath("/src/f.txt")
+        dst = PurePosixPath("/dst/f.txt")
+        vfs.move(src, dst)
+        fake_ch.rename.assert_called_once_with(str(src), str(dst))
+    finally:
+        _mod._HAS_PARAMIKO, _mod._paramiko = _orig
+
+
+def test_sftp_move_raises_file_exists_if_dst_present():
+    vfs, fake_ch, _orig, _mod = _setup_vfs_with_channel()
+    try:
+        fake_ch.stat.return_value = MagicMock()  # dst exists
+        src = PurePosixPath("/src/f.txt")
+        dst = PurePosixPath("/dst/f.txt")
+        with pytest.raises(FileExistsError):
+            vfs.move(src, dst)
+        fake_ch.rename.assert_not_called()
     finally:
         _mod._HAS_PARAMIKO, _mod._paramiko = _orig

@@ -3,13 +3,18 @@ from __future__ import annotations
 
 import contextlib
 import logging
-import re
 import shlex
+import shutil
 import stat
 import threading
 import time
-from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+
+from biome_fm.models.sftp_utils import (
+    SFTPSession,
+    make_jump_proxy_command,  # noqa: F401 — re-exported
+    parse_sftp_uri,  # noqa: F401 — re-exported
+)
 
 try:
     import paramiko as _paramiko
@@ -18,43 +23,8 @@ except ImportError:
     _paramiko = None  # type: ignore[assignment]
     _HAS_PARAMIKO = False
 
-_URI_RE = re.compile(r"sftp://(?:([^@]+)@)?([^/:]+)(?::(\d+))?(/.*)$")
 _SSH_ERRORS: tuple[type[Exception], ...] = (ConnectionError, EOFError)
 _log = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class SFTPSession:
-    host: str
-    port: int = 22
-    user: str = ""
-    remote_path: str = "/"
-    auto_add_host_key: bool = False
-    proxy_command: str = ""
-
-
-def make_jump_proxy_command(
-    jump_host: str, jump_port: int, jump_user: str, target_host: str, target_port: int
-) -> str:
-    # ponytail: POSIX quoting only; add Windows-aware quoting if Windows SSH jump hosts required
-    user_prefix = f"{shlex.quote(jump_user)}@" if jump_user else ""
-    return (
-        f"ssh -W {shlex.quote(target_host)}:{int(target_port)}"
-        f" -p {int(jump_port)} {user_prefix}{shlex.quote(jump_host)}"
-    )
-
-
-def parse_sftp_uri(uri: str) -> SFTPSession | None:
-    m = _URI_RE.match(uri)
-    if not m:
-        return None
-    user, host, port, path = m.groups()
-    return SFTPSession(
-        host=host,
-        port=int(port or 22),
-        user=user or "",
-        remote_path=path or "/",
-    )
 
 
 class SFTPVfs:
@@ -69,7 +39,6 @@ class SFTPVfs:
         self._lock = threading.Lock()
 
     def _get_channel(self):
-        """Acquire a fresh or pooled channel (blocks at max_channels)."""
         if not _HAS_PARAMIKO:
             raise RuntimeError("Install paramiko for SFTP support: pip install paramiko")
         if self._client is None:
@@ -85,7 +54,6 @@ class SFTPVfs:
             raise
 
     def _return_channel(self, channel) -> None:
-        """Return a channel to the pool and release the semaphore slot."""
         with self._lock:
             self._channels.append(channel)
         self._semaphore.release()
@@ -120,7 +88,6 @@ class SFTPVfs:
         transport = client.get_transport()
         if transport is not None:
             transport.set_keepalive(30)
-        # Seed pool with one channel
         with self._lock:
             self._channels = [client.open_sftp()]
 
@@ -138,7 +105,6 @@ class SFTPVfs:
         self.connect()
 
     def _with_reconnect(self, fn, *args):
-        """Acquire channel, call fn(sftp, *args), retry up to 3x on SSH errors."""
         last_exc: Exception | None = None
         for attempt in range(4):
             # client may be None if a previous reconnect attempt failed
@@ -230,6 +196,34 @@ class SFTPVfs:
 
         self._with_reconnect(_do, path, data)
 
+    def exists(self, path: PurePosixPath) -> bool:
+        def _do(sftp, p):
+            try:
+                sftp.stat(str(p))
+                return True
+            except FileNotFoundError:
+                return False
+
+        return self._with_reconnect(_do, path)
+
+    def copy(self, src: PurePosixPath, dst: PurePosixPath) -> None:
+        def _do(sftp, s, d):
+            with sftp.open(str(s), "rb") as fi, sftp.open(str(d), "wb") as fo:
+                shutil.copyfileobj(fi, fo)
+
+        self._with_reconnect(_do, src, dst)
+
+    def move(self, src: PurePosixPath, dst: PurePosixPath) -> None:
+        def _do(sftp, s, d):
+            try:
+                sftp.stat(str(d))
+                raise FileExistsError(f"'{PurePosixPath(d).name}' already exists")
+            except FileNotFoundError:
+                pass
+            sftp.rename(str(s), str(d))
+
+        self._with_reconnect(_do, src, dst)
+
     def mkdir(self, path: PurePosixPath) -> None:
         def _do(sftp, p):
             sftp.mkdir(str(p))
@@ -286,7 +280,6 @@ class SFTPVfs:
                 self._return_channel(ch)
 
     def exec_find(self, remote_dir: str, name_pattern: str, timeout: int = 30) -> list[str]:
-        """Run `find` on server, return list of absolute remote paths."""
         if self._client is None:
             raise RuntimeError("Not connected — call connect() first")
         cmd = f"find {shlex.quote(remote_dir)} -name {shlex.quote(name_pattern)} -maxdepth 20 2>/dev/null"
