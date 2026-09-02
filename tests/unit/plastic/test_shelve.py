@@ -72,7 +72,7 @@ def test_parse_strips_whitespace():
 def test_shelve_basic(tmp_path):
     with patch("biome_fm.plastic._shelve.run_cm") as m:
         shelve("WIP", tmp_path)
-    m.assert_called_once_with(["shelveset", "create", "-c=WIP"], cwd=tmp_path)
+    m.assert_called_once_with(["shelveset", "create", "-c=WIP"], cwd=tmp_path, timeout=None)
 
 
 def test_shelve_with_paths(tmp_path):
@@ -80,7 +80,7 @@ def test_shelve_with_paths(tmp_path):
     with patch("biome_fm.plastic._shelve.run_cm") as m:
         shelve("msg", tmp_path, paths=[f1, f2])
     m.assert_called_once_with(
-        ["shelveset", "create", "-c=msg", str(f1), str(f2)], cwd=tmp_path
+        ["shelveset", "create", "-c=msg", str(f1), str(f2)], cwd=tmp_path, timeout=None
     )
 
 
@@ -98,7 +98,7 @@ def test_shelve_no_paths_arg_omitted(tmp_path):
 def test_unshelve_correct_args(tmp_path):
     with patch("biome_fm.plastic._shelve.run_cm") as m:
         unshelve(42, tmp_path)
-    m.assert_called_once_with(["shelveset", "apply", "42"], cwd=tmp_path)
+    m.assert_called_once_with(["shelveset", "apply", "42"], cwd=tmp_path, timeout=None)
 
 
 # ── delete_shelve ─────────────────────────────────────────────────────────────
@@ -106,7 +106,7 @@ def test_unshelve_correct_args(tmp_path):
 def test_delete_shelve_correct_args(tmp_path):
     with patch("biome_fm.plastic._shelve.run_cm") as m:
         delete_shelve(99, tmp_path)
-    m.assert_called_once_with(["shelveset", "delete", "99"], cwd=tmp_path)
+    m.assert_called_once_with(["shelveset", "delete", "99"], cwd=tmp_path, timeout=None)
 
 
 # ── get_shelves ───────────────────────────────────────────────────────────────

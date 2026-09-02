@@ -7,6 +7,7 @@ Usage pattern (matches test contract and Qt production use):
 from __future__ import annotations
 
 import queue
+import subprocess
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
@@ -193,10 +194,12 @@ class PlasticPresenter:
                 self._queue.put(("error", str(exc)))
 
             try:
-                out = run_cm(["status", "--all", "--machinereadable"], cwd=self._cwd, safe=True)
+                out = run_cm(["status", "--all", "--machinereadable"], cwd=self._cwd, timeout=120)
                 if not out.strip():
-                    out = run_cm(["status", "--all"], cwd=self._cwd, safe=True)
+                    out = run_cm(["status", "--all"], cwd=self._cwd, timeout=120)
                 self._queue.put(("status", parse_status(out, self._cwd)))
+            except subprocess.TimeoutExpired:
+                self._queue.put(("error", "cm status timed out"))
             except Exception as exc:
                 self._queue.put(("error", str(exc)))
 

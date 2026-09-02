@@ -1102,3 +1102,31 @@ def test_drain_still_blocks_for_tests(view, monkeypatch):
     p.drain()  # must block until slow_cm finishes
     assert done.is_set()
     assert len(view.status_items) >= 0  # ensure no crash
+
+
+# ── C50: status timeout → explicit error on queue ────────────────────────────
+
+def test_status_timeout_puts_error_on_queue(view, monkeypatch):
+    """TimeoutExpired on status call must surface as an error, not be silently swallowed."""
+    import subprocess
+
+    class _FakeResult:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_subprocess_run(cmd, **kw):
+        if len(cmd) > 1 and cmd[1] == "status":
+            raise subprocess.TimeoutExpired(cmd, kw.get("timeout", 120))
+        return _FakeResult()
+
+    # Patch subprocess.run, NOT run_cm — patching run_cm wholesale bypasses safe=True
+    # and makes the test green today (except Exception catches the raise directly).
+    # Patching subprocess.run lets run_cm's safe=True path run, which today silently
+    # returns "" (test stays red). After the fix, safe=True is removed from the status
+    # call, TimeoutExpired propagates, and the explicit handler puts the error on queue.
+    monkeypatch.setattr("subprocess.run", fake_subprocess_run)
+    p = PlasticPresenter(view=view, cwd=Path("/w"))
+    p.refresh()
+    p.drain()
+    assert any("timed out" in e for e in view.errors)
