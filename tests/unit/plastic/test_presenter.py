@@ -1132,7 +1132,7 @@ def test_status_timeout_puts_error_on_queue(view, monkeypatch):
     assert any("timed out" in e for e in view.errors)
 
 
-# ── C50: timeout=None for inline run_cm in switch_label / create_branch ───────
+# ── C50: timeout=None for inline run_cm in switch_label ─────────────────────
 
 def test_switch_label_uses_no_timeout(view, monkeypatch):
     calls = []

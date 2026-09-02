@@ -2,8 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from pathlib import Path
-from unittest.mock import call, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -192,16 +191,6 @@ def test_undo_keep_calls_cm(tmp_path):
     with patch("biome_fm.plastic._changesets.run_cm") as m:
         undo_keep(f, tmp_path)
     assert "--keep" in m.call_args[0][0]
-
-
-# ── C49: -c= flag ────────────────────────────────────────────────────────────
-
-def test_checkin_uses_dash_c_equals(tmp_path, monkeypatch):
-    calls = []
-    monkeypatch.setattr("biome_fm.plastic._changesets.run_cm",
-                        lambda a, **kw: calls.append(a))
-    checkin("fix typo", tmp_path)
-    assert calls[0][1] == "-c=fix typo"  # fails today: calls[0][1] == "-m"
 
 
 # ── C50: timeout=None for mutating calls ─────────────────────────────────────

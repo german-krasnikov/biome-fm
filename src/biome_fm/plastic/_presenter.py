@@ -2,7 +2,8 @@
 
 Usage pattern (matches test contract and Qt production use):
     p.refresh()   — fires background work
-    p.drain()     — waits for completion, pushes results to view (called by QTimer or test)
+    p.poll()      — non-blocking, production timer target (QTimer 100ms)
+    p.drain()     — blocking, for tests only
 """
 from __future__ import annotations
 

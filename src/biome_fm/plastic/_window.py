@@ -1246,23 +1246,20 @@ class PlasticWindow(QMainWindow):
     def _action_items(self) -> list[PlasticItem]:
         """Selected rows first; fall back to checked items when nothing selected."""
         selected = []
-        seen: set[tuple] = set()
         for idx in self._status_tree.selectionModel().selectedIndexes():
             if idx.column() != 0:
                 continue
-            key = (idx.row(), idx.internalId())
-            if key in seen:
-                continue
-            seen.add(key)
             item = self._status_model.itemFromIndex(idx)
             if item and (p := item.data(Qt.ItemDataRole.UserRole)):
                 selected.append(p)
         return selected or self._checked_items()
 
-    def _confirm_destructive(self, n: int, title: str = "Undo Changes") -> bool:
+    def _confirm_destructive(
+        self, n: int, title: str = "Undo Changes", verb: str = "Revert"
+    ) -> bool:
         reply = QMessageBox.question(
             self, title,
-            f"Revert {n} file{'s' if n != 1 else ''}? This cannot be undone.",
+            f"{verb} {n} file{'s' if n != 1 else ''}? This cannot be undone.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -1708,7 +1705,7 @@ class PlasticWindow(QMainWindow):
 
     def _on_remove_from_vcs(self) -> None:
         items = self._action_items()
-        if items and self._confirm_destructive(len(items), "Remove from VCS"):
+        if items and self._confirm_destructive(len(items), "Remove from VCS", verb="Remove"):
             self.remove_from_vcs_requested.emit(items)
 
     def _on_move_file(self) -> None:

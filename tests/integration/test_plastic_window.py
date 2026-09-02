@@ -1281,3 +1281,27 @@ def test_private_rows_unchecked_by_default(qtbot, tmp_path):
     win._drain()
     checked = win._checked_items()
     assert all(i.status != "PR" for i in checked)
+
+
+def test_remove_from_vcs_confirm_text_says_remove(qtbot):
+    """Confirm dialog for Remove from VCS must say 'Remove', not 'Revert'."""
+    from unittest.mock import patch
+    from PySide6.QtWidgets import QMessageBox
+
+    win = PlasticWindow()
+    qtbot.addWidget(win)
+    win.set_status_items([PlasticItem(status="CO", path=Path("/w/a.cs"))])
+    win._drain()
+
+    recorded: list[str] = []
+
+    def fake_question(_parent, _title, text, *_args, **_kwargs):
+        recorded.append(text)
+        return QMessageBox.StandardButton.No
+
+    with patch("biome_fm.plastic._window.QMessageBox.question", side_effect=fake_question):
+        win._on_remove_from_vcs()
+
+    assert recorded, "dialog was not shown"
+    assert "Remove" in recorded[0]
+    assert "Revert" not in recorded[0]

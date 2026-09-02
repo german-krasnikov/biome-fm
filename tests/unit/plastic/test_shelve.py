@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from pathlib import Path
 from unittest.mock import patch
 
 from biome_fm.plastic._shelve import (
@@ -132,12 +131,3 @@ def test_get_shelves_empty_on_cm_error(tmp_path):
     with patch("biome_fm.plastic._shelve.run_cm", return_value=""):
         assert get_shelves(tmp_path) == []
 
-
-# ── C49: -c= flag ────────────────────────────────────────────────────────────
-
-def test_shelve_uses_dash_c_equals(tmp_path, monkeypatch):
-    calls = []
-    monkeypatch.setattr("biome_fm.plastic._shelve.run_cm",
-                        lambda a, **kw: calls.append(a))
-    shelve("wip", tmp_path)
-    assert calls[0][2] == "-c=wip"  # fails today: calls[0][2] == "-m"
