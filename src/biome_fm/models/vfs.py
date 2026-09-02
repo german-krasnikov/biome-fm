@@ -93,7 +93,13 @@ class LocalVFS:
         else:
             shutil.copy2(src, dst)
 
-    def move(self, src: Path, dst: Path) -> None:
+    def move(self, src: Path, dst: Path, *, overwrite: bool = False) -> None:
+        if not overwrite and dst.exists():
+            try:
+                if not os.path.samefile(src, dst):
+                    raise FileExistsError(f"'{dst.name}' already exists")
+            except FileNotFoundError:
+                pass  # dst disappeared between exists() and samefile() — proceed
         shutil.move(str(src), str(dst))
 
     def delete(self, path: Path) -> None:

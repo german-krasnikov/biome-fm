@@ -65,6 +65,7 @@ class ProgressMoveCmd(Command):
             if self._cancel.is_set():
                 raise Cancelled()
             dst = self._dest_dir / src.name
+            overwrite = False
             if dst.exists() and self._resolver is not None:
                 action = self._resolver.ask(src, dst)
                 if action in (ConflictAction.SKIP, ConflictAction.SKIP_ALL):
@@ -73,7 +74,10 @@ class ProgressMoveCmd(Command):
                     raise Cancelled()
                 if action == ConflictAction.RENAME:
                     dst = auto_rename(dst)
-                # OVERWRITE / OVERWRITE_ALL fall through
+                elif action in (ConflictAction.OVERWRITE, ConflictAction.OVERWRITE_ALL):
+                    overwrite = True
+            if overwrite:
+                self._vfs.delete(dst)
             self._vfs.move(src, dst)
             self._moves.append((src, dst))
             self._report(i + 1, total, 0, 0, src.name)
