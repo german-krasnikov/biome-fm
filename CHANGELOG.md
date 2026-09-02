@@ -52,8 +52,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `tag_store`: TOML value escaping, atomic write, load error handling.
 - `config`: dict-key escaping in `_toml_val`; wider `load_config` exception handling.
 - `stores`: `safe_load_toml` helper; `user_actions_store.load()` guarded.
-- `credential_store`: `set_credential` returns bool; plaintext clear guarded by keyring success.
-- Settings: plaintext API keys cleared only when keyring store succeeded.
+- `credential_store`: `set_credential` now returns `bool` (True = keyring persisted, False = in-process fallback only).
 
 **Tabs / Session**
 - Tab indices shifted before `remove_tab` in `close_tab`; deferred active tab loaded eagerly.
@@ -67,23 +66,20 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - HTML-special characters escaped in hex ASCII column, archive entry names/headers, fallback provider, metadata/EXIF rows.
 
 **Plastic SCM plugin**
-- Selection-first guard for context actions; PR unchecked items fix; confirm-dialog verb corrected.
-- `PlasticPresenter` gains `poll()` (QTimer, non-blocking); tests use `drain()`.
-- `timeout=None` applied to all mutating `cm` calls to prevent premature timeout on slow VCS ops.
-- `-c=<comment>` flag used for `cm checkin` and `shelveset create` (Plastic SCM syntax).
+- Selection-first guard for context actions; unchecked-items fix in PR page.
+- "Remove from VCS" confirmation dialog now says Remove instead of Revert.
 
 ### Changed
 
-- Plastic SCM: `run_cm` for mutating ops now uses `timeout=None`; checkin/shelve use `-c=` flag.
-- Plastic SCM confirm-dialog action verb changed from "Remove" to "Revert" for accuracy.
-- `PlasticPresenter` uses `poll()` (QTimer-driven) in production; `drain()` for synchronous test teardown.
-- `DryRunDialog` now calls `cmd.execute()` directly (no `CommandHistory` intermediary).
+- Plastic SCM: `run_cm` for mutating ops uses `timeout=None` to prevent premature timeout on slow VCS operations.
+- Plastic SCM: checkin and `shelveset create` now use the `-c=<comment>` flag (correct Plastic SCM syntax).
+- `PlasticPresenter` uses `poll()` (QTimer-driven, non-blocking) in production; `drain()` for synchronous test teardown.
+- `DryRunDialog` now calls `cmd.execute()` directly (no command history intermediary).
 
 ### Security
 
 - `html.escape()` applied to all preview providers (hex, archive, fallback, metadata/EXIF) to prevent HTML injection from filename/content data.
-- Drag-and-drop path-traversal guard in VFS router copy/move (resolved paths passed to backend).
-- Credential store clears plaintext API keys only after confirming keyring storage succeeded, preventing accidental credential loss.
+- `credential_store`: plaintext API keys cleared only after keyring storage confirmed, preventing accidental credential loss on failed keyring write.
 
 ## [v0.35.0] — 2026-08-12
 

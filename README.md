@@ -247,44 +247,44 @@ Full architecture: [`AI/architecture.md`](AI/architecture.md)
 </details>
 
 <details>
-<summary><strong>v0.33.0</strong> — 2026-07-25 — Plastic SCM plugin (full feature set)</summary>
+<summary><strong>v0.35.0</strong> — 2026-08-12 — Complete CI/CD pipeline</summary>
 
-- `PlasticPlugin` — `Ctrl+Shift+P` opens `PlasticWindow`; `on_navigate` detects `.plastic/` workspace; context-menu Diff/Undo/Checkin actions
-- 12-page sidebar: Pending Changes, Changesets, Branches, Labels, Shelves, Reviews, Xlinks, Admin, Branch DAG, Workspaces & Repos, Triggers, Git Sync
-- All cm ops run off main thread via `ThreadPoolExecutor` + `SimpleQueue` drain
-- Commit graph column with `GraphDelegate`; inline diff panel; branch tree with prefix grouping; CS master-detail with `CSDetailWidget`
-- `cs_log_files()` for cloud/Unity Plastic compatibility; three-way merge viewer; side-by-side diff
-- ~750 unit tests + ~100 integration tests in `tests/unit/plastic/` and `tests/integration/`
+- **ci.yml** — lint (ruff + mypy) + unit tests (Ubuntu/macOS/Windows) + integration tests (Qt offscreen) + `CI Pass` gate for branch protection
+- **release.yml** — automated GitHub Release on `v*` tag; preflight validation and CHANGELOG extraction; blocks release when CI has not passed for the commit
+- **nightly.yml** — daily full regression on 3 OS; CodeQL weekly security analysis; Dependabot for pip + Actions
+- Pre-commit hooks (ruff lint+format, pre-push version sync guard); PR/issue templates; Codecov integration
+- `scripts/sync_versions.py` atomic version bump; `scripts/release.sh` preflight validator
 
 </details>
 
 <details>
-<summary><strong>v0.32.0</strong> — 2026-07-24 — Security, performance, and 34 architectural fixes</summary>
+<summary><strong>v0.34.0</strong> — 2026-07-25 — Plastic SCM plugin — full Unity Version Control integration</summary>
+
+- `PlasticPlugin` — `Ctrl+Shift+P` opens `PlasticWindow`; `on_navigate` detects `.plastic/` workspace; context-menu Diff/Undo/Checkin actions
+- `PlasticWindow` — 12-page sidebar: Pending Changes, Changesets, Branches, Labels, Shelves, Reviews, Xlinks, Admin, Branch DAG, Workspaces/Repos, Triggers, Git Sync
+- All cm ops off main thread via `ThreadPoolExecutor(1)` + `SimpleQueue`; `PlasticPresenter` Qt-free
+- Commit graph (`GraphDelegate`), inline diff panel, CS master-detail, branch tree with prefix grouping
+- `cs_log_files()` for cloud/Unity compatibility; three-way merge viewer; side-by-side diff
+
+</details>
+
+<details>
+<summary><strong>v0.33.0</strong> — 2026-07-25 — Editor, menus, highlights, AI, bug fixes</summary>
+
+- F4 opens built-in `EditorDialog`; Shift+F4 opens external editor; unsaved-changes guard on close
+- Highlight rule expansion; `expand_rules()` handles comma-separated patterns
+- `KeyError 'info'` in PanelManager fixed; `PreventContextMenu` stops spurious toolbar RMB popup
+- AI shell command detection; menubar and shortcut cleanups
+
+</details>
+
+<details>
+<summary><strong>v0.32.0</strong> — 2026-07-24 — Security, performance, and architectural fixes</summary>
 
 - Shell injection hardened; Zip Slip protection; API keys moved to `CredentialStore`
 - Chunked async dir loading; AI calls off main thread; bounded thread pool
 - VFS Protocol split into `ReadableVFS` + `WritableVFS`; `atomic_write_json` for all stores
 - Dead code purge (~2900 LOC); `run_git()` centralized; session auto-save
-
-</details>
-
-<details>
-<summary><strong>v0.31.0</strong> — 2026-07-21 — Session, clipboard history, macros, REST API</summary>
-
-- Session Save/Restore: `view_mode` field persists gallery/list mode per pane
-- Clipboard History Ring (20-entry `deque`); Keyboard Macro Recorder (`MacroStore`)
-- REST API for Remote Control (`ipc/rest_server.py`, Bearer token auth)
-- Directory Comparison View; Custom Toolbar Builder
-
-</details>
-
-<details>
-<summary><strong>v0.30.0</strong> — 2026-07-21 — Gallery view, Omnibar, dry-run preview, fullscreen shell</summary>
-
-- Thumbnail Gallery View — async 128×128 thumbnails, 500-entry LRU cache
-- Unified Omnibar — Spotlight-style overlay for path nav, commands, and search
-- Operation Dry-Run Preview — `cmd.preview()` shown before execute
-- Full-screen Subshell Toggle (`Ctrl+O`)
 
 </details>
 
