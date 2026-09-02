@@ -51,3 +51,53 @@ def test_redo_oserror_publishes_operation_finished():
     assert ev.description == "Redo"
     assert ev.success is False
     assert "no space" in ev.error
+
+
+def test_bulk_rename_value_error_publishes_operation_finished():
+    mp, bus = _make_presenter()
+    items = [MagicMock()]
+    with (
+        patch.object(mp._history, "execute", side_effect=ValueError("line count mismatch")),
+        patch.object(mp, "_refresh_both") as mock_refresh,
+    ):
+        mp.bulk_rename(items)  # must not raise
+        mock_refresh.assert_not_called()
+
+    assert len(bus.events) == 1
+    ev = bus.events[0]
+    assert ev.description == "Bulk rename"
+    assert ev.success is False
+    assert "line count" in ev.error
+
+
+def test_bulk_rename_file_exists_error_publishes_operation_finished():
+    mp, bus = _make_presenter()
+    items = [MagicMock()]
+    with (
+        patch.object(mp._history, "execute", side_effect=FileExistsError("target exists")),
+        patch.object(mp, "_refresh_both") as mock_refresh,
+    ):
+        mp.bulk_rename(items)  # must not raise
+        mock_refresh.assert_not_called()
+
+    assert len(bus.events) == 1
+    ev = bus.events[0]
+    assert ev.description == "Bulk rename"
+    assert ev.success is False
+    assert "target exists" in ev.error
+
+
+def test_bulk_rename_success_refreshes():
+    mp, bus = _make_presenter()
+    items = [MagicMock()]
+    with (
+        patch.object(mp._history, "execute"),
+        patch.object(mp, "_refresh_both") as mock_refresh,
+    ):
+        mp.bulk_rename(items)
+        mock_refresh.assert_called_once()
+
+    assert len(bus.events) == 1
+    ev = bus.events[0]
+    assert ev.description == "Bulk rename"
+    assert ev.success is True

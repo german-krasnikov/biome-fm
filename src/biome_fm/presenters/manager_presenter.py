@@ -339,6 +339,17 @@ class ManagerPresenter:
         dst.new_tab(path)  # type: ignore[attr-defined]
         src.close_tab(tab_idx)  # type: ignore[attr-defined]
 
+    def bulk_rename(self, items: list[FileItem]) -> None:
+        """Run EditorRenameCmd; surface ValueError/OSError via EventBus."""
+        from biome_fm.commands.editor_rename_cmd import EditorRenameCmd
+        try:
+            self._history.execute(EditorRenameCmd(items, self._vfs))
+        except (ValueError, OSError) as e:
+            self._publish(OperationFinished("Bulk rename", False, str(e)))
+            return
+        self._refresh_both()
+        self._publish(OperationFinished("Bulk rename", True))
+
     def chmod_selected(self, items: list[FileItem], mode: int, recursive: bool = False) -> None:
         if not items:
             return

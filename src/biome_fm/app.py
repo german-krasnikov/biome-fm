@@ -11,7 +11,6 @@ from pathlib import Path
 
 from biome_fm.ai.provider import make_providers
 from biome_fm.commands.base import CommandHistory
-from biome_fm.commands.editor_rename_cmd import EditorRenameCmd
 from biome_fm.commands.git_stage import GitStageCmd, GitUnstageCmd
 from biome_fm.commands.new_file_cmd import NewFileCmd
 from biome_fm.commands.registry import CommandEntry, CommandRegistry
@@ -1615,9 +1614,7 @@ def create_app() -> MainWindow:
         items = [i for i in _op_items() if i.name != ".."]
         if not items:
             return
-        cmd = EditorRenameCmd(items, vfs)
-        history.execute(cmd)
-        manager._refresh_both()
+        manager.bulk_rename(items)
 
     QShortcut(QKeySequence("Ctrl+Shift+R"), window).activated.connect(_bulk_rename_editor)
 
