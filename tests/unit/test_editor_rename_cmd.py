@@ -73,20 +73,6 @@ def test_unchanged_skipped(tmp_path: Path) -> None:
     assert (tmp_path / "keep.txt").exists()
 
 
-def test_undo_restores(tmp_path: Path) -> None:
-    from biome_fm.commands.editor_rename_cmd import EditorRenameCmd
-
-    a = _item(tmp_path, "orig.txt")
-    vfs = LocalVFS()
-    cmd = EditorRenameCmd([a], vfs, editor=_editor_that_renames({"orig.txt": "new.txt"}))
-    cmd.execute()
-    assert (tmp_path / "new.txt").exists()
-
-    cmd.undo()
-    assert (tmp_path / "orig.txt").exists()
-    assert not (tmp_path / "new.txt").exists()
-
-
 def test_editor_rename_raises_on_line_count_mismatch(tmp_path: Path) -> None:
     """Editor deletes one line → ValueError before any FS mutation."""
     from biome_fm.commands.editor_rename_cmd import EditorRenameCmd

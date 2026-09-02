@@ -7,9 +7,7 @@ import pytest
 
 from biome_fm.commands.copy_cmd import CopyCmd
 from biome_fm.commands.delete_cmd import DeleteCmd
-from biome_fm.commands.mkdir_cmd import MkdirCmd
 from biome_fm.commands.move_cmd import MoveCmd
-from biome_fm.commands.rename_cmd import RenameCmd
 from biome_fm.models.vfs import LocalVFS
 
 
@@ -50,30 +48,6 @@ def test_move_moves_file_and_undo_restores(tmp_path: Path, vfs: LocalVFS) -> Non
     cmd.undo()
     assert f.exists()
     assert not (dst_dir / "file.txt").exists()
-
-
-def test_mkdir_creates_and_undo_removes(tmp_path: Path, vfs: LocalVFS) -> None:
-    target = tmp_path / "newdir"
-    cmd = MkdirCmd(target, vfs)
-    cmd.execute()
-    assert target.is_dir()
-
-    cmd.undo()
-    assert not target.exists()
-
-
-def test_rename_changes_name_and_undo_restores(tmp_path: Path, vfs: LocalVFS) -> None:
-    f = tmp_path / "old.txt"
-    f.write_text("data")
-
-    cmd = RenameCmd(f, "new.txt", vfs)
-    cmd.execute()
-    assert (tmp_path / "new.txt").exists()
-    assert not f.exists()
-
-    cmd.undo()
-    assert f.exists()
-    assert not (tmp_path / "new.txt").exists()
 
 
 def test_delete_removes_file(tmp_path: Path, vfs: LocalVFS) -> None:

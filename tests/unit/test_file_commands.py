@@ -71,21 +71,12 @@ def test_mkdir_execute_delegates_to_vfs(tmp_path: Path) -> None:
     assert ("mkdir", target) in vfs.calls
 
 
-def test_mkdir_undo_delegates_to_vfs(tmp_path: Path) -> None:
+def test_mkdir_creates_dir(tmp_path: Path) -> None:
+    # regression guard: execute() still delegates mkdir after undo() is removed
     target = tmp_path / "newdir"
     vfs = SpyVFS()
-    cmd = MkdirCmd(target, vfs)
-    cmd.execute()
-    cmd.undo()
-    assert ("delete", target) in vfs.calls
-
-
-def test_mkdir_undo_calls_vfs_delete(tmp_path: Path) -> None:
-    # MkdirCmd.undo() always calls vfs.delete — VFS is responsible for handling missing paths
-    vfs = SpyVFS()
-    cmd = MkdirCmd(tmp_path / "ghost", vfs)
-    cmd.undo()
-    assert ("delete", tmp_path / "ghost") in vfs.calls
+    MkdirCmd(target, vfs).execute()
+    assert ("mkdir", target) in vfs.calls
 
 
 def test_mkdir_description() -> None:
@@ -118,13 +109,11 @@ def test_rename_execute_calls_move() -> None:
     assert vfs.calls == [("move", Path("/a/foo.txt"), Path("/a/bar.txt"))]
 
 
-def test_rename_undo_calls_move_back() -> None:
+def test_rename_renames() -> None:
+    # regression guard: execute() still delegates move after undo() is removed
     vfs = SpyVFS()
-    cmd = RenameCmd(Path("/a/foo.txt"), "bar.txt", vfs)
-    cmd.execute()
-    vfs.calls.clear()
-    cmd.undo()
-    assert vfs.calls == [("move", Path("/a/bar.txt"), Path("/a/foo.txt"))]
+    RenameCmd(Path("/a/foo.txt"), "bar.txt", vfs).execute()
+    assert ("move", Path("/a/foo.txt"), Path("/a/bar.txt")) in vfs.calls
 
 
 def test_rename_description() -> None:

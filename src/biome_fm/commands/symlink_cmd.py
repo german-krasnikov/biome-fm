@@ -8,9 +8,7 @@ from biome_fm.commands.base import Command
 
 
 class SymlinkCmd(Command):
-    """Create a symbolic link. Undo = remove the link."""
-
-    undoable = True
+    """Create a symbolic link."""
 
     def __init__(self, target: Path, link: Path) -> None:
         self._target = target
@@ -19,18 +17,13 @@ class SymlinkCmd(Command):
     def execute(self) -> None:
         self._link.symlink_to(self._target)
 
-    def undo(self) -> None:
-        self._link.unlink(missing_ok=True)
-
     @property
     def description(self) -> str:
         return f"Symlink '{self._link.name}' → '{self._target.name}'"
 
 
 class HardlinkCmd(Command):
-    """Create a hard link. Undo = remove the link."""
-
-    undoable = True
+    """Create a hard link."""
 
     def __init__(self, target: Path, link: Path) -> None:
         self._target = target
@@ -38,9 +31,6 @@ class HardlinkCmd(Command):
 
     def execute(self) -> None:
         os.link(self._target, self._link)
-
-    def undo(self) -> None:
-        self._link.unlink(missing_ok=True)
 
     @property
     def description(self) -> str:

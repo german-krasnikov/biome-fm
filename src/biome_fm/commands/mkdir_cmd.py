@@ -1,4 +1,4 @@
-"""Mkdir command — create directory (undoable)."""
+"""Mkdir command — create directory."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -18,11 +18,6 @@ class MkdirCmd(Command):
         if self._vfs.exists(self._path):
             raise FileExistsError(f"'{self._path.name}' already exists")
         self._vfs.mkdir(self._path)
-
-    def undo(self) -> None:
-        if self._vfs.listdir(self._path):
-            raise OSError(f"'{self._path.name}' is not empty — undo skipped")
-        self._vfs.delete(self._path)
 
     @property
     def description(self) -> str:
