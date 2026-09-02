@@ -58,6 +58,29 @@ class RcloneVFS:
         )
         return [_parse_entry(e, path) for e in json.loads(out)]
 
+    def exists(self, path: Path) -> bool:
+        try:
+            self.stat(path)
+        except subprocess.CalledProcessError:
+            return False
+        return True
+
+    def stat(self, path: Path) -> FileItem:
+        out = subprocess.check_output(
+            ["rclone", "lsjson", "--stat", self._rclone_path(path)], text=True
+        )
+        data = json.loads(out)
+        if isinstance(data, list):
+            data = data[0]
+        return _parse_entry(data, path.parent)
+
+    def move(self, src: Path, dst: Path) -> None:
+        if self.exists(dst):
+            raise FileExistsError(f"'{dst.name}' already exists")
+        subprocess.check_call(
+            ["rclone", "moveto", self._rclone_path(src), self._rclone_path(dst)]
+        )
+
     def copy(self, src: Path, dst: Path) -> None:
         subprocess.check_call(
             ["rclone", "copyto", str(src), self._rclone_path(dst)]

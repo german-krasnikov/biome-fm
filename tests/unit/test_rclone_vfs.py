@@ -2,11 +2,11 @@
 from __future__ import annotations
 
 import json
+import subprocess as _sp
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-
 
 _LSJSON_RESPONSE = json.dumps([
     {
@@ -100,3 +100,59 @@ def test_rclone_path_combines_remote_and_path() -> None:
         from biome_fm.models.rclone_vfs import RcloneVFS
         vfs = RcloneVFS("s3:mybucket")
         assert vfs._rclone_path(Path("/prefix/file.txt")) == "s3:mybucket/prefix/file.txt"
+
+
+_STAT_RESPONSE = json.dumps(
+    {"Name": "f.txt", "IsDir": False, "Size": 42, "ModTime": "2024-01-01T00:00:00Z"}
+)
+
+
+def _make_rclone_vfs(remote: str = "gdrive:"):
+    with patch("shutil.which", return_value="/usr/bin/rclone"):
+        from biome_fm.models.rclone_vfs import RcloneVFS
+        return RcloneVFS(remote)
+
+
+def test_rclone_exists_true() -> None:
+    vfs = _make_rclone_vfs()
+    with patch("subprocess.check_output", return_value=_STAT_RESPONSE):
+        assert vfs.exists(Path("/f.txt")) is True
+
+
+def test_rclone_exists_false() -> None:
+    vfs = _make_rclone_vfs()
+    with patch("subprocess.check_output", side_effect=_sp.CalledProcessError(3, "rclone")):
+        assert vfs.exists(Path("/missing.txt")) is False
+
+
+def test_rclone_stat_returns_file_item() -> None:
+    vfs = _make_rclone_vfs()
+    with patch("subprocess.check_output", return_value=_STAT_RESPONSE):
+        item = vfs.stat(Path("/f.txt"))
+    assert item.name == "f.txt"
+    assert item.size == 42
+
+
+def test_rclone_move_calls_moveto() -> None:
+    vfs = _make_rclone_vfs()
+    src = Path("/src/file.txt")
+    dst = Path("/dst/file.txt")
+    # exists(dst) -> stat raises CalledProcessError -> False
+    with patch("subprocess.check_output", side_effect=_sp.CalledProcessError(3, "rclone")), \
+         patch("subprocess.check_call") as mock_call:
+        vfs.move(src, dst)
+    mock_call.assert_called_once_with(
+        ["rclone", "moveto", vfs._rclone_path(src), vfs._rclone_path(dst)]
+    )
+
+
+def test_rclone_move_raises_file_exists() -> None:
+    vfs = _make_rclone_vfs()
+    dst = Path("/dst/file.txt")
+    with (
+        patch("subprocess.check_output", return_value=_STAT_RESPONSE),
+        patch("subprocess.check_call") as mock_call,
+        pytest.raises(FileExistsError),
+    ):
+        vfs.move(Path("/src/file.txt"), dst)
+    mock_call.assert_not_called()
