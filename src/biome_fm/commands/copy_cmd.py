@@ -248,6 +248,11 @@ class ProgressCopyCmd(Command):
         files_done: int = 0, files_total: int = 0,
         force_overwrite: bool = False,
     ) -> None:
+        try:
+            if dst.exists() and os.path.samefile(src, dst):
+                raise shutil.SameFileError(str(src))
+        except FileNotFoundError:
+            pass
         size = src.stat().st_size
         offset = 0
         mode = "wb"

@@ -1,6 +1,9 @@
 """Tests for LocalVFS — no Qt dependency."""
 
+import shutil
 from pathlib import Path
+
+import pytest
 
 from biome_fm.models.vfs import LocalVFS
 
@@ -76,3 +79,10 @@ class TestLocalVFS:
         assert not vfs.exists(f)
         f.touch()
         assert vfs.exists(f)
+
+    def test_local_copy_same_file_raises_not_truncates(self, tmp_path: Path) -> None:
+        f = tmp_path / "data.txt"
+        f.write_text("important")
+        with pytest.raises(shutil.SameFileError):
+            LocalVFS().copy(f, f)
+        assert f.read_text() == "important"

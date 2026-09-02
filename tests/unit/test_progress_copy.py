@@ -1,9 +1,12 @@
 """Tests for ProgressCopyCmd — chunk copy with progress + cancel."""
+import shutil
 import threading
 
 import pytest
 
 from biome_fm.commands.copy_cmd import ProgressCopyCmd
+from biome_fm.models.conflict_resolver import ConflictAction
+from biome_fm.models.vfs import LocalVFS
 from biome_fm.operations.task import Cancelled
 
 
@@ -78,6 +81,7 @@ def test_progress_copy_dir(tmp_path):
 def test_progress_copy_undo_routes_through_vfs(tmp_path):
     """undo() must call vfs.delete(), not p.unlink() directly."""
     from unittest.mock import MagicMock
+
     from biome_fm.models.vfs import WritableVFS
 
     src = tmp_path / "f.txt"
@@ -93,3 +97,14 @@ def test_progress_copy_undo_routes_through_vfs(tmp_path):
 
     cmd.undo()
     vfs.delete.assert_called_once_with(dst_dir / "f.txt")
+
+
+def test_progress_copy_same_file_raises(tmp_path):
+    f = tmp_path / "a.txt"
+    f.write_text("content")
+    with pytest.raises((shutil.SameFileError, OSError)):
+        ProgressCopyCmd(
+            [f], tmp_path, LocalVFS(), threading.Event(), lambda *a: None,
+            strategy=ConflictAction.OVERWRITE,
+        ).execute()
+    assert f.read_text() == "content"
