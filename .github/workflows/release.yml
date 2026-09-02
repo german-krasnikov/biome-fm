@@ -15,10 +15,29 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+      actions: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
           fetch-depth: 0
+
+      - name: Verify CI passed for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          count=$(gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --commit "$GITHUB_SHA" \
+            --workflow "CI" \
+            --status success \
+            --limit 1 \
+            --json databaseId \
+            --jq 'length')
+          if [[ "$count" -lt 1 ]]; then
+            echo "::error::No successful CI run for $GITHUB_SHA. Tag only CI-green commits."
+            exit 1
+          fi
+          echo "CI verified for $GITHUB_SHA."
 
       - uses: astral-sh/setup-uv@f0ec1fc3b38f5e7cd731bb6ce540c5af426746bb  # v6
         with:
