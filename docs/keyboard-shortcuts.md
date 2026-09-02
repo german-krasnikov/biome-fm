@@ -43,8 +43,6 @@
 | `Ctrl+C` | Copy selected to clipboard |
 | `Ctrl+X` | Cut selected to clipboard |
 | `Ctrl+V` | Paste from clipboard |
-| `Ctrl+Z` | Undo last operation |
-| `Ctrl+Shift+Z` | Redo |
 | `Ctrl+Shift+R` | Bulk rename (multi-file editor) |
 | `Ctrl+.` | Repeat last file operation |
 | `Alt+Return` | File properties (info panel) |

@@ -19,7 +19,7 @@ src/biome_fm/
 │                       #   skipped while _progress_dialogs active;
 │                       #   _copy_path: exports marked paths to clipboard (newline-joined); falls back to cursor item;
 │                       #   _quick_look/_reveal_in_finder closures;
-│                       #   Ctrl+Z/Ctrl+Shift+Z/F3/Ctrl+I/Ctrl+R/Ctrl+W/Ctrl+Shift+C/Ctrl+Shift+L shortcuts;
+│                       #   F3/Ctrl+I/Ctrl+R/Ctrl+W/Ctrl+Shift+C/Ctrl+Shift+L shortcuts;
 │                       #   F4 → built-in EditorDialog (exec); Shift+F4 → external editor (editor_cmd);
 │                       #   F10 / action bar ai_requested → coord.toggle("ai", active_pane_id);
 │                       #   expand_rules() used instead of HighlightRule constructor to handle comma patterns;
@@ -297,7 +297,6 @@ src/biome_fm/
 │   │                         #   for all sync + async file ops;
 │   │                         #   toggle_mirror() / navigate_active() for Sync Browsing;
 │   │                         #   toggle_hidden() — flips Config.show_hidden, publishes ShowHiddenToggled;
-│   │                         #   undo/redo via CommandHistory → refresh_both();
 │   │                         #   swap_panes() exchanges left/right pane paths + histories;
 │   │                         #   move_tab_to_other_pane(tab_idx) moves active tab to opposite side
 │   ├── ai_presenter.py       # AI chat bridge (AIProvider ↔ AIChatViewProtocol);
@@ -392,7 +391,7 @@ src/biome_fm/
 │   │                     #   with cwd=active pane path, emits command_submitted signal;
 │   │                     #   _HistoryLineEdit (30-item dedup history, Up/Down nav) +
 │   │                     #   case-insensitive QCompleter (dropdown history);
-│   │                     #   signals: back/forward/up/home + undo/redo/refresh/new_tab _requested,
+│   │                     #   signals: back/forward/up/home + refresh/new_tab _requested,
 │   │                     #   close_tab_requested (File → Close Tab, Ctrl+W),
 │   │                     #   command_submitted, about_to_close; tab_shortcut (Tab key QShortcut);
 │   │                     #   workspaces_requested removed; Workspaces is now a QMenu submenu
@@ -669,9 +668,9 @@ src/biome_fm/
 │   │                        #   QLineEdit + QListWidget; 150ms debounce QTimer → OmnibarPresenter.query_changed();
 │   │                        #   activate(root) shows popup; navigated/command_chosen/search_chosen Signals;
 │   │                        #   prefix / → navigate, > → command, bare text → search; F411
-│   ├── dry_run_dialog.py   # DryRunDialog(cmd, history) — operation preview before execution;
+│   ├── dry_run_dialog.py   # DryRunDialog(cmd) — operation preview before execution;
 │   │                        #   renders cmd.preview() → list[str] in QListWidget;
-│   │                        #   Ok → CommandHistory.execute(cmd); Cancel dismisses; F442
+│   │                        #   Ok → cmd.execute(); Cancel dismisses; F442
 │   ├── compare_panel.py  # CompareModel(QAbstractTableModel) + ComparePanel(QWidget) — directory comparison view;
 │   │                        #   left/right columns with sync signals; diff_requested Signal(left, right) (F453)
 │   ├── toolbar.py        # CustomToolBar (QToolBar) — user-configurable tool bar;
@@ -694,51 +693,49 @@ src/biome_fm/
 │                          #   surface alpha + 20; $surface_opaque token in QSS keeps QMenu opaque
 │
 ├── commands/
-│   ├── base.py           # Command ABC (execute/undo/undoable/preview) + CommandHistory (50 levels);
+│   ├── base.py           # Command ABC (execute/preview); execute()-only, no history;
 │   │                     #   preview() → list[str]: default returns [description]; subclasses
-│   │                     #   override for per-path action strings used by DryRunDialog (F442);
-│   │                     #   CommandHistory.push(cmd) records already-executed cmd for undo;
-│   │                     #   peek() checks top of stack before pop() — prevents empty-stack TypeError
+│   │                     #   override for per-path action strings used by DryRunDialog (F442)
 │   ├── registry.py       # CommandRegistry + CommandEntry (name, shortcut, callback);
 │   │                     #   record_hit(name) increments hit count; get_entry(name) → CommandEntry;
 │   │                     #   search(query) returns entries sorted by hit count descending
 │   ├── copy_cmd.py       # CopyCmd (shutil.copy2);
 │   │                     #   ProgressCopyCmd: 256KB-chunk copy with cancel (threading.Event)
 │   │                     #   + report(files_done, files_total, bytes_done, bytes_total, name);
-│   │                     #   raises Cancelled on cancel.is_set(); undo deletes created files;
+│   │                     #   raises Cancelled on cancel.is_set(); partial file deleted on cancel;
 │   │                     #   _copy_cross_vfs: streams via vfs.open_read(path, offset) — resumes
 │   │                     #   partial downloads by seeking to existing dst file size;
 │   │                     #   calls vfs.utime(dst, src_mtime) after transfer to preserve timestamp
 │   ├── move_cmd.py       # MoveCmd;
 │   │                     #   ProgressMoveCmd: same cancel + report API, wraps shutil.move
 │   ├── delete_cmd.py     # DeleteCmd (send2trash)
-│   ├── rename_cmd.py     # RenameCmd
+│   ├── rename_cmd.py     # RenameCmd — guards existence before move
 │   ├── mkdir_cmd.py      # MkdirCmd — delegates to vfs.mkdir() (not os.makedirs directly);
 │   ├── multi_rename_cmd.py # MultiRenameCmd (batch with pattern/counter)
 │   ├── editor_rename_cmd.py # EditorRenameCmd — opens $EDITOR with names in tmp file;
-│   │                        #   diffs old vs new names, applies RenameCmd per changed line; undoable
-│   ├── new_file_cmd.py     # NewFileCmd(path, content=b"") — creates file, undo=unlink; undoable
-│   ├── symlink_cmd.py      # SymlinkCmd(target, link) — symlink_to; undo=unlink; undoable;
-│   │                        #   HardlinkCmd(target, link) — os.link; undo=unlink; undoable
-│   ├── trash_cmd.py        # TrashCmd(paths) — send2trash per path; not undoable;
+│   │                        #   diffs old vs new names, applies RenameCmd per changed line;
+│   │                        #   line-count guard + atomic pre-validation; surfaces errors via EventBus
+│   ├── new_file_cmd.py     # NewFileCmd(path, content=b"") — creates file
+│   ├── symlink_cmd.py      # SymlinkCmd(target, link) — symlink_to;
+│   │                        #   HardlinkCmd(target, link) — os.link
+│   ├── trash_cmd.py        # TrashCmd(paths) — send2trash per path;
 │   │                       #   graceful degradation: warns + unlink if send2trash unavailable
-│   ├── chmod_cmd.py        # ChmodCmd(paths, mode, recursive, vfs) — batch os.chmod with undo;
+│   ├── chmod_cmd.py        # ChmodCmd(paths, mode, recursive, vfs) — batch os.chmod;
 │   │                        #   saves previous mode per path; delegates to vfs.chmod if available;
-│   │                        #   POSIX-only; undoable
+│   │                        #   POSIX-only
 │   ├── remote_edit_cmd.py  # RemoteEditCmd(path, vfs, editor_cmd) — download→edit→re-upload;
-│   │                        #   tempfile per suffix; re-uploads only if mtime changed; not undoable
-│   ├── tag_cmd.py          # TagCmd(paths, add_tags, remove_tags, store) — batch tag assignment;
-│   │                        #   saves previous tag list per path for undo; undoable
+│   │                        #   tempfile per suffix; re-uploads only if mtime changed
+│   ├── tag_cmd.py          # TagCmd(paths, add_tags, remove_tags, store) — batch tag assignment
 │   ├── archive_cmd.py      # ArchiveCmd(sources, archive_path, fmt) — create zip/tar.gz/tar.bz2;
 │   │                        #   EncryptedArchiveCmd: calls `7z a -p<password>` subprocess for
-│   │                        #   password-protected .7z creation; requires 7-Zip binary; undoable
+│   │                        #   password-protected .7z creation; requires 7-Zip binary
 │   ├── quarantine_cmd.py   # RemoveQuarantineCmd(paths) — removes com.apple.quarantine xattr;
-│   │                        #   saves old xattr value per path for undo; undoable; macOS-only
-│   ├── checksum_cmd.py     # ChecksumCmd(paths, algorithm) — compute file hashes; not undoable;
+│   │                        #   macOS-only
+│   ├── checksum_cmd.py     # ChecksumCmd(paths, algorithm) — compute file hashes;
 │   │                        #   algorithms: md5/sha1/sha256/sha512/xxhash(optional)/blake3(optional);
 │   │                        #   64 KB chunk read; ChecksumResult(path, algorithm, digest) dataclass
-│   └── git_stage.py        # GitStageCmd(path, repo_root) — `git add`; undoable via `git restore --staged`;
-│                            #   GitUnstageCmd(path, repo_root) — `git restore --staged`; undoable via re-add;
+│   └── git_stage.py        # GitStageCmd(path, repo_root) — `git add`;
+│                            #   GitUnstageCmd(path, repo_root) — `git restore --staged`;
 │                            #   both use run_git() from git/run.py
 │
 ├── git/
@@ -1233,10 +1230,10 @@ Views emit signals → Presenters react → update Models → push state to View
 Views NEVER import models. Presenters have ZERO Qt imports — testable with plain Python mocks.
 Model is a thin data adapter (QAbstractTableModel wrapping list[FileItem]).
 
-### Command + Undo
-Every file mutation = Command(execute + undo). CommandHistory (50 levels).
+### Command
+Every file mutation = Command(execute()). No history tracking, no rollback.
 CommandRegistry maps string ids to callables for CommandPalette dispatch.
-ManagerPresenter wires undo/redo to CommandHistory + refresh_both().
+DryRunDialog calls cmd.execute() directly after preview confirmation.
 
 ### Store Base (Persistence)
 All JSON/TOML stores share `models/_store_base.py` helpers:
@@ -1525,8 +1522,6 @@ drop_files(paths, target_pane_id, move, target_folder)
 `ProgressCopyCmd.execute()` copies source-by-source; `_copy_file()` reads in 256KB
 chunks, checks `cancel.is_set()` each chunk (partial file deleted on cancel).
 `ProgressMoveCmd` calls `shutil.move` per file (atomic on same FS, copy+delete otherwise).
-Both support undo: `CommandHistory.push(cmd)` records the already-executed command
-after successful completion so Ctrl+Z can reverse it.
 
 ### Settings Window (v0.9.0)
 

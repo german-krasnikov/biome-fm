@@ -3,6 +3,88 @@
 All notable changes to Biome FM are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Removed
+
+**BREAKING: Undo/Redo removed entirely.** File-system undo was partial and unsafe; every mutation is now execute()-only.
+
+- **User-facing:** `Ctrl+Z` and `Ctrl+Shift+Z` shortcuts removed; Edit-menu Undo/Redo items removed; command-palette Undo/Redo entries removed.
+- **Developer/plugin API:** `Command.undo()`, `Command.undoable`, `CommandHistory`, `ManagerPresenter.undo()/.redo()/.can_undo()/.can_redo()`, and `undo_requested`/`redo_requested` signals are all gone. Every `Command` subclass implements `execute()` only.
+
+### Fixed
+
+**Baseline / CI gate**
+- Four hanging integration-test files unblocked; sync_dialog, sidebar, selection, and geometry tests corrected.
+- CI release gate now blocks on untagged or failing commits; integration job wired into `ci-pass` gate.
+
+**Commands**
+- `RenameCmd`, `MkdirCmd`, `ChmodCmd`, `EditorRenameCmd` each guard pre-conditions (existence, line-count, VFS branch population) before executing.
+- `EditorRenameCmd` surfaces `OSError` via `EventBus` on bulk rename failure.
+
+**Copy / Move**
+- `shutil.copy2` replaces `sendfile`; `samefile` guard prevents self-copies.
+- `LocalVFS.move` existence guard; `ProgressMoveCmd` OVERWRITE mode fixed.
+- `force_overwrite` threaded through `_copy_dir` and `_copy_cross_vfs`; safe directory-merge rollback skips `rmtree` on pre-existing dirs.
+- VFS router passes resolved paths to backend in copy/move.
+
+**Editor / Terminal / Dialogs**
+- `EditorDialog` guards unsaved changes on all close paths via `reject()`.
+- Editor save uses `NamedTemporaryFile` + `Path.replace` for atomic write.
+- `TerminalWidget` adds `stop()` + `closeEvent` for process lifecycle cleanup.
+- Progress bars normalized to permille to prevent `int32` overflow on large transfers.
+
+**App lifecycle / threads**
+- `MainWindow` signal bridge for remote event handlers prevents cross-thread Qt calls.
+- `nav_timer` stopped before presenter shutdown in `_on_close`.
+- `PanePresenter` breadcrumb restored after failed navigation.
+- `AIPresenter.shutdown()` made non-blocking; `ClaudeProvider`/`OpenAIProvider` `terminate()` closes in-flight stream.
+- Dedicated nav thread pool isolated from dir-size walks.
+- Glass/opacity availability gate with fallback show on failure.
+
+**SFTP / VFS**
+- SFTP semaphore guarded against `open_sftp()` failure and non-SSH exception leaks.
+- SFTP channel held for full `open_read` lifetime.
+- VFS router rebases remote `listdir` items onto URI path.
+- `SftpVFS` gains `exists`, `copy`, `move`; `RcloneVFS` gains `exists`, `stat`, `move`.
+
+**Stores / Config**
+- `tag_store`: TOML value escaping, atomic write, load error handling.
+- `config`: dict-key escaping in `_toml_val`; wider `load_config` exception handling.
+- `stores`: `safe_load_toml` helper; `user_actions_store.load()` guarded.
+- `credential_store`: `set_credential` returns bool; plaintext clear guarded by keyring success.
+- Settings: plaintext API keys cleared only when keyring store succeeded.
+
+**Tabs / Session**
+- Tab indices shifted before `remove_tab` in `close_tab`; deferred active tab loaded eagerly.
+- `paths()` and `duplicate_tab()` guarded against deferred-tab `RuntimeError`.
+- `on_tab_created` callback added to `TabsPresenter.new_tab()`.
+- `_wire_all()` single wiring point + `replace_all()` for clean session restore.
+- Movable tab bar disabled; lock/link indices shifted correctly on remove.
+
+**Preview**
+- `_auto_detect_mode` uses bounded read to avoid loading entire large files.
+- HTML-special characters escaped in hex ASCII column, archive entry names/headers, fallback provider, metadata/EXIF rows.
+
+**Plastic SCM plugin**
+- Selection-first guard for context actions; PR unchecked items fix; confirm-dialog verb corrected.
+- `PlasticPresenter` gains `poll()` (QTimer, non-blocking); tests use `drain()`.
+- `timeout=None` applied to all mutating `cm` calls to prevent premature timeout on slow VCS ops.
+- `-c=<comment>` flag used for `cm checkin` and `shelveset create` (Plastic SCM syntax).
+
+### Changed
+
+- Plastic SCM: `run_cm` for mutating ops now uses `timeout=None`; checkin/shelve use `-c=` flag.
+- Plastic SCM confirm-dialog action verb changed from "Remove" to "Revert" for accuracy.
+- `PlasticPresenter` uses `poll()` (QTimer-driven) in production; `drain()` for synchronous test teardown.
+- `DryRunDialog` now calls `cmd.execute()` directly (no `CommandHistory` intermediary).
+
+### Security
+
+- `html.escape()` applied to all preview providers (hex, archive, fallback, metadata/EXIF) to prevent HTML injection from filename/content data.
+- Drag-and-drop path-traversal guard in VFS router copy/move (resolved paths passed to backend).
+- Credential store clears plaintext API keys only after confirming keyring storage succeeded, preventing accidental credential loss.
+
 ## [v0.35.0] — 2026-08-12
 
 ### Added

@@ -30,7 +30,7 @@ biome-fm is a keyboard-driven dual-pane file manager built on PySide6. The left 
 ## Why biome-fm?
 
 - **Stop alt-tabbing.** Terminal, diff viewer, hex editor, archive browser, image preview, PDF reader, git-diff — all tabs inside the same window.
-- **AI that operates, not just advises.** The chat panel has write access to the VFS. Ask it to reorganize a folder and it executes the moves with undo support.
+- **AI that operates, not just advises.** The chat panel has write access to the VFS. Ask it to reorganize a folder and it executes the moves.
 - **Extensible by design.** pluggy hooks let you add VFS backends, preview renderers, AI providers, and themes as isolated plugins without touching core.
 - **Cross-platform, no compromise.** One codebase, native look on macOS, Windows, and Linux. TOML theming with glass effects ships out of the box.
 
@@ -102,12 +102,12 @@ Optional extras: `ai` (Anthropic + embeddings), `perf` (Rust bindings for speed)
 - Create/extract archives (zip, tar, encrypted 7z + plugin extensions)
 - Checksum dialog (MD5, SHA-256)
 - Verify after copy (SHA-256 source vs destination; raises `VerifyError` on mismatch)
-- Undo/redo — 50 levels, every mutation is a Command
+- Every mutation is a Command (execute-only, no undo)
 - Dry-run preview before destructive operations
 - Batch execute on selection with template substitution
 - Space reclaimer — find and remove large/duplicate files
 - Clipboard history ring (last 20 entries)
-- `ChownCmd` with full undo support
+- `ChownCmd` for ownership changes
 
 **UI & Navigation**
 - Dual-pane, multi-tab layout with named workspaces; workspace switcher dialog
@@ -213,7 +213,7 @@ src/biome_fm/
 ├── models/        # VFS router, FileItem, DirectoryModel
 ├── presenters/    # Qt-free MVP logic
 ├── views/         # Passive PySide6 widgets (signals only)
-├── commands/      # Command pattern — execute() + undo()
+├── commands/      # Command pattern — execute() only
 ├── operations/    # Async queue (ThreadPool + cancel tokens)
 ├── preview/       # Provider protocol + renderer registry
 ├── plugins/       # pluggy hookspecs + entry_point discovery
@@ -226,7 +226,7 @@ src/biome_fm/
 
 </details>
 
-**Hybrid Supervising Controller (MVP variant).** Views are passive — they emit signals and render what they're given, holding zero business logic. Presenters subscribe to those signals, run all decisions, and push state back through a typed `Protocol` interface. Every file mutation is a `Command` subclass with `execute()` and `undo()`, stored in a 50-level `CommandHistory`. The VFS layer (`VFSRouter`) dispatches transparently across local paths and archives so presenters never branch on location type.
+**Hybrid Supervising Controller (MVP variant).** Views are passive — they emit signals and render what they're given, holding zero business logic. Presenters subscribe to those signals, run all decisions, and push state back through a typed `Protocol` interface. Every file mutation is a `Command` subclass with `execute()`. The VFS layer (`VFSRouter`) dispatches transparently across local paths and archives so presenters never branch on location type.
 
 Full architecture: [`AI/architecture.md`](AI/architecture.md)
 
@@ -234,6 +234,17 @@ Full architecture: [`AI/architecture.md`](AI/architecture.md)
 
 <!-- CHANGELOG_START -->
 ## Recent Changes
+
+<details>
+<summary><strong>v0.36.0</strong> — 2026-09-02 — Architecture audit + undo/redo removed</summary>
+
+- **BREAKING:** Undo/Redo removed entirely — keyboard shortcuts, Edit-menu entries, and the presenter undo/redo API are gone; every mutation is `execute()`-only
+- 58 critical findings fixed across 11 batches: SFTP channel lifetime, VFS copy/move path resolution, store atomic writes, tab index shifts, app-lifecycle shutdown order
+- Preview providers now escape HTML-special characters; credential store clears plaintext only after keyring success
+- Plastic SCM: `timeout=None` for mutating ops, `-c=` flag for checkin/shelve, `poll()` added to presenter
+- Editor atomic save, terminal lifecycle cleanup, progress bars normalized to permille
+
+</details>
 
 <details>
 <summary><strong>v0.33.0</strong> — 2026-07-25 — Plastic SCM plugin (full feature set)</summary>
@@ -274,15 +285,6 @@ Full architecture: [`AI/architecture.md`](AI/architecture.md)
 - Unified Omnibar — Spotlight-style overlay for path nav, commands, and search
 - Operation Dry-Run Preview — `cmd.preview()` shown before execute
 - Full-screen Subshell Toggle (`Ctrl+O`)
-
-</details>
-
-<details>
-<summary><strong>v0.29.0</strong> — 2026-07-21 — Remote VFS: FISH, Script, ISO, DMG, Docker, rsync</summary>
-
-- SSH jump host / proxy command support; cross-VFS streaming resume
-- FISH VFS; extfs Script VFS; ISO 9660; macOS DMG; Docker container FS; rsync
-- Plugin-defined custom columns (`column_value` hookspec)
 
 </details>
 
