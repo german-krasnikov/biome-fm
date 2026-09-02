@@ -32,8 +32,10 @@ def test_set_volumes(panel):
     panel.set_volumes(paths)
     vol = panel._tree.topLevelItem(0)
     assert vol.childCount() == 2
-    assert vol.child(0).text(0) == "/"
-    assert vol.child(1).text(0) == "USB"
+    t0 = vol.child(0).text(0)
+    t1 = vol.child(1).text(0)
+    assert t0.startswith("/") and "free" in t0
+    assert t1.startswith("USB") and "free" in t1
 
 
 def test_set_bookmarks(panel):
