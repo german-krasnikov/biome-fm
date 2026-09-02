@@ -840,7 +840,7 @@ src/biome_fm/
 │   ├── presenter.py      # PreviewPresenter (Qt-free): ThreadPoolExecutor(max_workers=1);
 │   │                     #   64-item LRU cache keyed (path, mtime, dark) with 60s monotonic TTL;
 │   │                     #   cache stores (PreviewResult, timestamp) tuples; stale entries re-fetch;
-│   │                     #   _auto_detect_mode(path): bounded read (4096 bytes) to classify binary/text;
+│   │                     #   _auto_detect_mode(item: FileItem): bounded read (512 bytes) to classify binary/text;
 │   │                     #   queue.SimpleQueue for thread→main delivery; drain() polled by QTimer;
 │   │                     #   toggle_item(), update_if_visible(), set_dark(), shutdown();
 │   │                     #   set_tail_mode(enabled) — when True, auto-scrolls to end after each render
