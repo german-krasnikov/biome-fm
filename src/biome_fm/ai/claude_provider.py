@@ -25,9 +25,10 @@ class ClaudeProvider:
     def __init__(self, api_key: str, model: str = "claude-sonnet-4-20250514") -> None:
         if not _HAS_ANTHROPIC:
             raise ImportError("pip install anthropic")
-        self._client = anthropic.Anthropic(api_key=api_key)
+        self._client = anthropic.Anthropic(api_key=api_key, timeout=60.0, max_retries=1)
         self._model = model
         self.active_model = model
+        self._stream: object = None  # live MessageStreamManager | None (GIL-safe in CPython)
 
     @property
     def available(self) -> bool:
@@ -57,7 +58,11 @@ class ClaudeProvider:
         if system:
             kwargs["system"] = system
         with self._client.messages.stream(**kwargs) as stream:
-            yield from stream.text_stream
+            self._stream = stream
+            try:
+                yield from stream.text_stream
+            finally:
+                self._stream = None
 
     def _normalize_messages(self, messages: list[dict]) -> list[dict]:
         """Convert messages with ContentPart lists to Claude wire format."""
@@ -90,7 +95,12 @@ class ClaudeProvider:
         return out
 
     def terminate(self) -> None:
-        pass
+        s, self._stream = self._stream, None
+        if s is not None:
+            try:
+                s.close()  # type: ignore[union-attr]
+            except Exception:
+                pass
 
     def chat_stream_events(
         self, messages: list[dict], system: str = ""

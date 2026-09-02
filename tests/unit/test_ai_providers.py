@@ -128,3 +128,58 @@ def test_noop_chat_stream_returns_empty_iter():
     p = NoOpProvider()
     result = list(p.chat_stream([{"role": "user", "content": "x"}]))
     assert result == []
+
+
+def test_claude_terminate_closes_stream():
+    """terminate() must call .close() on the in-flight stream context manager."""
+    import threading
+
+    from biome_fm.ai.claude_provider import ClaudeProvider
+
+    stream_entered = threading.Event()
+    stream_release = threading.Event()
+
+    class FakeStream:
+        close_called = False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            pass
+
+        def close(self):
+            FakeStream.close_called = True
+
+        def _gen(self):
+            stream_entered.set()
+            stream_release.wait(timeout=5.0)
+            yield "token"
+
+        @property
+        def text_stream(self):
+            return self._gen()
+
+    fake_stream = FakeStream()
+    mock_client = MagicMock()
+    mock_client.messages.stream.return_value = fake_stream
+
+    with patch("biome_fm.ai.claude_provider.anthropic") as mock_anthropic, \
+         patch("biome_fm.ai.claude_provider._HAS_ANTHROPIC", True):
+        mock_anthropic.Anthropic.return_value = mock_client
+        provider = ClaudeProvider("sk-test")
+
+    def _run():
+        # consume generator to drive it
+        for _ in provider.chat_stream([{"role": "user", "content": "hi"}]):
+            pass
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    assert stream_entered.wait(timeout=5.0), "stream never entered"
+
+    provider.terminate()
+    stream_release.set()
+    t.join(timeout=5.0)
+
+    assert FakeStream.close_called is True
