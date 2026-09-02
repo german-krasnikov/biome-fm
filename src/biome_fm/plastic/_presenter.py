@@ -225,10 +225,21 @@ class PlasticPresenter:
 
     # ── Drain ─────────────────────────────────────────────────────────────────
 
+    def poll(self) -> None:
+        """Non-blocking drain: push already-queued results to view; skip if job in flight.
+
+        Production timer target (QTimer 100ms). Never blocks.
+        """
+        self._drain_queue()
+
     def drain(self) -> None:
-        """Push queued results to view. Waits for a pending refresh() to finish first."""
+        """Blocking drain: wait for in-flight job, then push. For tests only."""
         if self._future is not None and not self._future.done():
             self._future.result()  # blocks until background refresh completes
+        self._drain_queue()
+
+    def _drain_queue(self) -> None:
+        """Consume all queued (kind, payload) pairs and dispatch to view."""
         try:
             while True:
                 kind, payload = self._queue.get_nowait()

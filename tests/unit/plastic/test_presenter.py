@@ -1058,3 +1058,47 @@ def test_workspace_info_delivered_before_status(cwd):
     assert "workspace_info" in call_order
     assert "status" in call_order
     assert call_order.index("workspace_info") < call_order.index("status")
+
+
+# ── C48: poll() / drain() contract ───────────────────────────────────────────
+
+def test_poll_does_not_block(view, monkeypatch):
+    """poll() returns in <50 ms while run_cm blocks on a threading.Event."""
+    import threading
+
+    barrier = threading.Event()
+
+    def slow_cm(args, **kw):
+        barrier.wait()
+        return ""
+
+    monkeypatch.setattr("biome_fm.plastic._presenter.run_cm", slow_cm)
+    p = PlasticPresenter(view=view, cwd=Path("/w"))
+    p.refresh()
+    try:
+        t0 = time.perf_counter()
+        p.poll()  # AttributeError today: poll() does not exist
+        assert time.perf_counter() - t0 < 0.05
+    finally:
+        barrier.set()  # always release so background thread exits
+    p.drain()  # blocking — waits for slow_cm to finish
+    assert view.busy  # at least one set_busy call received (True then False)
+
+
+def test_drain_still_blocks_for_tests(view, monkeypatch):
+    """drain() returns only after the background job finishes."""
+    import threading
+
+    done = threading.Event()
+
+    def slow_cm(args, **kw):
+        time.sleep(0.05)
+        done.set()
+        return _all_returns()(args, **kw)
+
+    monkeypatch.setattr("biome_fm.plastic._presenter.run_cm", slow_cm)
+    p = PlasticPresenter(view=view, cwd=Path("/w"))
+    p.refresh()
+    p.drain()  # must block until slow_cm finishes
+    assert done.is_set()
+    assert len(view.status_items) >= 0  # ensure no crash

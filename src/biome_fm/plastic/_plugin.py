@@ -234,8 +234,8 @@ class PlasticPlugin:
         win.sync_git_requested.connect(p.sync_git)
         win.refresh_git_sync.connect(p.load_git_sync_status)
 
-        # Hook up drain: Window's 100ms timer calls presenter.drain()
-        win._timer.timeout.connect(p.drain)  # type: ignore[attr-defined]
+        # Hook up poll: Window's 100ms timer calls presenter.poll() (non-blocking)
+        win._timer.timeout.connect(p.poll)  # type: ignore[attr-defined]
 
         win.destroyed.connect(lambda: (p.shutdown(), self._windows.pop(root, None)))
         self._windows[root] = (win, p)
