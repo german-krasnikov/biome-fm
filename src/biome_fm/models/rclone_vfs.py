@@ -71,6 +71,9 @@ class RcloneVFS:
         )
         data = json.loads(out)
         if isinstance(data, list):
+            # pre-1.52 rclone returns a list; empty list means path not found
+            if not data:
+                raise subprocess.CalledProcessError(3, "rclone")
             data = data[0]
         return _parse_entry(data, path.parent)
 

@@ -156,3 +156,10 @@ def test_rclone_move_raises_file_exists() -> None:
     ):
         vfs.move(Path("/src/file.txt"), dst)
     mock_call.assert_not_called()
+
+
+def test_rclone_stat_empty_list_raises_called_process_error() -> None:
+    """Old rclone returning [] for missing path must not IndexError."""
+    vfs = _make_rclone_vfs()
+    with patch("subprocess.check_output", return_value="[]"), pytest.raises(_sp.CalledProcessError):
+        vfs.stat(Path("/missing.txt"))
