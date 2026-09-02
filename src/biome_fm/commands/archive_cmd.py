@@ -14,9 +14,7 @@ from biome_fm.operations.task import Cancelled
 
 
 class ArchiveCmd(Command):
-    """Create zip archive from sources. Undo = delete archive."""
-
-    undoable = True
+    """Create zip archive from sources."""
 
     def __init__(self, sources: list[Path], archive_path: Path, fmt: str = "zip") -> None:
         self._sources = sources
@@ -43,9 +41,6 @@ class ArchiveCmd(Command):
             self._archive_path.unlink(missing_ok=True)
             raise RuntimeError(f"Archive creation failed: {e}") from e
 
-    def undo(self) -> None:
-        self._archive_path.unlink(missing_ok=True)
-
     @property
     def description(self) -> str:
         return f"Archive {len(self._sources)} item(s)"
@@ -56,8 +51,6 @@ _VALID_FMTS = frozenset({"zip", "tar.gz", "tar.bz2"})
 
 class ProgressArchiveCmd(Command):
     """Archive with cancel + per-file progress callback."""
-
-    undoable = True
 
     def __init__(
         self,
@@ -110,18 +103,13 @@ class ProgressArchiveCmd(Command):
                 files.append((src, src.name))
         return files
 
-    def undo(self) -> None:
-        self._archive_path.unlink(missing_ok=True)
-
     @property
     def description(self) -> str:
         return f"Archive {len(self._sources)} item(s)"
 
 
 class VerifyArchiveCmd(Command):
-    """Test archive integrity. Not undoable. execute() returns '' on success, error on failure."""
-
-    undoable = False
+    """Test archive integrity. execute() returns '' on success, error on failure."""
 
     def __init__(self, archive_path: Path) -> None:
         self._path = archive_path
@@ -144,9 +132,6 @@ class VerifyArchiveCmd(Command):
         except (zipfile.BadZipFile, tarfile.TarError, OSError) as e:
             return str(e)
 
-    def undo(self) -> None:
-        pass
-
     @property
     def description(self) -> str:
         return f"Verify {self._path.name}"
@@ -154,8 +139,6 @@ class VerifyArchiveCmd(Command):
 
 class Encrypted7zCmd(Command):
     """Create AES-256 encrypted 7z via system 7z binary."""
-
-    undoable = True
 
     def __init__(self, sources: list[Path], archive_path: Path, password: str) -> None:
         self._sources = sources
@@ -175,13 +158,10 @@ class Encrypted7zCmd(Command):
                 capture_output=True, text=True, timeout=300,
             )
         except subprocess.TimeoutExpired:
-            self.undo()
+            self._archive_path.unlink(missing_ok=True)
             raise RuntimeError("7z timed out after 300 seconds")
         if result.returncode != 0:
             raise RuntimeError(f"7z failed: {result.stderr.strip()}")
-
-    def undo(self) -> None:
-        self._archive_path.unlink(missing_ok=True)
 
     @property
     def description(self) -> str:
@@ -201,9 +181,7 @@ def _validate_zip_names(names: list[str], dest_dir: Path) -> None:
 
 
 class ExtractCmd(Command):
-    """Extract archive to dest_dir. Not undoable."""
-
-    undoable = False
+    """Extract archive to dest_dir."""
 
     def __init__(self, archive: Path, dest_dir: Path) -> None:
         self._archive = archive
@@ -221,6 +199,3 @@ class ExtractCmd(Command):
                     tf.extractall(self._dest_dir, filter="data")
         except (zipfile.BadZipFile, tarfile.TarError, OSError, PermissionError) as e:
             raise RuntimeError(f"Extraction failed: {e}") from e
-
-    def undo(self) -> None:
-        pass

@@ -20,20 +20,6 @@ def test_execute_changes_permissions(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX only")
-def test_undo_restores_permissions(tmp_path: Path) -> None:
-    from biome_fm.commands.chmod_cmd import ChmodCmd
-
-    f = tmp_path / "file.txt"
-    f.write_bytes(b"x")
-    original = stat.S_IMODE(f.stat().st_mode)
-    cmd = ChmodCmd([f], 0o600)
-    cmd.execute()
-    assert stat.S_IMODE(f.stat().st_mode) == 0o600
-    cmd.undo()
-    assert stat.S_IMODE(f.stat().st_mode) == original
-
-
-@pytest.mark.skipif(os.name != "posix", reason="POSIX only")
 def test_recursive_chmod(tmp_path: Path) -> None:
     from biome_fm.commands.chmod_cmd import ChmodCmd
 
@@ -79,24 +65,3 @@ def test_multiple_files(tmp_path: Path) -> None:
         assert stat.S_IMODE(f.stat().st_mode) == 0o644
 
 
-@pytest.mark.skipif(os.name != "posix", reason="POSIX only")
-def test_chmod_undo_restores_mode_when_vfs_provided(tmp_path: Path) -> None:
-    """VFS branch must save original mode before chmod so undo() can restore it."""
-    from biome_fm.commands.chmod_cmd import ChmodCmd
-
-    f = tmp_path / "file.txt"
-    f.write_bytes(b"x")
-    os.chmod(f, 0o755)
-    original = stat.S_IMODE(f.stat().st_mode)
-
-    class SpyVFS:
-        def chmod(self, path: Path, mode: int) -> None:
-            os.chmod(path, mode)
-
-    spy = SpyVFS()
-    cmd = ChmodCmd([f], 0o600, vfs=spy)
-    cmd.execute()
-    assert stat.S_IMODE(f.stat().st_mode) == 0o600  # sanity check
-
-    cmd.undo()
-    assert stat.S_IMODE(f.stat().st_mode) == original
