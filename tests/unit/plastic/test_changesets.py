@@ -131,7 +131,7 @@ def test_get_changesets_calls_run_cm_with_format(tmp_path):
 def test_checkin_passes_message(tmp_path):
     with patch("biome_fm.plastic._changesets.run_cm") as m:
         checkin("my commit", tmp_path)
-    m.assert_called_once_with(["checkin", "-m", "my commit"], cwd=tmp_path)
+    m.assert_called_once_with(["checkin", "-c=my commit"], cwd=tmp_path)
 
 
 def test_checkin_with_paths_passes_file_args(tmp_path):
@@ -140,7 +140,7 @@ def test_checkin_with_paths_passes_file_args(tmp_path):
     with patch("biome_fm.plastic._changesets.run_cm") as m:
         checkin("msg", tmp_path, paths=[f1, f2])
     m.assert_called_once_with(
-        ["checkin", "-m", "msg", str(f1), str(f2)], cwd=tmp_path
+        ["checkin", "-c=msg", str(f1), str(f2)], cwd=tmp_path
     )
 
 
@@ -192,3 +192,13 @@ def test_undo_keep_calls_cm(tmp_path):
     with patch("biome_fm.plastic._changesets.run_cm") as m:
         undo_keep(f, tmp_path)
     assert "--keep" in m.call_args[0][0]
+
+
+# ── C49: -c= flag ────────────────────────────────────────────────────────────
+
+def test_checkin_uses_dash_c_equals(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr("biome_fm.plastic._changesets.run_cm",
+                        lambda a, **kw: calls.append(a))
+    checkin("fix typo", tmp_path)
+    assert calls[0][1] == "-c=fix typo"  # fails today: calls[0][1] == "-m"

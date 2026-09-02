@@ -72,7 +72,7 @@ def test_parse_strips_whitespace():
 def test_shelve_basic(tmp_path):
     with patch("biome_fm.plastic._shelve.run_cm") as m:
         shelve("WIP", tmp_path)
-    m.assert_called_once_with(["shelveset", "create", "-m", "WIP"], cwd=tmp_path)
+    m.assert_called_once_with(["shelveset", "create", "-c=WIP"], cwd=tmp_path)
 
 
 def test_shelve_with_paths(tmp_path):
@@ -80,7 +80,7 @@ def test_shelve_with_paths(tmp_path):
     with patch("biome_fm.plastic._shelve.run_cm") as m:
         shelve("msg", tmp_path, paths=[f1, f2])
     m.assert_called_once_with(
-        ["shelveset", "create", "-m", "msg", str(f1), str(f2)], cwd=tmp_path
+        ["shelveset", "create", "-c=msg", str(f1), str(f2)], cwd=tmp_path
     )
 
 
@@ -89,8 +89,8 @@ def test_shelve_no_paths_arg_omitted(tmp_path):
         shelve("msg", tmp_path, paths=None)
     args = m.call_args.args[0]
     assert "shelveset" in args
-    # no extra path args beyond -m msg
-    assert len(args) == 4
+    # no extra path args beyond -c=msg
+    assert len(args) == 3
 
 
 # ── unshelve ──────────────────────────────────────────────────────────────────
@@ -131,3 +131,13 @@ def test_get_shelves_returns_parsed(tmp_path):
 def test_get_shelves_empty_on_cm_error(tmp_path):
     with patch("biome_fm.plastic._shelve.run_cm", return_value=""):
         assert get_shelves(tmp_path) == []
+
+
+# ── C49: -c= flag ────────────────────────────────────────────────────────────
+
+def test_shelve_uses_dash_c_equals(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr("biome_fm.plastic._shelve.run_cm",
+                        lambda a, **kw: calls.append(a))
+    shelve("wip", tmp_path)
+    assert calls[0][2] == "-c=wip"  # fails today: calls[0][2] == "-m"

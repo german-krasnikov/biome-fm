@@ -13,7 +13,7 @@ _FMT = "{changesetid}|{date}|{owner}|{branch}|{comment}"
 # Operations: checkin, update, undo
 def checkin(message: str, cwd: Path, paths: list[Path] | None = None) -> None:
     """Commit selected files (or all if paths is None/empty). Raises CMError on failure."""
-    args = ["checkin", "-m", message]
+    args = ["checkin", f"-c={message}"]
     if paths:
         args.extend(str(p) for p in paths)
     run_cm(args, cwd=cwd)

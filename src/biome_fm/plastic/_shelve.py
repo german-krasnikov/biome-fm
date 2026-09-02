@@ -11,7 +11,7 @@ _FMT = "{id}|{date}|{owner}|{comment}"
 
 def shelve(msg: str, cwd: Path, paths: list[Path] | None = None) -> None:
     """Shelve pending changes. Raises CMError on failure."""
-    args = ["shelveset", "create", "-m", msg]
+    args = ["shelveset", "create", f"-c={msg}"]
     if paths:
         args.extend(str(p) for p in paths)
     run_cm(args, cwd=cwd)
