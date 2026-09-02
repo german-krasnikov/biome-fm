@@ -19,8 +19,6 @@ def _default_editor(path: Path) -> None:
 
 
 class EditorRenameCmd(Command):
-    undoable = True
-
     def __init__(
         self,
         items: list[FileItem],
@@ -30,7 +28,6 @@ class EditorRenameCmd(Command):
         self._items = items
         self._vfs = vfs
         self._editor = editor or _default_editor
-        self._sub_cmds: list[RenameCmd] = []
 
     def execute(self) -> None:
         with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
@@ -52,17 +49,10 @@ class EditorRenameCmd(Command):
                 dst = item.path.parent / stripped
                 if self._vfs.exists(dst):
                     raise FileExistsError(f"'{stripped}' already exists")
-        self._sub_cmds = []
         for item, new_name in zip(self._items, new_names):
             new_name = new_name.strip()
             if new_name and new_name != item.name:
-                cmd = RenameCmd(item.path, new_name, self._vfs)
-                cmd.execute()
-                self._sub_cmds.append(cmd)
-
-    def undo(self) -> None:
-        for cmd in reversed(self._sub_cmds):
-            cmd.undo()
+                RenameCmd(item.path, new_name, self._vfs).execute()
 
     @property
     def description(self) -> str:

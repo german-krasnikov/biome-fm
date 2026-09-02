@@ -69,7 +69,6 @@ def test_unchanged_skipped(tmp_path: Path) -> None:
     cmd = EditorRenameCmd([a], vfs, editor=_editor_that_renames({}))
     cmd.execute()
 
-    assert len(cmd._sub_cmds) == 0
     assert (tmp_path / "keep.txt").exists()
 
 

@@ -1,4 +1,4 @@
-"""Batch tag assign/remove command with undo. F283."""
+"""Batch tag assign/remove command. F283."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -21,17 +21,11 @@ class TagCmd(Command):
         self._add = add_tags
         self._remove = set(remove_tags)
         self._store = store
-        self._prev: dict[Path, list[str]] = {}
 
     def execute(self) -> None:
-        self._prev = {p: self._store.get_tags(p) for p in self._paths}
         for p in self._paths:
-            merged = list(dict.fromkeys(self._prev[p] + self._add))
+            current = self._store.get_tags(p)
+            merged = list(dict.fromkeys(current + self._add))
             merged = [t for t in merged if t not in self._remove]
             self._store.set_tags(p, merged)
-        self._store.save()
-
-    def undo(self) -> None:
-        for p, tags in self._prev.items():
-            self._store.set_tags(p, tags)
         self._store.save()
