@@ -1,6 +1,7 @@
 """Audio metadata preview provider (mutagen optional)."""
 from __future__ import annotations
 
+import html
 import os
 from pathlib import Path
 
@@ -51,8 +52,8 @@ class MetadataPreviewProvider:
                 rows.append(("Error", "Cannot read file"))
 
         table_rows = "".join(
-            f"<tr><td style='padding:4px 12px 4px 0;font-weight:bold;'>{k}</td>"
-            f"<td style='padding:4px 0;'>{v}</td></tr>"
+            f"<tr><td style='padding:4px 12px 4px 0;font-weight:bold;'>{html.escape(k)}</td>"
+            f"<td style='padding:4px 0;'>{html.escape(v)}</td></tr>"
             for k, v in rows
         )
         return PreviewResult(kind=ContentKind.HTML,
