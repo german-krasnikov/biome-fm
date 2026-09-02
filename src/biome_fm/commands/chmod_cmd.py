@@ -22,13 +22,17 @@ class ChmodCmd(Command):
         self._saved: dict[Path, int] = {}
 
     def execute(self) -> None:
+        self._saved.clear()
         if self._vfs is not None and hasattr(self._vfs, "chmod"):
             for p in self._paths:
+                try:
+                    self._saved[p] = p.stat().st_mode & 0o777
+                except OSError:
+                    pass
                 self._vfs.chmod(p, self._mode)
-            return
-        self._saved.clear()
-        for p in self._paths:
-            self._apply(p)
+        else:
+            for p in self._paths:
+                self._apply(p)
 
     def _apply(self, p: Path) -> None:
         try:
