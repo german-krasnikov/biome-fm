@@ -83,6 +83,38 @@ class TestUnknownScheme:
             router.listdir(Path("foobar://host/path"))
 
 
+class TestResolvedPathDelegation:
+    """C54 — router must pass resolved backend paths, not raw URI Paths."""
+
+    def _make_fake_remote(self, calls: list) -> object:
+        class FakeRemote:
+            def listdir(self, p): return []
+            def stat(self, p):
+                from biome_fm.models.file_item import FileItem
+                return FileItem(name="", path=p, is_dir=False, size=0, modified=0)
+            def read_bytes(self, p): return b""
+            def exists(self, p): return False
+            def copy(self, src, dst): calls.append(("copy", src, dst))
+            def move(self, src, dst): calls.append(("move", src, dst))
+            def delete(self, p): ...
+            def mkdir(self, p): ...
+        return FakeRemote()
+
+    def test_router_copy_delegates_resolved_path(self, tmp_path):
+        calls: list = []
+        router = VFSRouter()
+        router._remote["sftp://u@h:"] = self._make_fake_remote(calls)
+        router.copy(Path("sftp://u@h/a.txt"), tmp_path / "b.txt")
+        assert calls[0][1] == Path("/a.txt")  # resolved path, not raw URI
+
+    def test_router_move_delegates_resolved_path(self):
+        calls: list = []
+        router = VFSRouter()
+        router._remote["sftp://u@h:"] = self._make_fake_remote(calls)
+        router.move(Path("sftp://u@h/a.txt"), Path("sftp://u@h/b.txt"))
+        assert calls[0][1:] == (Path("/a.txt"), Path("/b.txt"))  # resolved paths
+
+
 class TestDisconnect:
     def test_disconnect_removes_from_cache(self):
         router = VFSRouter()
