@@ -13,7 +13,6 @@ from biome_fm.commands.move_cmd import MoveCmd
 
 class _NullCmd(Command):
     def execute(self) -> None: pass
-    def undo(self) -> None: pass  # still abstract in base.py until task 03
 
 
 def test_default_preview():
