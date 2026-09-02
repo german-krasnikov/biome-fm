@@ -165,25 +165,28 @@ class EditorDialog(QDialog):
         self._presenter.save()
         self.saved.emit(self._path)
 
+    def _confirm_discard(self) -> bool:
+        if not self._presenter.is_modified():
+            return True
+        reply = QMessageBox.question(
+            self,
+            "Unsaved Changes",
+            "Save changes before closing?",
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel,
+        )
+        if reply == QMessageBox.StandardButton.Save:
+            self._save()
+        return reply != QMessageBox.StandardButton.Cancel
+
+    def reject(self) -> None:
+        if self._confirm_discard():
+            super().reject()
+
     def closeEvent(self, event) -> None:  # type: ignore[override]
-        if self._presenter.is_modified():
-            reply = QMessageBox.question(
-                self,
-                "Unsaved Changes",
-                "Save changes before closing?",
-                QMessageBox.StandardButton.Save
-                | QMessageBox.StandardButton.Discard
-                | QMessageBox.StandardButton.Cancel,
-            )
-            if reply == QMessageBox.StandardButton.Save:
-                self._save()
-                event.accept()
-            elif reply == QMessageBox.StandardButton.Discard:
-                event.accept()
-            else:
-                event.ignore()
-        else:
-            event.accept()
+        self.reject()
+        event.ignore() if self.isVisible() else event.accept()
 
     def _goto_line(self) -> None:
         from PySide6.QtWidgets import QInputDialog
