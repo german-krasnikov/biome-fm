@@ -469,6 +469,8 @@ def _snapshot_session(coord, left_tabs, right_tabs) -> SessionState:
 
 
 def create_app() -> MainWindow:
+    from biome_fm.views.glass import configure_glass, is_available
+
     # ── Config & Session ──────────────────────────────────────────
     cfg_dir, cfg, session, _system_pt = _load_config_session()
 
@@ -660,8 +662,6 @@ def create_app() -> MainWindow:
     # ── Window ────────────────────────────────────────────────────
     window = MainWindow(left_side, right_side, ai_panel, preview_panel)
     _confirm_parent[0] = window
-    _glass_active = cfg.glass  # actual enable happens in __main__ after show()
-
     # Debounced config save — coalesces rapid changes into one disk write
     _save_timer = QTimer(window)
     _save_timer.setSingleShot(True)
@@ -670,10 +670,7 @@ def create_app() -> MainWindow:
 
     def _schedule_save() -> None:
         _save_timer.start()  # restarts timer if already running
-    window._glass_cfg = cfg.glass
-    if cfg.glass:
-        from biome_fm.views.glass_style import mark_glass
-        mark_glass(window, recursive=True)
+    _glass_active = configure_glass(window, cfg.glass)
     window.splitter.addWidget(search_panel)
     search_panel.hide()
     window.splitter.addWidget(terminal_panel)
@@ -2038,7 +2035,7 @@ def create_app() -> MainWindow:
             # apply_theme already publishes ThemeChanged(name, tokens) via global bus
             nonlocal _glass_active
             from biome_fm.views.glass import disable_glass, enable_glass, prepare_glass
-            if cfg.glass and not _glass_active:
+            if cfg.glass and is_available() and not _glass_active:
                 from biome_fm.views.glass_style import GlassStyle, mark_glass
                 QApplication.instance().setStyle(GlassStyle())
                 mark_glass(window, recursive=True)
