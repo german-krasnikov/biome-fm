@@ -107,19 +107,21 @@ class TabsPresenter:
         self._tabs[idx].cleanup()
         self._tabs.pop(idx)
         self._views.pop(idx)
-        self._tabs_view.remove_tab(idx)
-        # Shift locked/pending/links indices above idx down by one
+        # Shift indices BEFORE remove_tab so Qt currentChanged fires with correct state
         self._locked = {k - 1 if k > idx else k for k in self._locked}
         self._pending = {(k - 1 if k > idx else k): v for k, v in self._pending.items() if k != idx}
         self._links = {(k - 1 if k > idx else k): v for k, v in self._links.items() if k != idx}
-        # Keep partner back-references in sync with shifted local keys
         for new_k, (other, other_k) in self._links.items():
             other._links[other_k] = (self, new_k)
         if self._active_idx >= self.tab_count:
             self._active_idx = self.tab_count - 1
         elif self._active_idx > idx:
             self._active_idx -= 1
+        self._tabs_view.remove_tab(idx)
         self._tabs_view.set_active_tab(self._active_idx)
+        # Eagerly load new active tab if it was deferred
+        if self._active_idx in self._pending:
+            self._tabs[self._active_idx].navigate_to(self._pending.pop(self._active_idx))
 
     def duplicate_tab(self, idx: int) -> PanePresenter:
         """Open a new tab at the same path as tab[idx]."""

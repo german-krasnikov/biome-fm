@@ -340,3 +340,51 @@ def test_duplicate_deferred_tab_does_not_raise(root: Path, vfs: LocalVFS) -> Non
     tp.switch_tab(0)
     tp.duplicate_tab(1)
     assert len(tp.paths()) == 3
+
+
+# ── close_tab re-entrancy (C32) ───────────────────────────────────────────────
+
+def test_close_tab_loads_pending_neighbour(root: Path, vfs: LocalVFS) -> None:
+    """close_tab(active) must eagerly navigate the new active tab if it was deferred."""
+    a, b, c = root / "dir1", root / "dir2", root
+    tp, _ = make_presenter(vfs)
+    tp.new_tab(a, deferred=True)
+    tp.new_tab(b, deferred=True)
+    tp.new_tab(c, deferred=True)
+    tp.switch_tab(1)          # navigates b eagerly; _pending still has {0:a, 2:c}
+    tp.close_tab(1)           # close b; new active is index 1 → c (still deferred)
+    result = tp.paths()
+    assert len(result) == 2
+    assert set(result) == {a, c}
+    # The newly active tab must have been eagerly navigated (not still deferred)
+    assert tp._tabs[tp.active_idx]._cwd is not None
+
+
+def test_close_tab_shift_happens_before_view_remove(root: Path, vfs: LocalVFS) -> None:
+    """_pending must be shifted before remove_tab() fires (re-entrancy guard)."""
+    a, b = root / "dir1", root / "dir2"
+    pending_snapshot: dict[int, Path] = {}
+
+    class _CapturingTabsView(_FakeTabsView):
+        def remove_tab(self, idx: int) -> None:
+            # Capture _presenter._pending at the moment Qt would fire currentChanged
+            nonlocal pending_snapshot
+            pending_snapshot = dict(tp._pending)
+            super().remove_tab(idx)
+
+    tv = _CapturingTabsView()
+    views: list[_FakePaneView] = []
+
+    def view_factory() -> _FakePaneView:
+        v = _FakePaneView()
+        views.append(v)
+        return v
+
+    tp = TabsPresenter(vfs=vfs, tabs_view=tv, view_factory=view_factory)
+    tp.new_tab(a)              # tab 0, navigated
+    tp.new_tab(b, deferred=True)  # tab 1, pending at key 1
+    tp.close_tab(0)            # close tab 0; tab 1 → index 0
+
+    # At remove_tab call time, _pending must already have key 0 (not 1)
+    assert 0 in pending_snapshot, f"_pending was not shifted before remove_tab: {pending_snapshot}"
+    assert 1 not in pending_snapshot
