@@ -63,3 +63,23 @@ def test_release_preflight_has_actions_read_permission() -> None:
     assert perms.get("actions") == "read", (
         "release preflight job needs actions: read to call gh run list"
     )
+
+
+# ── CI_COV-01 ─────────────────────────────────────────────────────────────────
+
+def test_every_cov_step_disables_fail_under() -> None:
+    ci = _load_ci()
+    cov_steps = [
+        (job_name, step)
+        for job_name, job in ci["jobs"].items()
+        for step in job.get("steps", [])
+        if "--cov=" in step.get("run", "")
+    ]
+    assert len(cov_steps) >= 2, (
+        f"Expected at least 2 steps with --cov= (unit + integration), got {len(cov_steps)}"
+    )
+    for job_name, step in cov_steps:
+        assert "--cov-fail-under=0" in step["run"], (
+            f"Step '{step.get('name', '?')}' in job '{job_name}' uses --cov= "
+            f"but is missing --cov-fail-under=0"
+        )

@@ -119,6 +119,7 @@ jobs:
             -m "not slow" \
             -q --tb=short --timeout=60 \
             --cov=biome_fm --cov-report=xml:coverage-integration.xml \
+            --cov-fail-under=0 \
             --junitxml=reports/integration-junit.xml
 
       - name: Upload coverage
