@@ -167,3 +167,20 @@ def test_save_config_target_untouched_on_failure(tmp_path: Path, monkeypatch) ->
         save_config(Config(theme="dark"), p)
 
     assert load_config(p).theme == "light"
+
+
+def test_layout_profile_name_with_quotes_roundtrips(tmp_path: Path) -> None:
+    import tomllib
+
+    path = tmp_path / "cfg.toml"
+    cfg = Config(layout_profiles={'My "wide" view': {"x": 1}})
+    save_config(cfg, path)
+    tomllib.loads(path.read_text())  # must not raise
+    loaded = load_config(path)
+    assert loaded.layout_profiles == {'My "wide" view': {"x": 1}}
+
+
+def test_load_config_returns_default_on_ioerror(tmp_path: Path) -> None:
+    path = tmp_path / "cfg.toml"
+    path.write_bytes(b"\x80\x81\x82")  # invalid UTF-8 → UnicodeDecodeError
+    assert load_config(path) == Config()

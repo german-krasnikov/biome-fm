@@ -111,7 +111,7 @@ def load_config(path: Path) -> Config:
     """Load config from TOML file. Missing file → defaults."""
     try:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, tomllib.TOMLDecodeError):
+    except (FileNotFoundError, OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
         return Config()
     # Migrate legacy ai_api_key → ai_claude_key
     if data.get("ai_api_key") and not data.get("ai_claude_key"):
@@ -129,7 +129,7 @@ def _toml_val(v: object) -> str:
     if isinstance(v, str):
         return '"' + _toml_esc(v) + '"'
     if isinstance(v, dict):
-        inner = ", ".join(f'"{k}" = {_toml_val(val)}' for k, val in v.items())
+        inner = ", ".join(f'"{_toml_esc(k)}" = {_toml_val(val)}' for k, val in v.items())
         return "{" + inner + "}"
     if isinstance(v, list):
         return "[" + ", ".join(_toml_val(i) for i in v) + "]"
