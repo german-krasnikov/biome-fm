@@ -275,7 +275,6 @@ class MainWindow(QMainWindow):
             a.triggered.connect(sig.emit)
             em.addAction(a)
         em.addSeparator()
-        em.addSeparator()
         a = QAction("&Find Files\tCtrl+Shift+F", self)
         a.triggered.connect(lambda _: self.search_requested.emit())
         em.addAction(a)

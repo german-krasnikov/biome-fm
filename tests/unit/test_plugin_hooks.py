@@ -29,16 +29,11 @@ class _FakePane:
 
 
 class _TrackCmd(Command):
-    undoable = False
-
     def __init__(self) -> None:
         self.executed = False
 
     def execute(self) -> None:
         self.executed = True
-
-    def undo(self) -> None:
-        pass
 
 
 class _VetoPlugin:

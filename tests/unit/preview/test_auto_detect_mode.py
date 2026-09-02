@@ -44,7 +44,5 @@ def test_auto_detect_bounded_read(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(Path, "read_bytes", _no_full_read)
 
     p = PreviewPresenter.__new__(PreviewPresenter)
-    # RED: raises AssertionError because read_bytes() is called
-    # GREEN: uses open("rb").read(512), never calls read_bytes()
     result = p._auto_detect_mode(item)
     assert result in ("text", "hex")

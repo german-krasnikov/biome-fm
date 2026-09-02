@@ -1,4 +1,4 @@
-"""TDD: TagCmd — batch tag assign/remove with undo. F283."""
+"""TDD: TagCmd — batch tag assign/remove. F283."""
 from __future__ import annotations
 
 import pytest

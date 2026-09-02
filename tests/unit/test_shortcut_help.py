@@ -25,3 +25,10 @@ def test_empty_dict_no_crash(qtbot, monkeypatch):
     dlg = ShortcutHelpDialog()
     qtbot.addWidget(dlg)
     assert dlg._browser is not None
+
+
+def test_no_undo_redo_section():
+    assert "Undo / Redo" not in SHORTCUTS
+    all_keys = [k for section in SHORTCUTS.values() for k in section]
+    assert "Ctrl+Z" not in all_keys
+    assert "Ctrl+Shift+Z" not in all_keys

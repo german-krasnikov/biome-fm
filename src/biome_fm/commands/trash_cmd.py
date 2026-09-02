@@ -1,4 +1,4 @@
-"""TrashCmd — move files to OS trash (non-undoable)."""
+"""TrashCmd — move files to OS trash."""
 from __future__ import annotations
 
 import warnings

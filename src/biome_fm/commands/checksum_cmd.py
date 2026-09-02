@@ -1,4 +1,4 @@
-"""Checksum command — compute file hashes. Not undoable."""
+"""Checksum command — compute file hashes."""
 from __future__ import annotations
 
 import hashlib
@@ -69,7 +69,7 @@ def verify_sidecar(path: Path) -> tuple[bool, str]:
 
 
 class ChecksumCmd(Command):
-    """Compute checksums for file(s). Not undoable."""
+    """Compute checksums for file(s)."""
 
     def __init__(self, paths: list[Path], algorithm: str = "xxhash") -> None:
         self._paths = paths
