@@ -45,12 +45,3 @@ def test_multi_rename_empty_is_noop() -> None:
     assert vfs.moves == []
 
 
-def test_multi_rename_undo(tmp_path: Path) -> None:
-    vfs = _FakeVFS()
-    a = tmp_path / "a.txt"
-    b = tmp_path / "b.txt"
-    a.touch()
-    mgr = _mgr(vfs)
-    mgr.multi_rename([(a, "b.txt")])
-    mgr.undo()
-    assert vfs.moves == [(a, b), (b, a)]

@@ -1,4 +1,4 @@
-"""ManagerPresenter — orchestrates both panes, commands, undo/redo. No Qt."""
+"""ManagerPresenter — orchestrates both panes and file commands. No Qt."""
 from __future__ import annotations
 
 import threading
@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from biome_fm.commands.base import Command, CommandHistory
+from biome_fm.commands.base import Command
 from biome_fm.commands.copy_cmd import CopyCmd, ProgressCopyCmd
 from biome_fm.commands.delete_cmd import DeleteCmd
 from biome_fm.commands.mkdir_cmd import MkdirCmd
@@ -54,14 +54,13 @@ class ConfirmSpec:
 
 
 class ManagerPresenter:
-    """Orchestrates both panes, file commands, and undo/redo. No Qt."""
+    """Orchestrates both panes and file commands. No Qt."""
 
     def __init__(
         self,
         left: PanePresenter,
         right: PanePresenter,
         vfs: VFSProtocol,
-        history: CommandHistory | None = None,
         bus: EventBus | None = None,
         config: Config | None = None,
         op_queue: OpQueue | None = None,
@@ -71,7 +70,6 @@ class ManagerPresenter:
         self._panes: dict[PaneId, PanePresenter] = {"left": left, "right": right}
         self._active: PaneId = "left"
         self._vfs = vfs
-        self._history = history or CommandHistory()
         self._bus = bus
         self._config = config
         self._op_queue = op_queue
@@ -91,14 +89,6 @@ class ManagerPresenter:
     @property
     def inactive_pane(self) -> PanePresenter:
         return self._panes[_OTHER[self._active]]
-
-    @property
-    def can_undo(self) -> bool:
-        return self._history.can_undo
-
-    @property
-    def can_redo(self) -> bool:
-        return self._history.can_redo
 
     @property
     def mirror(self) -> bool:
@@ -236,22 +226,6 @@ class ManagerPresenter:
             for src in spec.sources if spec.sources else [spec.src]:
                 self._plugins.on_file_operation(op=spec.op, src=src, dst=spec.dst)
 
-    def undo(self) -> None:
-        try:
-            self._history.undo()
-        except OSError as e:
-            self._publish(OperationFinished("Undo", False, str(e)))
-            return
-        self._refresh_both()
-
-    def redo(self) -> None:
-        try:
-            self._history.redo()
-        except OSError as e:
-            self._publish(OperationFinished("Redo", False, str(e)))
-            return
-        self._refresh_both()
-
     def _start_op(self, sources: list[Path], dst: Path, move: bool, verify: bool = False) -> None:
         op = "move" if move else "copy"
         if not self._confirm(ConfirmSpec(op, sources, dst)):
@@ -343,7 +317,7 @@ class ManagerPresenter:
         """Run EditorRenameCmd; surface ValueError/OSError via EventBus."""
         from biome_fm.commands.editor_rename_cmd import EditorRenameCmd
         try:
-            self._history.execute(EditorRenameCmd(items, self._vfs))
+            EditorRenameCmd(items, self._vfs).execute()
         except (ValueError, OSError) as e:
             self._publish(OperationFinished("Bulk rename", False, str(e)))
             return
@@ -404,7 +378,7 @@ class ManagerPresenter:
                 return  # vetoed
         self._publish(OperationStarted(desc))
         try:
-            self._history.execute(cmd)
+            cmd.execute()
             self._refresh_both()
             self._publish(OperationFinished(desc, True))
             if self._plugins and spec:

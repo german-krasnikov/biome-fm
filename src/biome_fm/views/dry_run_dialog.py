@@ -9,14 +9,13 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from biome_fm.commands.base import Command, CommandHistory
+from biome_fm.commands.base import Command
 
 
 class DryRunDialog(QDialog):
-    def __init__(self, cmd: Command, history: CommandHistory, parent=None) -> None:
+    def __init__(self, cmd: Command, parent=None) -> None:
         super().__init__(parent)
         self._cmd = cmd
-        self._history = history
         self.setWindowTitle("Preview Operation")
         self.resize(500, 300)
         layout = QVBoxLayout(self)
@@ -33,5 +32,10 @@ class DryRunDialog(QDialog):
         layout.addWidget(bbox)
 
     def _run(self) -> None:
-        self._history.execute(self._cmd)
+        try:
+            self._cmd.execute()
+        except OSError as e:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.critical(self, "Error", str(e))
+            return
         self.accept()
