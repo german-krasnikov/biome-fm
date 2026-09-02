@@ -44,6 +44,7 @@ class TabsPresenter:
         self._locked: set[int] = set()
         self._links: dict[int, tuple[TabsPresenter, int]] = {}
         self._pending: dict[int, Path] = {}  # deferred tab paths
+        self.on_tab_created: Callable[[PaneViewProtocol, PanePresenter], None] | None = None
 
     # ── tab management ────────────────────────────────────────────────────────
 
@@ -73,6 +74,8 @@ class TabsPresenter:
             self._pending[idx] = path
         else:
             presenter.navigate_to(path)
+        if self.on_tab_created is not None:
+            self.on_tab_created(view, presenter)
         return presenter
 
     def lock_tab(self, idx: int) -> None:

@@ -388,3 +388,36 @@ def test_close_tab_shift_happens_before_view_remove(root: Path, vfs: LocalVFS) -
     # At remove_tab call time, _pending must already have key 0 (not 1)
     assert 0 in pending_snapshot, f"_pending was not shifted before remove_tab: {pending_snapshot}"
     assert 1 not in pending_snapshot
+
+
+# ── on_tab_created callback (C07) ─────────────────────────────────────────────
+
+def test_on_tab_created_called_for_every_new_tab(root: Path, vfs: LocalVFS) -> None:
+    """on_tab_created fires for every new_tab() call, including locked-redirect and deferred."""
+    home = root / "dir1"
+    other = root / "dir2"
+    third = root
+    tp, _ = make_presenter(vfs)
+
+    created: list[tuple] = []
+    tp.on_tab_created = lambda v, p: created.append((v, p))
+
+    tp.new_tab(home)             # idx 0 — fires callback
+    tp.new_tab(other)            # idx 1 — fires callback
+    tp.lock_tab(1)               # lock active tab
+    tp.navigate_to(third)        # locked redirect → new_tab(third) — fires callback
+
+    assert len(created) == 3
+    for i in range(3):
+        v, p = created[i]
+        assert v is tp.view_at(i)
+        assert p is tp.presenter_at(i)
+
+    # deferred new_tab also fires the callback
+    tp2, _ = make_presenter(vfs)
+    deferred_created: list[tuple] = []
+    tp2.on_tab_created = lambda v, p: deferred_created.append((v, p))
+    tp2.new_tab(home, deferred=True)
+    assert len(deferred_created) == 1
+    assert deferred_created[0][0] is tp2.view_at(0)
+    assert deferred_created[0][1] is tp2.presenter_at(0)
