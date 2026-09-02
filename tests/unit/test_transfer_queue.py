@@ -27,8 +27,8 @@ def test_on_op_progress_updates_bar(panel):
     p.on_op_progress(1, files_done=1, files_total=5, bytes_done=100, bytes_total=500, current_file="a.txt")
     bar = p._rows[1].findChild(QProgressBar)
     assert bar is not None
-    assert bar.value() == 100
-    assert bar.maximum() == 500
+    assert bar.maximum() == 1000
+    assert bar.value() == 200  # 100 * 1000 // 500 = 200 permille
 
 
 def test_on_op_done_marks_row(panel):
