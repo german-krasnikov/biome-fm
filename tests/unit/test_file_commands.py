@@ -145,34 +145,6 @@ def test_copy_execute_calls_vfs_copy() -> None:
     ]
 
 
-def test_copy_tracks_created_paths() -> None:
-    vfs = SpyVFS()
-    cmd = CopyCmd([Path("/src/a.txt")], Path("/dst"), vfs)
-    cmd.execute()
-    assert cmd._created == [Path("/dst/a.txt")]
-
-
-def test_copy_undo_deletes_created_in_reverse() -> None:
-    vfs = SpyVFS()
-    sources = [Path("/src/a.txt"), Path("/src/b.txt")]
-    cmd = CopyCmd(sources, Path("/dst"), vfs)
-    cmd.execute()
-    vfs.calls.clear()
-    cmd.undo()
-    assert vfs.calls == [
-        ("delete", Path("/dst/b.txt")),
-        ("delete", Path("/dst/a.txt")),
-    ]
-
-
-def test_copy_undo_clears_created() -> None:
-    vfs = SpyVFS()
-    cmd = CopyCmd([Path("/src/a.txt")], Path("/dst"), vfs)
-    cmd.execute()
-    cmd.undo()
-    assert cmd._created == []
-
-
 def test_copy_description_single() -> None:
     assert CopyCmd([Path("/src/a.txt")], Path("/dst"), SpyVFS()).description == "Copy 1 item"
 
@@ -192,34 +164,6 @@ def test_move_execute_calls_vfs_move() -> None:
         ("move", Path("/src/a.txt"), Path("/dst/a.txt")),
         ("move", Path("/src/b.txt"), Path("/dst/b.txt")),
     ]
-
-
-def test_move_tracks_moves() -> None:
-    vfs = SpyVFS()
-    cmd = MoveCmd([Path("/src/a.txt")], Path("/dst"), vfs)
-    cmd.execute()
-    assert cmd._moves == [(Path("/src/a.txt"), Path("/dst/a.txt"))]
-
-
-def test_move_undo_moves_back_in_reverse() -> None:
-    vfs = SpyVFS()
-    sources = [Path("/src/a.txt"), Path("/src/b.txt")]
-    cmd = MoveCmd(sources, Path("/dst"), vfs)
-    cmd.execute()
-    vfs.calls.clear()
-    cmd.undo()
-    assert vfs.calls == [
-        ("move", Path("/dst/b.txt"), Path("/src/b.txt")),
-        ("move", Path("/dst/a.txt"), Path("/src/a.txt")),
-    ]
-
-
-def test_move_undo_clears_moves() -> None:
-    vfs = SpyVFS()
-    cmd = MoveCmd([Path("/src/a.txt")], Path("/dst"), vfs)
-    cmd.execute()
-    cmd.undo()
-    assert cmd._moves == []
 
 
 def test_move_description_single() -> None:

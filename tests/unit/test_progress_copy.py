@@ -53,19 +53,6 @@ def test_progress_copy_cancel_cleans_up(tmp_path):
     assert not (dst / "big.bin").exists()
 
 
-def test_progress_copy_undo(tmp_path):
-    src = tmp_path / "f.txt"
-    src.write_text("data")
-    dst = tmp_path / "dst"
-    dst.mkdir()
-    cancel = threading.Event()
-    cmd = ProgressCopyCmd([src], dst, None, cancel, lambda *_: None)
-    cmd.execute()
-    assert (dst / "f.txt").exists()
-    cmd.undo()
-    assert not (dst / "f.txt").exists()
-
-
 def test_progress_copy_dir(tmp_path):
     src = tmp_path / "mydir"
     src.mkdir()
@@ -76,27 +63,6 @@ def test_progress_copy_dir(tmp_path):
     cmd = ProgressCopyCmd([src], dst, None, cancel, lambda *_: None)
     cmd.execute()
     assert (dst / "mydir" / "child.txt").read_text() == "hi"
-
-
-def test_progress_copy_undo_routes_through_vfs(tmp_path):
-    """undo() must call vfs.delete(), not p.unlink() directly."""
-    from unittest.mock import MagicMock
-
-    from biome_fm.models.vfs import WritableVFS
-
-    src = tmp_path / "f.txt"
-    src.write_text("hello")
-    dst_dir = tmp_path / "dst"
-    dst_dir.mkdir()
-
-    vfs = MagicMock(spec=WritableVFS)
-
-    cancel = threading.Event()
-    cmd = ProgressCopyCmd([src], dst_dir, vfs, cancel, lambda *_: None)
-    cmd.execute()
-
-    cmd.undo()
-    vfs.delete.assert_called_once_with(dst_dir / "f.txt")
 
 
 def test_progress_copy_same_file_raises(tmp_path):

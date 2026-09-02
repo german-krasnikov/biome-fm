@@ -88,18 +88,3 @@ def test_merge_copy_cancel_keeps_preexisting(tmp_path):
     assert keep.exists() and keep.read_bytes() == b"precious"
 
 
-def test_merge_copy_undo_keeps_preexisting(tmp_path):
-    src = tmp_path / "proj"
-    src.mkdir()
-    (src / "new.txt").write_bytes(b"new")
-    dest_parent = tmp_path / "dest_parent"
-    dest_parent.mkdir()
-    dst = dest_parent / "proj"
-    dst.mkdir()  # pre-existing dir distinct from src
-    keep = dst / "keep.txt"
-    keep.write_bytes(b"precious")
-    cmd = ProgressCopyCmd([src], dest_parent, LocalVFS(), threading.Event(), lambda *a: None)
-    cmd.execute()
-    cmd.undo()
-    assert keep.exists() and keep.read_bytes() == b"precious"
-    assert not (dst / "new.txt").exists()

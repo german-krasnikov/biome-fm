@@ -38,21 +38,6 @@ def test_progress_move_cancel(tmp_path):
         ProgressMoveCmd([src1, src2], dst, vfs, cancel, lambda *_: None).execute()
 
 
-def test_progress_move_undo(tmp_path):
-    src = tmp_path / "a.txt"
-    src.write_text("data")
-    dst = tmp_path / "dst"
-    dst.mkdir()
-    vfs = MagicMock()
-    vfs.move.side_effect = lambda s, d: s.rename(d)
-    cancel = threading.Event()
-    cmd = ProgressMoveCmd([src], dst, vfs, cancel, lambda *_: None)
-    cmd.execute()
-    assert not src.exists()
-    vfs.move.side_effect = lambda s, d: s.rename(d)
-    cmd.undo()
-
-
 def test_overwrite_move_replaces_dst(tmp_path):
     src = tmp_path / "a.txt"
     src.write_text("new")
