@@ -12,7 +12,9 @@ src/biome_fm/
 │                       #   _AI_MODEL_FIELDS dict maps 6 provider keys → config field names;
 │                       #   Sub-initializers extracted: _build_plugins(cfg), _build_panes(vfs),
 │                       #     _build_preview(cfg) — construction only, no signal wiring;
-│                       #   _build_stores(cfg, cfg_dir) → 8-element tuple ending with frecency_store,
+│                       #   _build_stores(cfg, cfg_dir) → 10-element tuple:
+│                       #     clipboard, store, tag_store, user_actions_store, ws_store,
+│                       #     named_session_store, op_queue, dir_state_store, frecency_store,
 │                       #     file_collector; user_actions_store.load() guarded against corrupt JSON;
 │                       #   _wire_all(v, p, tabs, pid, watcher): single wiring point per tab slot;
 │                       #     tabs.on_tab_created = lambda … _wire_all(…) so new tabs auto-wire;
