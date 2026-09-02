@@ -129,7 +129,7 @@ class ProgressCopyCmd(Command):
                     force_overwrite = True
             if src.is_dir():
                 try:
-                    self._copy_dir(src, dst)
+                    self._copy_dir(src, dst, force_overwrite)
                 except Exception:
                     shutil.rmtree(dst, ignore_errors=True)
                     raise
@@ -150,8 +150,7 @@ class ProgressCopyCmd(Command):
                     raise
             elif self._src_vfs is not None:
                 # Cross-VFS: read from src_vfs, write locally
-                # ponytail: loads whole file into memory; stream if >100MB needed
-                self._copy_cross_vfs(src, dst, i, total)
+                self._copy_cross_vfs(src, dst, i, total, force_overwrite)
             elif self._vfs is not None:
                 # Archive path — ask the VFS
                 try:
@@ -169,7 +168,7 @@ class ProgressCopyCmd(Command):
                     self._copy_archive_file(src, dst, i, total)
             self._created.append(dst)
 
-    def _copy_dir(self, src: Path, dst: Path) -> None:
+    def _copy_dir(self, src: Path, dst: Path, force_overwrite: bool = False) -> None:
         dst.mkdir(parents=True, exist_ok=True)
         for child in src.iterdir():
             if self._cancel.is_set():
@@ -177,9 +176,9 @@ class ProgressCopyCmd(Command):
             if _check_filename_safety(child.name) is not None:
                 raise ValueError(f"Illegal filename: {child.name}")
             if child.is_dir():
-                self._copy_dir(child, dst / child.name)
+                self._copy_dir(child, dst / child.name, force_overwrite)
             else:
-                self._copy_file(child, dst / child.name)
+                self._copy_file(child, dst / child.name, force_overwrite=force_overwrite)
         shutil.copystat(src, dst)
 
     def _copy_archive_dir(self, src: Path, dst: Path) -> None:
@@ -192,11 +191,11 @@ class ProgressCopyCmd(Command):
             else:
                 self._copy_archive_file(item.path, dst / item.name)
 
-    def _copy_cross_vfs(self, src: Path, dst: Path, files_done: int = 0, files_total: int = 0) -> None:
+    def _copy_cross_vfs(self, src: Path, dst: Path, files_done: int = 0, files_total: int = 0, force_overwrite: bool = False) -> None:
         import os
         dst.parent.mkdir(parents=True, exist_ok=True)
         offset = 0
-        if dst.exists() and hasattr(self._src_vfs, "open_read") and hasattr(self._src_vfs, "stat"):
+        if not force_overwrite and dst.exists() and hasattr(self._src_vfs, "open_read") and hasattr(self._src_vfs, "stat"):
             try:
                 remote_size = self._src_vfs.stat(src).size
                 local_size = dst.stat().st_size
