@@ -150,6 +150,18 @@ def test_rename_undoable() -> None:
     assert RenameCmd(Path("/a/foo.txt"), "bar.txt", SpyVFS()).undoable is True
 
 
+def test_rename_raises_when_target_exists() -> None:
+    # C57: execute() must raise FileExistsError and never call move when dst already exists
+    class ExistsSpyVFS(SpyVFS):
+        def exists(self, path: Path) -> bool:
+            return True
+
+    vfs = ExistsSpyVFS()
+    with pytest.raises(FileExistsError):
+        RenameCmd(Path("/a/foo.txt"), "taken.txt", vfs).execute()
+    assert vfs.calls == []  # move must not be called
+
+
 # --- CopyCmd ---
 
 def test_copy_execute_calls_vfs_copy() -> None:
