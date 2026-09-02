@@ -44,19 +44,19 @@ def parse_branches(output: str) -> list[Branch]:
 def switch_branch(branch: str, cwd: Path) -> None:
     """cm switch br:<branch>. Accepts bare name or "br:/main" form."""
     name = branch if branch.startswith("br:") else f"br:{branch}"
-    run_cm(["switch", name], cwd=cwd)
+    run_cm(["switch", name], cwd=cwd, timeout=None)
 
 
 def delete_branch(name: str, cwd: Path) -> None:
     br = name if name.startswith("br:") else f"br:{name}"
-    run_cm(["branch", "delete", br], cwd=cwd)
+    run_cm(["branch", "delete", br], cwd=cwd, timeout=None)
 
 
 def rename_branch(old: str, new: str, cwd: Path) -> None:
     br = old if old.startswith("br:") else f"br:{old}"
-    run_cm(["branch", "rename", br, new], cwd=cwd)
+    run_cm(["branch", "rename", br, new], cwd=cwd, timeout=None)
 
 
 def switch_changeset(cs_id: int, cwd: Path) -> None:
     """cm switch cs:<cs_id> — pinned changeset (detached-head equivalent)."""
-    run_cm(["switch", f"cs:{cs_id}"], cwd=cwd)
+    run_cm(["switch", f"cs:{cs_id}"], cwd=cwd, timeout=None)
