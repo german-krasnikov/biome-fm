@@ -358,13 +358,13 @@ class PlasticPresenter:
 
     def switch_label(self, name: str) -> None:
         def _run() -> None:
-            run_cm(["switch", f"lb:{name}"], cwd=self._cwd)
+            run_cm(["switch", f"lb:{name}"], cwd=self._cwd, timeout=None)
             self._bg_refresh()
         self._bg_submit(_run)
 
     def create_branch(self, name: str) -> None:
         def _run() -> None:
-            run_cm(["branch", "create", name], cwd=self._cwd)
+            run_cm(["branch", "create", name], cwd=self._cwd, timeout=None)
             out = run_cm(["find", "branches", f"--format={_BR_FMT}"], cwd=self._cwd, safe=True)
             self._queue.put(("branches", parse_branches(out)))
         self._bg_submit(_run)

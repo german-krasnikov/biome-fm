@@ -75,16 +75,26 @@ def test_get_labels_safe_true(tmp_path):
 def test_create_label_calls_run_cm(tmp_path):
     with patch("biome_fm.plastic._labels.run_cm") as m:
         create_label("v2.0", 42, tmp_path)
-    m.assert_called_once_with(["label", "create", "v2.0", "cs:42"], cwd=tmp_path)
+    m.assert_called_once_with(["label", "create", "v2.0", "cs:42"], cwd=tmp_path, timeout=None)
 
 
 def test_delete_label_calls_run_cm(tmp_path):
     with patch("biome_fm.plastic._labels.run_cm") as m:
         delete_label("v1.0", tmp_path)
-    m.assert_called_once_with(["label", "delete", "v1.0"], cwd=tmp_path)
+    m.assert_called_once_with(["label", "delete", "v1.0"], cwd=tmp_path, timeout=None)
 
 
 def test_rename_label_calls_run_cm(tmp_path):
     with patch("biome_fm.plastic._labels.run_cm") as m:
         rename_label("v1.0", "v1.0-final", tmp_path)
-    m.assert_called_once_with(["label", "rename", "v1.0", "v1.0-final"], cwd=tmp_path)
+    m.assert_called_once_with(["label", "rename", "v1.0", "v1.0-final"], cwd=tmp_path, timeout=None)
+
+
+# ── C50: timeout=None for mutating label operations ───────────────────────────
+
+def test_create_label_uses_no_timeout(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr("biome_fm.plastic._labels.run_cm",
+                        lambda a, **kw: calls.append(kw))
+    create_label("v2.0", 42, tmp_path)
+    assert "timeout" in calls[0] and calls[0]["timeout"] is None

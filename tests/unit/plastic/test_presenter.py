@@ -1130,3 +1130,20 @@ def test_status_timeout_puts_error_on_queue(view, monkeypatch):
     p.refresh()
     p.drain()
     assert any("timed out" in e for e in view.errors)
+
+
+# ── C50: timeout=None for inline run_cm in switch_label / create_branch ───────
+
+def test_switch_label_uses_no_timeout(view, monkeypatch):
+    calls = []
+
+    def fake_cm(args, **kw):
+        calls.append((args, kw))
+        return ""
+
+    monkeypatch.setattr("biome_fm.plastic._presenter.run_cm", fake_cm)
+    p = PlasticPresenter(view=view, cwd=Path("/w"))
+    p.switch_label("v2.0")
+    p.drain()
+    switch_calls = [kw for args, kw in calls if args and args[0] == "switch"]
+    assert switch_calls and "timeout" in switch_calls[0] and switch_calls[0]["timeout"] is None
