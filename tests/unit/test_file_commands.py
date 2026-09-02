@@ -106,6 +106,19 @@ def test_mkdir_undoable() -> None:
     assert MkdirCmd(Path("/a/mydir"), SpyVFS()).undoable is True
 
 
+def test_mkdir_execute_raises_when_dir_exists(tmp_path: Path) -> None:
+    # C35: execute() must raise FileExistsError when vfs.exists() returns True
+    class ExistsSpyVFS(SpyVFS):
+        def exists(self, path: Path) -> bool:
+            return True
+
+    target = tmp_path / "newdir"
+    vfs = ExistsSpyVFS()
+    with pytest.raises(FileExistsError):
+        MkdirCmd(target, vfs).execute()
+    assert ("mkdir", target) not in vfs.calls  # must not call mkdir
+
+
 # --- RenameCmd ---
 
 def test_rename_invalid_name_with_slash_raises() -> None:

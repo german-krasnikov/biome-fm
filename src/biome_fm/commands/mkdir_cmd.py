@@ -9,15 +9,19 @@ from biome_fm.models.vfs import VFSProtocol
 
 class MkdirCmd(Command):
     def __init__(self, path: Path, vfs: VFSProtocol) -> None:
-        if "/" in path.name or "\\" in path.name:
+        if path.name in (".", "..") or "/" in path.name or "\\" in path.name:
             raise ValueError(f"Invalid directory name: {path.name!r}")
         self._path = path
         self._vfs = vfs
 
     def execute(self) -> None:
+        if self._vfs.exists(self._path):
+            raise FileExistsError(f"'{self._path.name}' already exists")
         self._vfs.mkdir(self._path)
 
     def undo(self) -> None:
+        if self._vfs.listdir(self._path):
+            raise OSError(f"'{self._path.name}' is not empty — undo skipped")
         self._vfs.delete(self._path)
 
     @property
