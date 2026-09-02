@@ -9,6 +9,7 @@ import queue
 import shutil
 from collections import OrderedDict
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor as _TPE
 from pathlib import Path
 from typing import Protocol
 
@@ -18,6 +19,8 @@ from biome_fm.models.frecency_store import FrecencyStore
 from biome_fm.models.vfs import LocalVFS, ReadableVFS, VFSProtocol  # VFSProtocol kept for compat
 from biome_fm.utils.format import format_size as _format_size
 from biome_fm.utils.nat_sort import nat_key as _nat_key
+
+_NAV_POOL = _TPE(max_workers=2, thread_name_prefix="nav")
 
 _ARCHIVE_SUFFIXES = {".zip", ".tar"}
 _ARCHIVE_DOUBLE = {(".tar", ".gz"), (".tar", ".bz2"), (".tar", ".xz")}
@@ -543,8 +546,7 @@ class PanePresenter:
                 if not cancel[0]:
                     self._nav_queue.put((path, exc, initial_cursor, same_dir))
 
-        from biome_fm.utils.dir_size import _POOL
-        self._nav_future = _POOL.submit(_load)
+        self._nav_future = _NAV_POOL.submit(_load)
         return True
 
     def drain_nav(self) -> None:
