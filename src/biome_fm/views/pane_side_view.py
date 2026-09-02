@@ -98,7 +98,7 @@ class PaneSideView(QWidget):
         self._tab_bar = _PathTabBar()
         self._tab_bar.setTabsClosable(False)
         self._tab_bar.setVisible(False)
-        self._tab_bar.setMovable(True)
+        self._tab_bar.setMovable(False)
 
         self._stack = QStackedWidget()
         self._sync_label = QLabel("⇄")
@@ -141,6 +141,8 @@ class PaneSideView(QWidget):
         if w is not None:
             self._stack.removeWidget(w)
         self._tab_bar.removeTab(idx)
+        self._tab_bar._locked = {k - 1 if k > idx else k for k in self._tab_bar._locked if k != idx}
+        self._tab_bar._linked = {k - 1 if k > idx else k for k in self._tab_bar._linked if k != idx}
         self._sync_tab_bar()
 
     def set_active_tab(self, idx: int) -> None:
