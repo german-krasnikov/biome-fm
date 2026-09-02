@@ -74,10 +74,14 @@ class SFTPVfs:
         if self._client is None:
             raise RuntimeError("Not connected — call connect() first")
         self._semaphore.acquire()
-        with self._lock:
-            if self._channels:
-                return self._channels.pop()
-        return self._client.open_sftp()  # type: ignore[union-attr]
+        try:
+            with self._lock:
+                if self._channels:
+                    return self._channels.pop()
+            return self._client.open_sftp()  # type: ignore[union-attr]
+        except Exception:
+            self._semaphore.release()
+            raise
 
     def _return_channel(self, channel) -> None:
         """Return a channel to the pool and release the semaphore slot."""

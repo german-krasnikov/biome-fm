@@ -77,13 +77,27 @@ class TestChannelReuse:
         assert ch is not None
 
 
+class TestSemaphoreLeak:
+    def test_get_channel_open_sftp_failure_releases_semaphore(self):
+        vfs, _orig, _mod = _make_sftp_vfs(max_channels=2)
+        try:
+            vfs._client.open_sftp.side_effect = EOFError("transport closed")
+            for _ in range(2):
+                with pytest.raises(EOFError):
+                    vfs._get_channel()
+            # Both slots must be free — value == max_channels
+            assert vfs._semaphore._value == 2
+        finally:
+            _mod._HAS_PARAMIKO, _mod._paramiko = _orig
+
+
 class TestMaxChannels:
     def test_max_channels_blocks_then_unblocks(self):
         vfs, _orig, _mod = _make_sftp_vfs(max_channels=2)
         try:
             # Grab all channels
             ch1 = vfs._get_channel()
-            ch2 = vfs._get_channel()
+            _ = vfs._get_channel()
 
             result = []
             unblocked = threading.Event()
