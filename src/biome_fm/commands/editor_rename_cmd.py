@@ -42,6 +42,16 @@ class EditorRenameCmd(Command):
         finally:
             tmp.unlink(missing_ok=True)
 
+        if len(new_names) != len(self._items):
+            raise ValueError(
+                f"Line count changed ({len(new_names)} vs {len(self._items)}) — no files renamed"
+            )
+        for item, new_name in zip(self._items, new_names):
+            stripped = new_name.strip()
+            if stripped and stripped != item.name:
+                dst = item.path.parent / stripped
+                if self._vfs.exists(dst):
+                    raise FileExistsError(f"'{stripped}' already exists")
         self._sub_cmds = []
         for item, new_name in zip(self._items, new_names):
             new_name = new_name.strip()
