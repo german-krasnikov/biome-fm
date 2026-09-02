@@ -11,8 +11,6 @@ class _SlowCmd(Command):
     def execute(self):
         time.sleep(0.05)
 
-    def undo(self): ...
-
 
 class _CancelCmd(Command):
     def __init__(self, cancel):
@@ -21,8 +19,6 @@ class _CancelCmd(Command):
     def execute(self):
         if self._cancel.is_set():
             raise Cancelled()
-
-    def undo(self): ...
 
 
 def _drain_until(q, predicate, timeout=2.0):

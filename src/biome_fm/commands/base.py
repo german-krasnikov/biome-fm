@@ -1,4 +1,4 @@
-"""Base command and history for undo/redo."""
+"""Base command."""
 
 from __future__ import annotations
 
@@ -6,13 +6,8 @@ from abc import ABC, abstractmethod
 
 
 class Command(ABC):
-    undoable: bool = True
-
     @abstractmethod
     def execute(self) -> None: ...
-
-    @abstractmethod
-    def undo(self) -> None: ...
 
     @property
     def description(self) -> str:
@@ -21,68 +16,3 @@ class Command(ABC):
     def preview(self) -> list[str]:
         """Human-readable lines describing what execute() will do."""
         return [self.description]
-
-
-class CommandHistory:
-    def __init__(self, max_depth: int = 50) -> None:
-        self._undo_stack: list[Command] = []
-        self._redo_stack: list[Command] = []
-        self._max_depth = max_depth
-        self.on_changed = None  # Callable[[], None] | None — set by app to update UI labels
-
-    def execute(self, cmd: Command) -> None:
-        try:
-            cmd.execute()
-        except Exception:
-            if cmd.undoable:
-                try:
-                    cmd.undo()
-                except Exception:
-                    pass
-            raise
-        if cmd.undoable:
-            self._undo_stack.append(cmd)
-            if len(self._undo_stack) > self._max_depth:
-                self._undo_stack.pop(0)
-        self._redo_stack.clear()
-        if self.on_changed:
-            self.on_changed()
-
-    def push(self, cmd: Command) -> None:
-        """Record an already-executed command for undo (no execute call)."""
-        if not cmd.undoable:
-            return
-        self._undo_stack.append(cmd)
-        if len(self._undo_stack) > self._max_depth:
-            self._undo_stack.pop(0)
-        self._redo_stack.clear()
-        if self.on_changed:
-            self.on_changed()
-
-    def undo(self) -> None:
-        if not self._undo_stack:
-            return
-        cmd = self._undo_stack[-1]   # peek — stack unchanged if undo() raises
-        cmd.undo()
-        self._undo_stack.pop()
-        self._redo_stack.append(cmd)
-        if self.on_changed:
-            self.on_changed()
-
-    def redo(self) -> None:
-        if not self._redo_stack:
-            return
-        cmd = self._redo_stack[-1]   # peek — stack unchanged if execute() raises
-        cmd.execute()
-        self._redo_stack.pop()
-        self._undo_stack.append(cmd)
-        if self.on_changed:
-            self.on_changed()
-
-    @property
-    def can_undo(self) -> bool:
-        return bool(self._undo_stack)
-
-    @property
-    def can_redo(self) -> bool:
-        return bool(self._redo_stack)

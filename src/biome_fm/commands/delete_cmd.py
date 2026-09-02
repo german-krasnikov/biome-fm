@@ -8,8 +8,6 @@ from biome_fm.models.vfs import VFSProtocol
 
 
 class DeleteCmd(Command):
-    undoable = False
-
     def __init__(self, paths: list[Path], vfs: VFSProtocol) -> None:
         self._paths = paths
         self._vfs = vfs
@@ -17,9 +15,6 @@ class DeleteCmd(Command):
     def execute(self) -> None:
         for p in self._paths:
             self._vfs.delete(p)
-
-    def undo(self) -> None:
-        pass  # non-undoable
 
     @property
     def description(self) -> str:

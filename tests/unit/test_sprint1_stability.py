@@ -100,90 +100,11 @@ def test_mkdir_cmd_uses_vfs():
     mock_vfs.mkdir.assert_called_once_with(path)
 
 
-def test_mkdir_cmd_undo_uses_vfs():
-    from biome_fm.commands.mkdir_cmd import MkdirCmd
-    mock_vfs = MagicMock()
-    mock_vfs.listdir.return_value = []  # dir is empty — undo() proceeds to delete
-    path = Path("/tmp/newdir")
-    MkdirCmd(path, mock_vfs).undo()
-    mock_vfs.delete.assert_called_once_with(path)
-
-
 def test_mkdir_cmd_accepts_valid_path():
     from biome_fm.commands.mkdir_cmd import MkdirCmd
     # Should not raise — normal valid name
     cmd = MkdirCmd(Path("/tmp/newdir"), MagicMock())
     assert cmd.description == "Create folder 'newdir'"
-
-
-# ---------------------------------------------------------------------------
-# Fix #4 — CommandHistory peek-before-pop
-# ---------------------------------------------------------------------------
-
-def _make_history():
-    from biome_fm.commands.base import Command, CommandHistory
-
-    class OkCmd(Command):
-        executed = False
-        undone = False
-
-        def execute(self):
-            OkCmd.executed = True
-
-        def undo(self):
-            OkCmd.undone = True
-
-    class FailUndoCmd(Command):
-        def execute(self):
-            pass
-
-        def undo(self):
-            raise RuntimeError("undo failed")
-
-    class FailRedoCmd(Command):
-        def __init__(self):
-            self._count = 0
-
-        def execute(self):
-            self._count += 1
-            if self._count > 1:
-                raise RuntimeError("redo failed")
-
-        def undo(self):
-            pass
-
-    return CommandHistory, OkCmd, FailUndoCmd, FailRedoCmd
-
-
-def test_undo_raising_command_stays_on_stack():
-    CommandHistory, OkCmd, FailUndoCmd, _ = _make_history()
-    h = CommandHistory()
-    h.execute(FailUndoCmd())
-    assert h.can_undo
-    with pytest.raises(RuntimeError):
-        h.undo()
-    assert h.can_undo  # command NOT lost
-
-
-def test_redo_raising_command_stays_on_stack():
-    CommandHistory, OkCmd, _, FailRedoCmd = _make_history()
-    h = CommandHistory()
-    cmd = FailRedoCmd()
-    h.execute(cmd)
-    h.undo()  # moves to redo stack
-    assert h.can_redo
-    with pytest.raises(RuntimeError):
-        h.redo()
-    assert h.can_redo  # command NOT lost
-
-
-def test_undo_success_moves_to_redo():
-    CommandHistory, OkCmd, _, _ = _make_history()
-    h = CommandHistory()
-    h.execute(OkCmd())
-    h.undo()
-    assert not h.can_undo
-    assert h.can_redo
 
 
 # ---------------------------------------------------------------------------

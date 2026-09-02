@@ -17,9 +17,6 @@ class _SlowCmd(Command):
         self._started.set()
         self._release.wait(timeout=5)
 
-    def undo(self) -> None:
-        pass
-
 
 def test_active_count_zero_when_idle() -> None:
     q = OpQueue()

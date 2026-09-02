@@ -37,11 +37,3 @@ def test_description_single():
     assert "1" in cmd.description or "item" in cmd.description
 
 
-def test_not_undoable():
-    cmd = TrashCmd([Path("/x")])
-    assert cmd.undoable is False
-
-
-def test_undo_is_noop():
-    cmd = TrashCmd([Path("/x")])
-    cmd.undo()  # should not raise

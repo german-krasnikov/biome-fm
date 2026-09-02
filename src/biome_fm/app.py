@@ -10,7 +10,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from biome_fm.ai.provider import make_providers
-from biome_fm.commands.base import CommandHistory
 from biome_fm.commands.git_stage import GitStageCmd, GitUnstageCmd
 from biome_fm.commands.new_file_cmd import NewFileCmd
 from biome_fm.commands.registry import CommandEntry, CommandRegistry
@@ -403,7 +402,6 @@ def _load_config_session():
 
 def _build_stores(cfg, cfg_dir: Path):
     """Construct all persistent stores and the op queue."""
-    history = CommandHistory()
     clipboard = ClipboardService()
     store = BookmarkStore(cfg_dir / "bookmarks.toml")
     tag_store = TagStore.load(cfg_dir / "tags.toml")
@@ -420,7 +418,7 @@ def _build_stores(cfg, cfg_dir: Path):
     frecency_store = FrecencyStore(cfg_dir / "frecency.json")
     from biome_fm.presenters.file_collector import FileCollector
     file_collector = FileCollector()
-    return (history, clipboard, store, tag_store, user_actions_store,
+    return (clipboard, store, tag_store, user_actions_store,
             ws_store, named_session_store, op_queue, dir_state_store,
             frecency_store, file_collector)
 
@@ -477,7 +475,7 @@ def create_app() -> MainWindow:
     # ── Construction phase ────────────────────────────────────────
     plugins = _build_plugins(cfg)
     vfs = VFSRouter(plugin_manager=plugins)
-    (history, clipboard, store, tag_store, user_actions_store,
+    (clipboard, store, tag_store, user_actions_store,
      ws_store, named_session_store, op_queue, dir_state_store,
      frecency_store, file_collector) = _build_stores(cfg, cfg_dir)
     _project_actions: list = []  # updated on navigate; shared by closure
@@ -535,7 +533,7 @@ def create_app() -> MainWindow:
         repo = git_cache.find_repo(p.parent) if p else None
         if repo is None:
             return
-        history.execute(cmd_cls(p, repo))
+        cmd_cls(p, repo).execute()
         git_cache.invalidate(repo)
         git_worker.request(_active().current_path)
         manager._refresh_both()
@@ -865,9 +863,7 @@ def create_app() -> MainWindow:
                     event.bytes_done, event.bytes_total, event.current_file,
                 )
             elif isinstance(event, OpDone):
-                cmd = manager.pop_pending_cmd(event.task_id)
-                if cmd is not None:
-                    history.push(cmd)
+                manager.pop_pending_cmd(event.task_id)
                 manager.fire_op_done(event.task_id)
                 manager._refresh_both()
                 if dlg:
@@ -1161,7 +1157,7 @@ def create_app() -> MainWindow:
         name, ok = QInputDialog.getText(window, "New File", "File name:")
         if ok and name.strip():
             path = _active().current_path / name.strip()
-            history.execute(NewFileCmd(path))
+            NewFileCmd(path).execute()
             manager._refresh_both()
 
     def _ask_rename() -> None:
@@ -1237,7 +1233,7 @@ def create_app() -> MainWindow:
             items = _op_items()
             if not items:
                 return
-            history.execute(TrashCmd([i.path for i in items]))
+            TrashCmd([i.path for i in items]).execute()
             manager._refresh_both()
         _sig = getattr(view, "trash_requested", None)
         if _sig is not None:
@@ -1328,11 +1324,11 @@ def create_app() -> MainWindow:
                     result = TagDialog.get_tags(current, tag_store.all_tags(), parent=window)
                     if result is not None:
                         cmd = TagCmd([i.path for i in marked], add_tags=result, remove_tags=[], store=tag_store)
-                        history.execute(cmd)
+                        cmd.execute()
             elif action == "remove_quarantine":
                 from biome_fm.commands.quarantine_cmd import RemoveQuarantineCmd
                 cmd = RemoveQuarantineCmd([i.path for i in _op_items()])
-                history.execute(cmd)
+                cmd.execute()
                 _active().refresh()
             elif action == "preview":
                 preview_presenter.render_item(_active().current_item())

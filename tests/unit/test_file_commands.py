@@ -47,16 +47,6 @@ def test_delete_calls_vfs_delete_for_each_path() -> None:
     assert vfs.calls == [("delete", Path("/a/b")), ("delete", Path("/a/c"))]
 
 
-def test_delete_not_undoable() -> None:
-    assert DeleteCmd([Path("/x")], SpyVFS()).undoable is False
-
-
-def test_delete_undo_is_noop() -> None:
-    vfs = SpyVFS()
-    cmd = DeleteCmd([Path("/x")], vfs)
-    cmd.undo()
-    assert vfs.calls == []
-
 
 def test_delete_description_single() -> None:
     assert DeleteCmd([Path("/x")], SpyVFS()).description == "Delete 1 item"
@@ -102,10 +92,6 @@ def test_mkdir_description() -> None:
     assert MkdirCmd(Path("/a/mydir"), SpyVFS()).description == "Create folder 'mydir'"
 
 
-def test_mkdir_undoable() -> None:
-    assert MkdirCmd(Path("/a/mydir"), SpyVFS()).undoable is True
-
-
 def test_mkdir_execute_raises_when_dir_exists(tmp_path: Path) -> None:
     # C35: execute() must raise FileExistsError when vfs.exists() returns True
     class ExistsSpyVFS(SpyVFS):
@@ -144,10 +130,6 @@ def test_rename_undo_calls_move_back() -> None:
 def test_rename_description() -> None:
     cmd = RenameCmd(Path("/a/foo.txt"), "bar.txt", SpyVFS())
     assert cmd.description == "Rename 'foo.txt' → 'bar.txt'"
-
-
-def test_rename_undoable() -> None:
-    assert RenameCmd(Path("/a/foo.txt"), "bar.txt", SpyVFS()).undoable is True
 
 
 def test_rename_raises_when_target_exists() -> None:
@@ -211,10 +193,6 @@ def test_copy_description_plural() -> None:
     assert CopyCmd(sources, Path("/dst"), SpyVFS()).description == "Copy 2 items"
 
 
-def test_copy_undoable() -> None:
-    assert CopyCmd([Path("/src/a.txt")], Path("/dst"), SpyVFS()).undoable is True
-
-
 # --- MoveCmd ---
 
 def test_move_execute_calls_vfs_move() -> None:
@@ -264,5 +242,3 @@ def test_move_description_plural() -> None:
     assert MoveCmd(sources, Path("/dst"), SpyVFS()).description == "Move 2 items"
 
 
-def test_move_undoable() -> None:
-    assert MoveCmd([Path("/src/a.txt")], Path("/dst"), SpyVFS()).undoable is True

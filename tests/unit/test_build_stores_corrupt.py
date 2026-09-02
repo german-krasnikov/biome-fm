@@ -11,7 +11,7 @@ def test_build_stores_with_corrupt_actions_json(tmp_path):
 
     (tmp_path / "actions.json").write_bytes(b"\xff[[")
     result = _app._build_stores(Config(), tmp_path)
-    assert len(result) == 11
+    assert len(result) == 10
 
 
 def test_safe_load_toml_corrupt_returns_default(tmp_path):

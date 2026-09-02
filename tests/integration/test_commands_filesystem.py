@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-from biome_fm.commands.base import CommandHistory
 from biome_fm.commands.copy_cmd import CopyCmd
 from biome_fm.commands.delete_cmd import DeleteCmd
 from biome_fm.commands.mkdir_cmd import MkdirCmd
@@ -85,26 +84,3 @@ def test_delete_removes_file(tmp_path: Path, vfs: LocalVFS) -> None:
     assert not f.exists()
 
 
-def test_history_undo_redo_roundtrip(tmp_path: Path, vfs: LocalVFS) -> None:
-    src_dir = tmp_path / "src"
-    src_dir.mkdir()
-    f = src_dir / "item.txt"
-    f.write_text("x")
-    dst_dir = tmp_path / "dst"
-    dst_dir.mkdir()
-
-    history = CommandHistory()
-    cmd = CopyCmd([f], dst_dir, vfs)
-
-    history.execute(cmd)
-    assert (dst_dir / "item.txt").exists()
-    assert history.can_undo
-    assert not history.can_redo
-
-    history.undo()
-    assert not (dst_dir / "item.txt").exists()
-    assert history.can_redo
-    assert not history.can_undo
-
-    history.redo()
-    assert (dst_dir / "item.txt").exists()
