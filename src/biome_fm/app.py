@@ -577,7 +577,7 @@ def create_app() -> MainWindow:
     _confirm_parent: list[object] = [None]  # late-bound after window creation
     manager = ManagerPresenter(
         left=left_tabs, right=right_tabs, vfs=vfs,  # type: ignore[arg-type]
-        history=history, bus=bus, config=cfg, op_queue=op_queue,
+        bus=bus, config=cfg, op_queue=op_queue,
         plugins=plugins,
         confirm=lambda spec: ConfirmDialog.confirm(
             spec.op, spec.sources, spec.dest, parent=_confirm_parent[0]
@@ -1845,22 +1845,9 @@ def create_app() -> MainWindow:
 
     QShortcut(QKeySequence("?"),  window).activated.connect(_open_shortcut_help)
     QShortcut(QKeySequence("F1"), window).activated.connect(_open_shortcut_help)
-    QShortcut(QKeySequence("Ctrl+Z"),       window).activated.connect(manager.undo)
-    QShortcut(QKeySequence("Ctrl+Shift+Z"), window).activated.connect(manager.redo)
     QShortcut(QKeySequence("Ctrl+U"),       window).activated.connect(manager.swap_panes)
     QShortcut(QKeySequence("Ctrl+Shift+U"), window).activated.connect(manager.target_equals_source)
     QShortcut(QKeySequence("Ctrl+Shift+L"), window).activated.connect(manager.toggle_mirror)
-
-    # ── Undo/Redo from menu ───────────────────────────────────────
-    window.undo_requested.connect(manager.undo)
-    window.redo_requested.connect(manager.redo)
-
-    def _update_undo_redo_labels() -> None:
-        undo_desc = history._undo_stack[-1].description if history._undo_stack else None
-        redo_desc = history._redo_stack[-1].description if history._redo_stack else None
-        window.update_undo_redo_labels(undo_desc, redo_desc)
-
-    history.on_changed = _update_undo_redo_labels
 
     # ── Menu signals ─────────────────────────────────────────────
     window.refresh_requested.connect(lambda: _active().refresh())
@@ -2027,8 +2014,6 @@ def create_app() -> MainWindow:
         CommandEntry("Make Directory", "F7",           lambda: bar.mkdir_requested.emit()),
         CommandEntry("Delete",         "F8",           lambda: bar.delete_requested.emit()),
         CommandEntry("Rename",         "F9",           lambda: bar.rename_requested.emit()),
-        CommandEntry("Undo",           "Ctrl+Z",       manager.undo),
-        CommandEntry("Redo",           "Ctrl+Shift+Z", manager.redo),
         CommandEntry("Switch Pane",    "Tab",          manager.switch_active_pane),
         CommandEntry("Quit",           "Alt+F4",       window.close),  # type: ignore[arg-type]
         CommandEntry("New Tab",        "Ctrl+T",       _new_tab),
