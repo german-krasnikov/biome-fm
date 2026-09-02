@@ -408,7 +408,11 @@ def _build_stores(cfg, cfg_dir: Path):
     store = BookmarkStore(cfg_dir / "bookmarks.toml")
     tag_store = TagStore.load(cfg_dir / "tags.toml")
     user_actions_store = UserActionsStore(cfg_dir / "actions.json")
-    user_actions_store.load()
+    try:
+        user_actions_store.load()
+    except Exception as exc:  # noqa: BLE001
+        import logging as _lg
+        _lg.getLogger(__name__).warning("actions.json corrupt (%s) — using empty list", exc)
     ws_store = WorkspaceStore(cfg_dir / "workspaces.json")
     named_session_store = SessionStore(cfg_dir / "sessions.json")
     op_queue = make_serial_queue() if cfg.serial_ops else OpQueue(max_workers=2)
