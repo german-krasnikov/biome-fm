@@ -31,7 +31,15 @@ class CommandHistory:
         self.on_changed = None  # Callable[[], None] | None — set by app to update UI labels
 
     def execute(self, cmd: Command) -> None:
-        cmd.execute()
+        try:
+            cmd.execute()
+        except Exception:
+            if cmd.undoable:
+                try:
+                    cmd.undo()
+                except Exception:
+                    pass
+            raise
         if cmd.undoable:
             self._undo_stack.append(cmd)
             if len(self._undo_stack) > self._max_depth:
