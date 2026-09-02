@@ -1,6 +1,7 @@
 """Archive preview provider — lists zip/tar contents as HTML."""
 from __future__ import annotations
 
+import html as _html
 import tarfile
 import zipfile
 from pathlib import Path
@@ -39,10 +40,10 @@ class ArchivePreviewProvider:
             total = len(all_infos)
             total_size = sum(i.file_size for i in all_infos)
             infos = all_infos[:_MAX_ENTRIES]
-        lines = [f"Archive: {path.name}  ({total} files, {_fmt(total_size)})", ""]
+        lines = [f"Archive: {_html.escape(path.name)}  ({total} files, {_fmt(total_size)})", ""]
         for info in infos:
             size = _fmt(info.file_size) if not info.is_dir() else "DIR"
-            lines.append(f"  {info.filename:<60s} {size:>10s}")
+            lines.append(f"  {_html.escape(info.filename):<60s} {size:>10s}")
         if total > _MAX_ENTRIES:
             lines.append(f"\n... {total - _MAX_ENTRIES} more entries")
         return PreviewResult(kind=ContentKind.HTML, data=f"<pre>{''.join(l + chr(10) for l in lines)}</pre>")
@@ -53,10 +54,10 @@ class ArchivePreviewProvider:
             total = len(members)
             total_size = sum(m.size for m in members if m.isfile())
             infos = members[:_MAX_ENTRIES]
-        lines = [f"Archive: {path.name}  ({total} files, {_fmt(total_size)})", ""]
+        lines = [f"Archive: {_html.escape(path.name)}  ({total} files, {_fmt(total_size)})", ""]
         for m in infos:
             size = _fmt(m.size) if m.isfile() else "DIR"
-            lines.append(f"  {m.name:<60s} {size:>10s}")
+            lines.append(f"  {_html.escape(m.name):<60s} {size:>10s}")
         if total > _MAX_ENTRIES:
             lines.append(f"\n... {total - _MAX_ENTRIES} more entries")
         return PreviewResult(kind=ContentKind.HTML, data=f"<pre>{''.join(l + chr(10) for l in lines)}</pre>")

@@ -75,3 +75,27 @@ def test_render_tar_lists_files(provider: ArchivePreviewProvider, sample_tar: Pa
 def test_render_shows_total_count(provider: ArchivePreviewProvider, sample_zip: Path) -> None:
     result = provider.render(PreviewRequest(path=sample_zip))
     assert "2" in result.data  # 2 files in the zip
+
+
+def test_zip_entry_name_html_escaped(tmp_path: Path) -> None:
+    z = tmp_path / "crafted.zip"
+    with zipfile.ZipFile(z, "w") as zf:
+        zf.writestr("</pre><b>injected</b><pre>hello.txt", "content")
+    result = ArchivePreviewProvider().render(PreviewRequest(path=z))
+    assert result.kind == ContentKind.HTML
+    assert "<b>injected</b>" not in result.data
+    assert "&lt;/pre&gt;" in result.data
+
+
+def test_tar_entry_name_html_escaped(tmp_path: Path) -> None:
+    import io
+
+    t = tmp_path / "crafted.tar"
+    with tarfile.open(t, "w") as tf:
+        info = tarfile.TarInfo(name="</pre><b>pwned</b><pre>")
+        info.size = 0
+        tf.addfile(info, io.BytesIO(b""))
+    result = ArchivePreviewProvider().render(PreviewRequest(path=t))
+    assert result.kind == ContentKind.HTML
+    assert "<b>pwned</b>" not in result.data
+    assert "&lt;/pre&gt;" in result.data
