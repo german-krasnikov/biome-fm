@@ -3,9 +3,12 @@ import os
 import threading
 import time
 
+import pytest
+
 from biome_fm.commands.copy_cmd import ProgressCopyCmd
 from biome_fm.models.conflict_resolver import ConflictAction
 from biome_fm.models.vfs import LocalVFS
+from biome_fm.operations.task import Cancelled
 
 
 def test_dir_progress_reported(tmp_path):
@@ -60,3 +63,43 @@ def test_overwrite_dir_replaces_smaller_newer_child(tmp_path):
     ).execute()
 
     assert (dst / "f.txt").read_bytes() == b"X" * 1200
+
+
+def test_merge_copy_cancel_keeps_preexisting(tmp_path):
+    src = tmp_path / "proj"
+    src.mkdir()
+    (src / "new.txt").write_bytes(b"new")
+    dest_parent = tmp_path / "dest_parent"
+    dest_parent.mkdir()
+    dst = dest_parent / "proj"
+    dst.mkdir()  # pre-existing dir distinct from src
+    keep = dst / "keep.txt"
+    keep.write_bytes(b"precious")
+    calls = []
+
+    def report(*a):
+        calls.append(a)
+        if len(calls) > 1:
+            raise Cancelled()
+
+    cmd = ProgressCopyCmd([src], dest_parent, LocalVFS(), threading.Event(), report)
+    with pytest.raises(Cancelled):
+        cmd.execute()
+    assert keep.exists() and keep.read_bytes() == b"precious"
+
+
+def test_merge_copy_undo_keeps_preexisting(tmp_path):
+    src = tmp_path / "proj"
+    src.mkdir()
+    (src / "new.txt").write_bytes(b"new")
+    dest_parent = tmp_path / "dest_parent"
+    dest_parent.mkdir()
+    dst = dest_parent / "proj"
+    dst.mkdir()  # pre-existing dir distinct from src
+    keep = dst / "keep.txt"
+    keep.write_bytes(b"precious")
+    cmd = ProgressCopyCmd([src], dest_parent, LocalVFS(), threading.Event(), lambda *a: None)
+    cmd.execute()
+    cmd.undo()
+    assert keep.exists() and keep.read_bytes() == b"precious"
+    assert not (dst / "new.txt").exists()

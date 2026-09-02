@@ -94,6 +94,7 @@ class ProgressCopyCmd(Command):
         self._src_vfs = src_vfs
         self._created: list[Path] = []
         self._backups: dict[Path, Path] = {}  # dst -> temp backup; only for overwrites
+        self._pre_existed_dirs: dict[Path, bool] = {}  # dst dir -> pre-existed before execute()
 
     def _save_backup(self, dst: Path) -> Path:
         """Copy dst to a sibling temp file on the same filesystem (atomic rename on restore)."""
@@ -111,6 +112,7 @@ class ProgressCopyCmd(Command):
         for bak in self._backups.values():
             bak.unlink(missing_ok=True)
         self._backups.clear()
+        self._pre_existed_dirs.clear()
         total = len(self._sources)
         for i, src in enumerate(self._sources):
             if self._cancel.is_set():
@@ -127,11 +129,14 @@ class ProgressCopyCmd(Command):
                     dst = auto_rename(dst)
                 elif action in (ConflictAction.OVERWRITE, ConflictAction.OVERWRITE_ALL):
                     force_overwrite = True
+            pre_existed = dst.exists()
+            self._pre_existed_dirs[dst] = pre_existed
             if src.is_dir():
                 try:
                     self._copy_dir(src, dst, force_overwrite)
                 except Exception:
-                    shutil.rmtree(dst, ignore_errors=True)
+                    if not pre_existed:
+                        shutil.rmtree(dst, ignore_errors=True)
                     raise
             elif src.is_file():
                 backup = None
@@ -166,7 +171,8 @@ class ProgressCopyCmd(Command):
                         raise
                 else:
                     self._copy_archive_file(src, dst, i, total)
-            self._created.append(dst)
+            if not (src.is_dir() and pre_existed):
+                self._created.append(dst)
 
     def _copy_dir(self, src: Path, dst: Path, force_overwrite: bool = False) -> None:
         dst.mkdir(parents=True, exist_ok=True)
@@ -176,9 +182,13 @@ class ProgressCopyCmd(Command):
             if _check_filename_safety(child.name) is not None:
                 raise ValueError(f"Illegal filename: {child.name}")
             if child.is_dir():
-                self._copy_dir(child, dst / child.name, force_overwrite)
+                child_dst = dst / child.name
+                self._pre_existed_dirs.setdefault(child_dst, child_dst.exists())
+                self._copy_dir(child, child_dst, force_overwrite)
             else:
-                self._copy_file(child, dst / child.name, force_overwrite=force_overwrite)
+                leaf_dst = dst / child.name
+                self._copy_file(child, leaf_dst, force_overwrite=force_overwrite)
+                self._created.append(leaf_dst)
         shutil.copystat(src, dst)
 
     def _copy_archive_dir(self, src: Path, dst: Path) -> None:
@@ -311,11 +321,10 @@ class ProgressCopyCmd(Command):
                     backup.unlink(missing_ok=True)
             elif isinstance(self._vfs, WritableVFS):
                 try:
-                    self._vfs.delete(p)
+                    if not self._pre_existed_dirs.get(p, False):
+                        self._vfs.delete(p)
                 except Exception:
                     pass
-            elif p.is_dir():
-                shutil.rmtree(p, ignore_errors=True)
             else:
                 p.unlink(missing_ok=True)
         self._created.clear()
