@@ -159,8 +159,6 @@ class SFTPVfs:
             ch = self._get_channel()
             try:
                 result = fn(ch, *args)
-                self._return_channel(ch)
-                return result
             except _SSH_ERRORS as exc:
                 last_exc = exc
                 try:
@@ -175,6 +173,12 @@ class SFTPVfs:
                     self._reconnect()
                 except _SSH_ERRORS:
                     pass  # reconnect failed; will retry on next loop
+            except BaseException:
+                self._return_channel(ch)
+                raise
+            else:
+                self._return_channel(ch)
+                return result
 
     def listdir(self, path: PurePosixPath) -> list:
         from biome_fm.models.file_item import FileItem

@@ -90,6 +90,36 @@ class TestSemaphoreLeak:
         finally:
             _mod._HAS_PARAMIKO, _mod._paramiko = _orig
 
+    def test_non_ssh_error_releases_semaphore(self):
+        from pathlib import PurePosixPath
+
+        vfs, _orig, _mod = _make_sftp_vfs(max_channels=2)
+        try:
+            fake_ch = MagicMock(name="sftp_ch")
+            fake_ch.stat.side_effect = FileNotFoundError("/no/such")
+            vfs._client.open_sftp.return_value = fake_ch
+
+            for _ in range(2):
+                with pytest.raises(FileNotFoundError):
+                    vfs.stat(PurePosixPath("/no/such"))
+
+            assert vfs._semaphore._value == 2
+            # A third call must NOT block
+            done = threading.Event()
+
+            def _third():
+                try:
+                    vfs.stat(PurePosixPath("/no/such"))
+                except FileNotFoundError:
+                    pass
+                done.set()
+
+            t = threading.Thread(target=_third, daemon=True)
+            t.start()
+            assert done.wait(1.0), "third call blocked — semaphore leaked"
+        finally:
+            _mod._HAS_PARAMIKO, _mod._paramiko = _orig
+
 
 class TestMaxChannels:
     def test_max_channels_blocks_then_unblocks(self):
