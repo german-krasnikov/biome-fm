@@ -237,11 +237,19 @@ class ManagerPresenter:
                 self._plugins.on_file_operation(op=spec.op, src=src, dst=spec.dst)
 
     def undo(self) -> None:
-        self._history.undo()
+        try:
+            self._history.undo()
+        except OSError as e:
+            self._publish(OperationFinished("Undo", False, str(e)))
+            return
         self._refresh_both()
 
     def redo(self) -> None:
-        self._history.redo()
+        try:
+            self._history.redo()
+        except OSError as e:
+            self._publish(OperationFinished("Redo", False, str(e)))
+            return
         self._refresh_both()
 
     def _start_op(self, sources: list[Path], dst: Path, move: bool, verify: bool = False) -> None:
