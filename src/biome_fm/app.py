@@ -2312,6 +2312,7 @@ def create_app() -> MainWindow:
             if (_f := _AI_MODEL_FIELDS.get(ai_presenter._active_key)) else None
         ))
         _step("save_config",               lambda: save_config(cfg, cfg_dir / "config.toml"))
+        _step("nav_timer.stop",            nav_timer.stop)
         _step("left_tabs.shutdown",        left_tabs.shutdown)
         _step("right_tabs.shutdown",       right_tabs.shutdown)
         _step("bus.unsubscribe",           lambda: (
@@ -2383,7 +2384,7 @@ def create_app() -> MainWindow:
         op_queue=op_queue,
         plugins=plugins,
         git_worker=git_worker,
-        timers=[drain_timer, preview_timer, size_drain_timer, op_timer, search_timer, refresh_timer, watch_timer],
+        timers=[drain_timer, preview_timer, size_drain_timer, op_timer, search_timer, refresh_timer, watch_timer, nav_timer],
         tray=_tray,
         session_timer=session_timer,
         hotkey_listener=_hotkey_listener,
