@@ -236,7 +236,7 @@ Full architecture: [`AI/architecture.md`](AI/architecture.md)
 ## Recent Changes
 
 <details>
-<summary><strong>v0.36.0</strong> — 2026-09-02 — Architecture audit + undo/redo removed</summary>
+<summary><strong>v0.36.0</strong> — 2026-09-03 — Architecture audit + undo/redo removed</summary>
 
 - **BREAKING:** Undo/Redo removed entirely — keyboard shortcuts, Edit-menu entries, and the presenter undo/redo API are gone; every mutation is `execute()`-only
 - 58 critical findings fixed across 11 batches: SFTP channel lifetime, VFS copy/move path resolution, store atomic writes, tab index shifts, app-lifecycle shutdown order

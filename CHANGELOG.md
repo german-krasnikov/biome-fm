@@ -5,6 +5,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [v0.36.0] — 2026-09-03
+
 ### Removed
 
 **BREAKING: Undo/Redo removed entirely.** File-system undo was partial and unsafe; every mutation is now execute()-only.
