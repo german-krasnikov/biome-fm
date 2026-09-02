@@ -115,6 +115,17 @@ class TerminalPanel(QWidget):
         for line in text.splitlines():
             self._out.append(linkify(line, cwd))
 
+    def stop(self) -> None:
+        if self._proc and self._proc.state() != QProcess.ProcessState.NotRunning:
+            self._proc.terminate()
+            if not self._proc.waitForFinished(1000):
+                self._proc.kill()
+        self._proc = None
+
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        self.stop()
+        super().closeEvent(event)
+
     def _on_anchor(self, url: QUrl) -> None:
         if url.scheme() != "biome-file":
             return
