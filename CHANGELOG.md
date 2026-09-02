@@ -56,6 +56,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `config`: dict-key escaping in `_toml_val`; wider `load_config` exception handling.
 - `stores`: `safe_load_toml` helper; `user_actions_store.load()` guarded.
 - `credential_store`: `set_credential` now returns `bool` (True = keyring persisted, False = in-process fallback only).
+- `credential_store`: `get_credential`/`delete_credential` no longer raise when no keyring backend is available (Linux without SecretService, CI runners) — fall back to the in-process store with a one-time warning (KEYRING-01).
 
 **Tabs / Session**
 - Tab indices shifted before `remove_tab` in `close_tab`; deferred active tab loaded eagerly.
