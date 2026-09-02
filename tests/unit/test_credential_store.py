@@ -40,3 +40,22 @@ def test_delete_removes_key():
 def test_delete_missing_is_noop():
     from biome_fm.models.credential_store import delete_credential
     delete_credential("biome-fm/s3", "noone@nowhere")  # must not raise
+
+
+def test_set_credential_no_keyring_returns_false():
+    from biome_fm.models.credential_store import set_credential
+    # _no_keyring fixture already sets _keyring=None
+    result = set_credential("biome-fm/s3", "user@host", "secret")
+    assert result is False
+
+
+def test_set_credential_with_keyring_returns_true():
+    from unittest.mock import MagicMock
+    from unittest.mock import patch
+    from biome_fm.models import credential_store
+    mock_kr = MagicMock()
+    mock_kr.set_password.return_value = None  # does not raise
+    with patch.object(credential_store, "_keyring", mock_kr):
+        result = credential_store.set_credential("biome-fm/s3", "user@host", "secret")
+    assert result is True
+    mock_kr.set_password.assert_called_once_with("biome-fm/s3", "user@host", "secret")

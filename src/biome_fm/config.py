@@ -99,9 +99,12 @@ def migrate_keys_to_keyring(cfg: Config, path: Path) -> Config:
         plaintext = getattr(cfg, field_name)
         if plaintext:
             if not get_credential(CRED_SERVICE, account):
-                set_credential(CRED_SERVICE, account, plaintext)
-            setattr(cfg, field_name, "")
-            changed = True
+                stored = set_credential(CRED_SERVICE, account, plaintext)
+            else:
+                stored = True  # already in keyring
+            if stored:
+                setattr(cfg, field_name, "")
+                changed = True
     if changed:
         save_config(cfg, path)
     return cfg

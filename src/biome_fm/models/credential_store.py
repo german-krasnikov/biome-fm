@@ -21,17 +21,22 @@ def get_credential(service: str, account: str) -> str | None:
     return _FALLBACK.get((service, account))
 
 
-def set_credential(service: str, account: str, secret: str) -> None:
+def set_credential(service: str, account: str, secret: str) -> bool:
+    """Store secret. Returns True if durably persisted, False if only in-process fallback."""
     global _warned
     if _keyring is not None:
-        _keyring.set_password(service, account, secret)
-    else:
-        if not _warned:
-            _log.warning(
-                "keyring unavailable — credentials stored in memory only (not persisted)"
-            )
-            _warned = True
-        _FALLBACK[(service, account)] = secret
+        try:
+            _keyring.set_password(service, account, secret)
+            return True
+        except Exception:
+            _log.warning("keyring set_password failed — falling back to in-process store")
+    if not _warned:
+        _log.warning(
+            "keyring unavailable — credentials stored in memory only (not persisted)"
+        )
+        _warned = True
+    _FALLBACK[(service, account)] = secret
+    return False
 
 
 def delete_credential(service: str, account: str) -> None:
