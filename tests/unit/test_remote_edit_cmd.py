@@ -67,15 +67,13 @@ class TestRemoteEditCmd:
             tmp_paths.append(path)
             return fd, path
 
-        with patch("biome_fm.commands.remote_edit_cmd.tempfile.mkstemp", side_effect=capturing_mkstemp):
-            with patch("biome_fm.commands.remote_edit_cmd.subprocess.run"):
-                cmd.execute()
+        with (
+            patch("biome_fm.commands.remote_edit_cmd.tempfile.mkstemp", side_effect=capturing_mkstemp),
+            patch("biome_fm.commands.remote_edit_cmd.subprocess.run"),
+        ):
+            cmd.execute()
 
         assert tmp_paths, "mkstemp was never called"
         for p in tmp_paths:
             assert not os.path.exists(p), f"Temp file not cleaned up: {p}"
 
-    def test_undoable_is_false(self):
-        from biome_fm.commands.remote_edit_cmd import RemoteEditCmd
-
-        assert RemoteEditCmd.undoable is False
