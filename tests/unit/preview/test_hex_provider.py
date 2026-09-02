@@ -65,3 +65,16 @@ def test_render_truncation(provider, tmp_path):
 def test_render_oserror(provider, tmp_path):
     result = provider.render(PreviewRequest(path=tmp_path / "missing.bin"))
     assert result.kind == ContentKind.ERROR
+
+
+def test_ascii_column_html_escaped(provider, tmp_path):
+    # bytes: & (38), < (60), > (62), then 13 × A (65) to fill a 16-byte row
+    payload = bytes([38, 60, 62] + [65] * 13)
+    f = tmp_path / "special.bin"
+    f.write_bytes(payload)
+    result = provider.render(PreviewRequest(path=f))
+    assert result.kind == ContentKind.HTML
+    assert "&amp;" in result.data
+    assert "&lt;" in result.data
+    assert "&gt;" in result.data
+    assert "<script>" not in result.data

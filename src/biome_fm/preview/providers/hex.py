@@ -1,6 +1,7 @@
 """Hex dump preview provider for binary files."""
 from __future__ import annotations
 
+import html
 from pathlib import Path
 
 from biome_fm.preview.provider import ContentKind, PreviewRequest, PreviewResult
@@ -49,15 +50,15 @@ class HexPreviewProvider:
         for offset in range(0, len(data), 16):
             row = data[offset : offset + 16]
             hex_part = " ".join(f"{b:02x}" for b in row)
-            ascii_part = "".join(chr(b) if 32 <= b < 127 else "." for b in row)
+            ascii_part = html.escape("".join(chr(b) if 32 <= b < 127 else "." for b in row))
             lines.append(f"{offset:08x}  {hex_part:<48s}  |{ascii_part}|")
 
         if len(data) == _MAX_BYTES:
             lines.append(f"\n... truncated at {_MAX_BYTES} bytes")
 
-        html = (
+        html_out = (
             "<pre style='font-family:monospace;font-size:12px;'>\n"
             + "\n".join(lines)
             + "\n</pre>"
         )
-        return PreviewResult(kind=ContentKind.HTML, data=html)
+        return PreviewResult(kind=ContentKind.HTML, data=html_out)
