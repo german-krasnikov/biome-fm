@@ -121,10 +121,15 @@ def env():
 
 
 def _settle(p) -> None:
-    """Wait for in-flight nav job and drain results into view. Tests only."""
+    """Wait for in-flight nav job and drain results into view. Tests only.
+
+    Drains twice: a stale earlier-nav result may precede the final result
+    in the queue when two navigations are issued without an intermediate settle.
+    """
     if p._nav_future is not None:
         p._nav_future.result()
     p.drain_nav()
+    p.drain_nav()  # consume stale entry if it arrived before the last result
 
 
 # ── tests ────────────────────────────────────────────────────────────────────
@@ -170,9 +175,9 @@ class TestNavigateTo:
         p.navigate_to(bad)
         _settle(p)
         assert len(view.errors) == 1
-        # _cwd rolled back to HOME on error; path set optimistically to bad
+        # _cwd and view breadcrumb both rolled back to HOME on error (C14 fix)
         assert p.current_path == HOME
-        assert view.path == bad
+        assert view.path == HOME
 
     def test_navigate_to_permission_denied_shows_error(self, env):
         p, view, vfs, _ = env
@@ -182,7 +187,7 @@ class TestNavigateTo:
         _settle(p)
         assert len(view.errors) == 1
         assert p.current_path == HOME  # rolled back
-        assert view.path == DOCS  # set optimistically
+        assert view.path == HOME  # breadcrumb also rolled back (C14 fix)
 
     def test_navigate_to_prepends_dotdot(self, env):
         p, view, _vfs, _ = env
@@ -595,3 +600,29 @@ class TestGoUpSelection:
         p.on_item_activated(dotdot)
         _settle(p)  # drain for HOME nav
         assert view.selected == "docs"
+
+
+def test_failed_navigation_restores_view_path(tmp_path):
+    """After a failed nav, view breadcrumb must roll back to the last good dir (C14)."""
+    from biome_fm.models.vfs import LocalVFS
+    from biome_fm.presenters.pane_presenter import PanePresenter
+
+    view = FakePaneView()
+    p = PanePresenter(view=view, vfs=LocalVFS(), home=tmp_path)
+
+    # Navigate to a real directory and drain
+    p.navigate_to(tmp_path)
+    if p._nav_future is not None:
+        p._nav_future.result()
+    p.drain_nav()
+    assert view.path == tmp_path
+
+    # Navigate to a non-existent directory and drain
+    bad = Path("/no/such/dir/that/exists")
+    p.navigate_to(bad)
+    if p._nav_future is not None:
+        p._nav_future.result()
+    p.drain_nav()
+
+    # Breadcrumb must be rolled back to the last good path
+    assert view.path == tmp_path

@@ -559,6 +559,8 @@ class PanePresenter:
 
         if isinstance(result, OSError):
             self._cwd = self._prev_cwd  # rollback optimistic _cwd
+            if self._prev_cwd is not None:
+                self._view.set_path(self._prev_cwd)
             self._view.show_error(str(result))
             return
 
