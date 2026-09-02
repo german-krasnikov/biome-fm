@@ -115,6 +115,33 @@ class TestResolvedPathDelegation:
         assert calls[0][1:] == (Path("/a.txt"), Path("/b.txt"))  # resolved paths
 
 
+class TestRemoteListdirItemPaths:
+    """C27 — listdir items from remote VFS must keep the URI prefix."""
+
+    def test_remote_listdir_items_keep_uri_prefix(self):
+        from biome_fm.models.file_item import FileItem
+        from biome_fm.models.vfs_router import _URI_RE
+
+        router = VFSRouter()
+        bare_items = [
+            FileItem(name="docs", path=Path("/data/docs"), is_dir=True, size=0, modified=0.0),
+            FileItem(name="readme.txt", path=Path("/data/readme.txt"), is_dir=False, size=10, modified=0.0),
+        ]
+        mock_vfs = MagicMock()
+        mock_vfs.listdir.return_value = bare_items
+
+        with patch("biome_fm.models.sftp_vfs.SFTPVfs", return_value=mock_vfs), \
+             patch("biome_fm.models.sftp_vfs.SFTPSession"):
+            items = router.listdir(Path("sftp://u@host/data"))
+
+        for item in items:
+            assert _URI_RE.match(str(item.path)), f"missing URI prefix: {item.path}"
+        # Navigation re-routes to the same remote VFS, not local
+        docs_path = items[0].path
+        resolved_vfs, _ = router._resolve(docs_path)
+        assert resolved_vfs is mock_vfs
+
+
 class TestDisconnect:
     def test_disconnect_removes_from_cache(self):
         router = VFSRouter()

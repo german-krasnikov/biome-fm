@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 import threading
+from dataclasses import replace as _dc_replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -131,6 +132,7 @@ class VFSRouter:
         if cached is not None:
             return cached
         items = vfs.listdir(p)
+        items = [_dc_replace(i, path=path / i.name) for i in items]
         self._rcache.set(path, items)
         return items
 
