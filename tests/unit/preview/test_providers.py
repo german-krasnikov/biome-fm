@@ -82,3 +82,12 @@ def test_text_oserror_returns_error(tmp_path):
 def test_fallback_oserror_returns_error(tmp_path):
     result = FallbackProvider().render(PreviewRequest(path=tmp_path / "nonexistent.bin"))
     assert result.kind == ContentKind.ERROR
+
+
+def test_fallback_escapes_filename_ampersand(tmp_path):
+    f = tmp_path / "Guns & Roses.unknown"
+    f.write_bytes(b"")
+    result = FallbackProvider().render(PreviewRequest(path=f))
+    assert result.kind == ContentKind.HTML
+    assert "Guns &amp; Roses" in result.data  # type: ignore[operator]
+    assert "Guns & Roses" not in result.data.replace("&amp;", "ESCAPED")  # type: ignore[union-attr]
