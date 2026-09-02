@@ -19,6 +19,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 **Baseline / CI gate**
 - Four hanging integration-test files unblocked; sync_dialog, sidebar, selection, and geometry tests corrected.
 - CI release gate now blocks on untagged or failing commits; integration job wired into `ci-pass` gate.
+- Pre-push `version-check` hook runs via `uv run python` — no bare `python` on PATH required (macOS/Homebrew ship only `python3`) (HOOK-01).
 
 **Commands**
 - `RenameCmd`, `MkdirCmd`, `ChmodCmd`, `EditorRenameCmd` each guard pre-conditions (existence, line-count, VFS branch population) before executing.
