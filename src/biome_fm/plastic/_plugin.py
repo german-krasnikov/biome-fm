@@ -12,6 +12,18 @@ from biome_fm.plugins.types import ActionSpec
 from ._models import PlasticItem
 
 
+def _undo_with_confirm(presenter: object, pi: list) -> None:
+    from PySide6.QtWidgets import QApplication, QMessageBox
+    n = len(pi)
+    if QMessageBox.question(
+        QApplication.activeWindow(), "Undo Changes",
+        f"Revert {n} file{'s' if n != 1 else ''}? This cannot be undone.",
+        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        QMessageBox.StandardButton.No,
+    ) == QMessageBox.StandardButton.Yes:
+        presenter.undo(pi)  # type: ignore[union-attr]
+
+
 class PlasticPlugin:
     BIOME_FM_API_VERSION = (1, 0)
 
@@ -74,7 +86,7 @@ class PlasticPlugin:
                     ),
                     ActionSpec(
                         "Plastic: Undo",
-                        callback=lambda pi=plastic_items: presenter.undo(pi),
+                        callback=lambda pi=plastic_items: _undo_with_confirm(presenter, pi),
                     ),
                 ]
         return result
