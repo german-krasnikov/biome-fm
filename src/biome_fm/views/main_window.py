@@ -68,6 +68,7 @@ class _HistoryLineEdit(QLineEdit):
 
 class MainWindow(QMainWindow):
     about_to_close = Signal()
+    _remote_ev = Signal(object)  # bridge: worker thread → GUI thread (C03)
     back_requested = Signal()
     forward_requested = Signal()
     up_requested = Signal()
@@ -493,6 +494,11 @@ class MainWindow(QMainWindow):
             if hasattr(event, "ignore"):
                 event.ignore()  # type: ignore[union-attr]
             return
+        from biome_fm.event_bus import RemoteConnected, RemoteDisconnected, RemoteSyncing
+        from biome_fm.event_bus import bus as _bus
+        _bus.unsubscribe(RemoteConnected, self._remote_ev.emit)
+        _bus.unsubscribe(RemoteDisconnected, self._remote_ev.emit)
+        _bus.unsubscribe(RemoteSyncing, self._remote_ev.emit)
         self.about_to_close.emit()
         super().closeEvent(event)  # type: ignore[arg-type]
 
@@ -514,9 +520,19 @@ class MainWindow(QMainWindow):
     def _subscribe_remote_events(self) -> None:
         from biome_fm.event_bus import RemoteConnected, RemoteDisconnected, RemoteSyncing
         from biome_fm.event_bus import bus as _bus
-        _bus.subscribe(RemoteConnected, self._on_remote_connected)
-        _bus.subscribe(RemoteDisconnected, self._on_remote_disconnected)
-        _bus.subscribe(RemoteSyncing, self._on_remote_syncing)
+        self._remote_ev.connect(self._dispatch_remote_ev, Qt.ConnectionType.QueuedConnection)
+        _bus.subscribe(RemoteConnected, self._remote_ev.emit)
+        _bus.subscribe(RemoteDisconnected, self._remote_ev.emit)
+        _bus.subscribe(RemoteSyncing, self._remote_ev.emit)
+
+    def _dispatch_remote_ev(self, ev: object) -> None:
+        from biome_fm.event_bus import RemoteConnected, RemoteDisconnected, RemoteSyncing
+        if isinstance(ev, RemoteConnected):
+            self._on_remote_connected(ev)
+        elif isinstance(ev, RemoteDisconnected):
+            self._on_remote_disconnected(ev)
+        elif isinstance(ev, RemoteSyncing):
+            self._on_remote_syncing(ev)
 
     def _on_remote_connected(self, ev: object) -> None:
         scheme = getattr(ev, "scheme", "")
