@@ -39,7 +39,7 @@ jobs:
           fi
           echo "CI verified for $GITHUB_SHA."
 
-      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v6
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v6
         with:
           enable-cache: true
 
